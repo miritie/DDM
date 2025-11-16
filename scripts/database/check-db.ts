@@ -58,7 +58,7 @@ async function checkDatabase(): Promise<void> {
 
 async function main() {
   console.log('🚀 État de la base de données Neon PostgreSQL\n');
-  console.log(`📡 Connexion: ${DATABASE_URL.split('@')[1].split('?')[0]}\n`);
+  console.log(`📡 Connexion: ${DATABASE_URL!.split('@')[1].split('?')[0]}\n`);
 
   try {
     // Test de connexion

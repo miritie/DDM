@@ -364,10 +364,10 @@ export class PointFlashService {
     >();
 
     for (const sale of sales) {
-      if (!sale.SoldBy) continue;
+      if (!sale.SalesPersonId) continue;
 
       const employees = await airtableClient.list<Employee>('Employee', {
-        filterByFormula: `{EmployeeId} = '${sale.SoldBy}'`,
+        filterByFormula: `{EmployeeId} = '${sale.SalesPersonId}'`,
       });
 
       if (employees.length > 0) {

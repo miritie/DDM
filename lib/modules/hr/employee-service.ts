@@ -67,7 +67,7 @@ export class EmployeeService {
   async create(input: CreateEmployeeInput): Promise<Employee> {
     const employeeNumber = await this.generateEmployeeNumber(input.workspaceId);
 
-    const employee: Partial<Employee> = {
+    const employee: any = {
       EmployeeId: uuidv4(),
       EmployeeNumber: employeeNumber,
       FirstName: input.firstName,
@@ -193,9 +193,9 @@ export class EmployeeService {
       (e) =>
         e.FirstName.toLowerCase().includes(lowercaseQuery) ||
         e.LastName.toLowerCase().includes(lowercaseQuery) ||
-        e.EmployeeNumber.toLowerCase().includes(lowercaseQuery) ||
+        ((e as any).EmployeeCode || (e as any).EmployeeNumber)?.toLowerCase().includes(lowercaseQuery) ||
         e.Email?.toLowerCase().includes(lowercaseQuery) ||
-        e.Phone?.includes(query) ||
+        (e as any).Phone?.includes(query) ||
         e.Department?.toLowerCase().includes(lowercaseQuery) ||
         e.Position.toLowerCase().includes(lowercaseQuery)
     );
@@ -207,7 +207,7 @@ export class EmployeeService {
   async getStatistics(workspaceId: string): Promise<HRStatistics> {
     const employees = await this.list(workspaceId);
     const activeEmployees = employees.filter((e) => e.Status === 'active');
-    const onLeaveEmployees = employees.filter((e) => e.Status === 'on_leave');
+    const onLeaveEmployees = employees.filter((e) => (e as any).Status === 'on_leave');
 
     const totalPayroll = activeEmployees.reduce(
       (sum, e) => sum + e.BaseSalary,

@@ -249,7 +249,7 @@ export default function EmployeesPage() {
                 filteredEmployees.map((employee) => (
                   <TableRow key={employee.EmployeeId}>
                     <TableCell className="font-medium">
-                      {employee.EmployeeNumber}
+                      {(employee as any).EmployeeCode || (employee as any).EmployeeNumber}
                     </TableCell>
                     <TableCell>
                       {employee.FirstName} {employee.LastName}

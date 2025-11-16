@@ -267,18 +267,18 @@ export default function PayrollPage() {
                       {payroll.PayrollNumber}
                     </TableCell>
                     <TableCell>{payroll.Period}</TableCell>
-                    <TableCell>{payroll.EmployeeId}</TableCell>
+                    <TableCell>{(payroll as any).EmployeeId || (payroll as any).TotalEmployees}</TableCell>
                     <TableCell>
-                      {payroll.BaseSalary.toLocaleString()} F
+                      {((payroll as any).BaseSalary || (payroll as any).TotalGross)?.toLocaleString()} F
                     </TableCell>
                     <TableCell>
-                      {payroll.Deductions.toLocaleString()} F
+                      {((payroll as any).Deductions || (payroll as any).TotalDeductions)?.toLocaleString()} F
                     </TableCell>
                     <TableCell>
-                      {payroll.AdvanceDeduction.toLocaleString()} F
+                      {((payroll as any).AdvanceDeduction || (payroll as any).TotalAdvances)?.toLocaleString()} F
                     </TableCell>
                     <TableCell className="font-bold">
-                      {payroll.NetSalary.toLocaleString()} F
+                      {((payroll as any).NetSalary || (payroll as any).TotalNet)?.toLocaleString()} F
                     </TableCell>
                     <TableCell>{getStatusBadge(payroll.Status)}</TableCell>
                     <TableCell>

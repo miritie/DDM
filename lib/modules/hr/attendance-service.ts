@@ -47,7 +47,7 @@ export class AttendanceService {
   async create(input: CreateAttendanceInput): Promise<Attendance> {
     const workedHours = this.calculateWorkedHours(input.checkInTime, input.checkOutTime);
 
-    const attendance: Partial<Attendance> = {
+    const attendance: any = {
       AttendanceId: uuidv4(),
       EmployeeId: input.employeeId,
       Date: input.date,
@@ -140,7 +140,7 @@ export class AttendanceService {
         ...updates,
         WorkedHours: workedHours,
         UpdatedAt: new Date().toISOString(),
-      }
+      } as any
     );
   }
 
@@ -204,11 +204,11 @@ export class AttendanceService {
     });
 
     const totalDays = attendances.length;
-    const presentDays = attendances.filter((a) => a.Status === 'present' || a.Status === 'remote').length;
-    const absentDays = attendances.filter((a) => a.Status === 'absent').length;
-    const lateDays = attendances.filter((a) => a.Status === 'late').length;
-    const remoteDays = attendances.filter((a) => a.Status === 'remote').length;
-    const totalWorkedHours = attendances.reduce((sum, a) => sum + (a.WorkedHours || 0), 0);
+    const presentDays = attendances.filter((a) => (a as any).Status === 'present' || (a as any).Status === 'remote').length;
+    const absentDays = attendances.filter((a) => (a as any).Status === 'absent').length;
+    const lateDays = attendances.filter((a) => (a as any).Status === 'late').length;
+    const remoteDays = attendances.filter((a) => (a as any).Status === 'remote').length;
+    const totalWorkedHours = attendances.reduce((sum: number, a: any) => sum + (a.WorkedHours || 0), 0);
 
     const workingDaysInMonth = endDate.getDate();
     const attendanceRate = workingDaysInMonth > 0 ? (presentDays / workingDaysInMonth) * 100 : 0;

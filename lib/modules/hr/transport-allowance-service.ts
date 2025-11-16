@@ -61,9 +61,9 @@ export class TransportAllowanceService {
       }
     }
 
-    const records = await this.airtable.findRecords<TransportAllowance>(
+    const records = await this.airtable.list<TransportAllowance>(
       TABLE_TRANSPORT,
-      formula
+      { filterByFormula: formula }
     );
 
     return records.sort(
@@ -75,7 +75,7 @@ export class TransportAllowanceService {
    * Récupérer une indemnité par ID
    */
   async getById(transportId: string): Promise<TransportAllowance | null> {
-    return this.airtable.getRecord<TransportAllowance>(TABLE_TRANSPORT, transportId);
+    return this.airtable.get<TransportAllowance>(TABLE_TRANSPORT, transportId);
   }
 
   /**
@@ -151,7 +151,7 @@ export class TransportAllowanceService {
       UpdatedAt: new Date().toISOString(),
     };
 
-    const record = await this.airtable.createRecord<TransportAllowance>(
+    const record = await this.airtable.create<TransportAllowance>(
       TABLE_TRANSPORT,
       data
     );
@@ -171,7 +171,7 @@ export class TransportAllowanceService {
       UpdatedAt: new Date().toISOString(),
     };
 
-    return this.airtable.updateRecord<TransportAllowance>(
+    return this.airtable.update<TransportAllowance>(
       TABLE_TRANSPORT,
       transportId,
       data
@@ -272,7 +272,7 @@ export class TransportAllowanceService {
       formula = `AND(${formula}, {WorkDate} <= '${periodEnd}')`;
     }
 
-    return this.airtable.findRecords<TransportAllowance>(TABLE_TRANSPORT, formula);
+    return this.airtable.list<TransportAllowance>(TABLE_TRANSPORT, { filterByFormula: formula });
   }
 
   /**
@@ -314,14 +314,14 @@ export class TransportAllowanceService {
       formula += ` AND {IsActive} = ${filters.isActive ? 'TRUE()' : 'FALSE()'}`;
     }
 
-    return this.airtable.findRecords<TransportAllowanceRule>(TABLE_RULES, formula);
+    return this.airtable.list<TransportAllowanceRule>(TABLE_RULES, { filterByFormula: formula });
   }
 
   /**
    * Récupérer une règle par ID
    */
   async getRuleById(ruleId: string): Promise<TransportAllowanceRule | null> {
-    return this.airtable.getRecord<TransportAllowanceRule>(TABLE_RULES, ruleId);
+    return this.airtable.get<TransportAllowanceRule>(TABLE_RULES, ruleId);
   }
 
   /**
@@ -361,7 +361,7 @@ export class TransportAllowanceService {
       UpdatedAt: new Date().toISOString(),
     };
 
-    return this.airtable.createRecord<TransportAllowanceRule>(TABLE_RULES, data);
+    return this.airtable.create<TransportAllowanceRule>(TABLE_RULES, data);
   }
 
   /**
@@ -376,7 +376,7 @@ export class TransportAllowanceService {
       UpdatedAt: new Date().toISOString(),
     };
 
-    return this.airtable.updateRecord<TransportAllowanceRule>(
+    return this.airtable.update<TransportAllowanceRule>(
       TABLE_RULES,
       ruleId,
       data
@@ -515,9 +515,9 @@ export class TransportAllowanceService {
     const prefix = `TRA-${year}${month}`;
 
     const formula = `AND({WorkspaceId} = '${workspaceId}', FIND('${prefix}', {TransportNumber}) > 0)`;
-    const existing = await this.airtable.findRecords<TransportAllowance>(
+    const existing = await this.airtable.list<TransportAllowance>(
       TABLE_TRANSPORT,
-      formula
+      { filterByFormula: formula }
     );
 
     const sequence = existing.length + 1;

@@ -448,7 +448,11 @@ export class ProductionOrderService {
       });
     }
 
-    return await this.getById(productionOrderId);
+    const updatedOrder = await this.getById(productionOrderId);
+    if (!updatedOrder) {
+      throw new Error('Ordre de production non trouvé après mise à jour');
+    }
+    return updatedOrder;
   }
 
   /**
@@ -504,7 +508,7 @@ export class ProductionOrderService {
     }
 
     // Intégration avec le module Stock: Entrée automatique des produits finis
-    if (order.DestinationWarehouseId && batch.QuantityGood > 0) {
+    if (order.DestinationWarehouseId && batch.QuantityGood && batch.QuantityGood > 0) {
       const costPerUnit = order.TotalCost / newProducedQty;
 
       await stockService.upsertStockItem({

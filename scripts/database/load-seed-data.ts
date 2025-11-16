@@ -65,7 +65,7 @@ async function verifyData(): Promise<void> {
 
 async function main() {
   console.log('🚀 Chargement des données de test sur Neon...');
-  console.log(`📡 Connexion à: ${DATABASE_URL.split('@')[1].split('?')[0]}`);
+  console.log(`📡 Connexion à: ${DATABASE_URL!.split('@')[1].split('?')[0]}`);
 
   try {
     // Test de connexion

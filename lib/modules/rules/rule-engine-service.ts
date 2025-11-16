@@ -237,7 +237,7 @@ export class RuleEngineService {
       formula += ` AND {IsActive} = ${filters.isActive ? 'TRUE()' : 'FALSE()'}`;
     }
 
-    const rules = await airtable.findRecords<DecisionRule>('DecisionRule', formula);
+    const rules = await airtable.list<DecisionRule>('DecisionRule', { filterByFormula: formula });
 
     // Filtrer par tags si fourni
     if (filters?.tags && filters.tags.length > 0) {
@@ -253,7 +253,7 @@ export class RuleEngineService {
    * Récupérer une règle par ID
    */
   async getRuleById(ruleId: string): Promise<DecisionRule | null> {
-    return await airtable.getRecord<DecisionRule>('DecisionRule', ruleId);
+    return await airtable.get<DecisionRule>('DecisionRule', ruleId);
   }
 
   /**
@@ -635,7 +635,7 @@ export class RuleEngineService {
       formula = `{Category} = '${category}'`;
     }
 
-    const templates = await airtable.findRecords<RuleTemplate>('RuleTemplate', formula);
+    const templates = await airtable.list<RuleTemplate>('RuleTemplate', { filterByFormula: formula });
 
     return templates.filter(t => t.IsActive);
   }
@@ -651,7 +651,7 @@ export class RuleEngineService {
     userId: string,
     userName: string
   ): Promise<DecisionRule> {
-    const template = await airtable.getRecord<RuleTemplate>('RuleTemplate', templateId);
+    const template = await airtable.get<RuleTemplate>('RuleTemplate', templateId);
 
     if (!template) {
       throw new Error('Template introuvable');
@@ -794,7 +794,7 @@ export class RuleEngineService {
     const prefix = `RULE-${year}${month}`;
 
     const formula = `AND({WorkspaceId} = '${workspaceId}', FIND('${prefix}', {RuleCode}) > 0)`;
-    const existing = await airtable.findRecords<DecisionRule>('DecisionRule', formula);
+    const existing = await airtable.list<DecisionRule>('DecisionRule', { filterByFormula: formula });
 
     const sequence = existing.length + 1;
     return `${prefix}-${String(sequence).padStart(4, '0')}`;

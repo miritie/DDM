@@ -316,28 +316,6 @@ export interface ExpenseCategory {
   UpdatedAt: string;
 }
 
-export type ExpenseRequestStatus =
-  | 'draft'
-  | 'submitted'
-  | 'approved'
-  | 'rejected'
-  | 'cancelled';
-
-export interface ExpenseRequest {
-  ExpenseRequestId: string;
-  RequestNumber: string;
-  Title: string;
-  Description?: string;
-  Amount: number;
-  CategoryId: string;
-  RequesterId: string;
-  Status: ExpenseRequestStatus;
-  SubmittedAt?: string;
-  WorkspaceId: string;
-  CreatedAt: string;
-  UpdatedAt: string;
-}
-
 export type ApprovalStepStatus = 'pending' | 'approved' | 'rejected';
 
 export interface ExpenseApprovalStep {
@@ -532,52 +510,7 @@ export interface TreasuryStatistics {
 // Module 7.6 - Ressources Humaines
 // ============================================================================
 
-export interface Employee {
-  EmployeeId: string;
-  EmployeeNumber: string;
-  UserId?: string; // Link to User if has account
-  FirstName: string;
-  LastName: string;
-  Email?: string;
-  Phone?: string;
-  DateOfBirth?: string;
-  HireDate: string;
-  Department?: string;
-  Position: string;
-  ContractType: 'CDI' | 'CDD' | 'Stage' | 'Freelance' | 'Other';
-  BaseSalary: number;
-  Currency: string;
-  BankAccount?: string;
-  TaxNumber?: string;
-  SocialSecurityNumber?: string;
-  Address?: string;
-  EmergencyContact?: string;
-  EmergencyPhone?: string;
-  Status: 'active' | 'on_leave' | 'terminated' | 'suspended';
-  TerminationDate?: string;
-  TerminationReason?: string;
-  WorkspaceId: string;
-  CreatedAt: string;
-  UpdatedAt: string;
-}
-
-export type AttendanceStatus = 'present' | 'absent' | 'late' | 'half_day' | 'remote';
-
-export interface Attendance {
-  AttendanceId: string;
-  EmployeeId: string;
-  Date: string;
-  Status: AttendanceStatus;
-  CheckInTime?: string;
-  CheckOutTime?: string;
-  WorkedHours?: number;
-  Notes?: string;
-  ValidatedById?: string;
-  ValidatedAt?: string;
-  WorkspaceId: string;
-  CreatedAt: string;
-  UpdatedAt: string;
-}
+export type OldAttendanceStatus = 'present' | 'absent' | 'late' | 'half_day' | 'remote';
 
 export type LeaveType =
   | 'annual'        // Congé annuel
@@ -607,40 +540,6 @@ export interface Leave {
   WorkspaceId: string;
   CreatedAt: string;
   UpdatedAt: string;
-}
-
-export type PayrollStatus = 'draft' | 'validated' | 'paid' | 'cancelled';
-
-export interface Payroll {
-  PayrollId: string;
-  PayrollNumber: string;
-  EmployeeId: string;
-  Period: string; // YYYY-MM format
-  BaseSalary: number;
-  Allowances: number;        // Primes et indemnités
-  Bonuses: number;           // Bonus
-  Deductions: number;        // Retenues (taxes, etc.)
-  AdvanceDeduction: number;  // Déduction pour avances
-  NetSalary: number;
-  PaymentDate?: string;
-  PaymentMethod?: string;
-  Status: PayrollStatus;
-  Notes?: string;
-  ProcessedById?: string;
-  ProcessedAt?: string;
-  WorkspaceId: string;
-  CreatedAt: string;
-  UpdatedAt: string;
-}
-
-export interface PayrollItem {
-  PayrollItemId: string;
-  PayrollId: string;
-  ItemType: 'allowance' | 'bonus' | 'deduction';
-  Label: string;
-  Amount: number;
-  Notes?: string;
-  CreatedAt: string;
 }
 
 export interface LeaveBalance {
@@ -1219,7 +1118,7 @@ export interface ProductionOrder {
 // Module 7.5 - Dépenses & Sollicitations
 // ============================================================================
 
-export type ExpenseCategory =
+export type ExpenseType =
   | 'fonctionnelle' // Dépenses fonctionnelles (opérationnelles)
   | 'structurelle'; // Dépenses structurelles (investissements)
 
@@ -1287,7 +1186,7 @@ export interface ExpenseRequest {
   RequestNumber: string; // DEP-202511-0001
   Title: string;
   Description: string;
-  Category: ExpenseCategory;
+  Category: ExpenseType;
   Subcategory: ExpenseSubcategory;
   Amount: number;
   Currency: string;
@@ -1346,7 +1245,7 @@ export interface ExpenseRequest {
 export interface ExpenseCategoryConfig {
   CategoryConfigId: string;
   Name: string;
-  Category: ExpenseCategory;
+  Category: ExpenseType;
   Subcategory: ExpenseSubcategory;
   Description?: string;
 

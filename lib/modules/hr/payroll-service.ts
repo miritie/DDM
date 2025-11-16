@@ -59,7 +59,7 @@ export class PayrollService {
 
     const netSalary = input.baseSalary + allowances + bonuses - deductions - advanceDeduction;
 
-    const payroll: Partial<Payroll> = {
+    const payroll: any = {
       PayrollId: uuidv4(),
       PayrollNumber: payrollNumber,
       EmployeeId: input.employeeId,
@@ -160,7 +160,7 @@ export class PayrollService {
         ProcessedById: input.processedById,
         ProcessedAt: new Date().toISOString(),
         UpdatedAt: new Date().toISOString(),
-      }
+      } as any
     );
   }
 
@@ -209,7 +209,7 @@ export class PayrollService {
 
     // Check for existing payrolls
     const existingPayrolls = await this.list(workspaceId, { period });
-    const existingEmployeeIds = new Set(existingPayrolls.map((p) => p.EmployeeId));
+    const existingEmployeeIds = new Set(existingPayrolls.map((p) => (p as any).EmployeeId));
 
     // Create payrolls for employees without existing payroll for this period
     const payrolls: Payroll[] = [];
@@ -239,12 +239,12 @@ export class PayrollService {
 
     const payrolls = await this.list(workspaceId, filters);
 
-    const totalGrossSalary = payrolls.reduce((sum, p) => sum + p.BaseSalary, 0);
-    const totalAllowances = payrolls.reduce((sum, p) => sum + (p.Allowances || 0), 0);
-    const totalBonuses = payrolls.reduce((sum, p) => sum + (p.Bonuses || 0), 0);
-    const totalDeductions = payrolls.reduce((sum, p) => sum + (p.Deductions || 0), 0);
-    const totalAdvanceDeductions = payrolls.reduce((sum, p) => sum + (p.AdvanceDeduction || 0), 0);
-    const totalNetSalary = payrolls.reduce((sum, p) => sum + p.NetSalary, 0);
+    const totalGrossSalary = payrolls.reduce((sum: number, p: any) => sum + (p.BaseSalary || p.TotalGross || 0), 0);
+    const totalAllowances = payrolls.reduce((sum: number, p: any) => sum + (p.Allowances || 0), 0);
+    const totalBonuses = payrolls.reduce((sum: number, p: any) => sum + (p.Bonuses || p.TotalBonuses || 0), 0);
+    const totalDeductions = payrolls.reduce((sum: number, p: any) => sum + (p.Deductions || p.TotalDeductions || 0), 0);
+    const totalAdvanceDeductions = payrolls.reduce((sum: number, p: any) => sum + (p.AdvanceDeduction || p.TotalAdvances || 0), 0);
+    const totalNetSalary = payrolls.reduce((sum: number, p: any) => sum + (p.NetSalary || p.TotalNet || 0), 0);
 
     const statusDistribution = payrolls.reduce((acc: any, payroll) => {
       acc[payroll.Status] = (acc[payroll.Status] || 0) + 1;

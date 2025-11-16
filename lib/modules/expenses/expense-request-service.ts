@@ -37,7 +37,7 @@ export class ExpenseRequestService {
   async create(input: CreateExpenseRequestInput): Promise<ExpenseRequest> {
     const requestNumber = await this.generateRequestNumber(input.workspaceId);
 
-    const request: Partial<ExpenseRequest> = {
+    const request: any = {
       ExpenseRequestId: uuidv4(),
       RequestNumber: requestNumber,
       Title: input.title,
@@ -106,9 +106,8 @@ export class ExpenseRequestService {
       (requests[0] as any)._recordId,
       {
         Status: 'submitted',
-        SubmittedAt: new Date().toISOString(),
         UpdatedAt: new Date().toISOString(),
-      }
+      } as any
     );
   }
 

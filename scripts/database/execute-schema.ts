@@ -62,7 +62,7 @@ async function verifyTables(): Promise<void> {
 
 async function main() {
   console.log('🚀 Création du schéma PostgreSQL sur Neon...');
-  console.log(`📡 Connexion à: ${DATABASE_URL.split('@')[1].split('?')[0]}`);
+  console.log(`📡 Connexion à: ${DATABASE_URL!.split('@')[1].split('?')[0]}`);
 
   try {
     // Test de connexion

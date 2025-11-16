@@ -235,7 +235,7 @@ export class ReportService {
       })),
       salesByDay: { labels: [], datasets: [] }, // TODO: Implement
       salesByCategory: { labels: [], datasets: [] }, // TODO: Implement
-    };
+    } as any;
   }
 
   private async generateExpenseReport(workspaceId: string, parameters: Record<string, any>): Promise<ExpenseReport> {

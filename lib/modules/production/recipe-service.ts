@@ -280,7 +280,13 @@ export class RecipeService {
 
     const recordId = (records[0] as any)._recordId;
 
-    return await airtableClient.update<RecipeLine>('RecipeLine', recordId, updates);
+    const data: Partial<RecipeLine> = {};
+    if (updates.quantity !== undefined) data.Quantity = updates.quantity;
+    if (updates.unit !== undefined) data.Unit = updates.unit;
+    if (updates.loss !== undefined) data.Loss = updates.loss;
+    if (updates.notes !== undefined) data.Notes = updates.notes;
+
+    return await airtableClient.update<RecipeLine>('RecipeLine', recordId, data);
   }
 
   /**

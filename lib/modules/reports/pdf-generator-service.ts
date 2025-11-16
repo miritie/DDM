@@ -218,7 +218,7 @@ export class PDFGeneratorService {
     yPos += 15;
 
     // Section KPIs
-    doc.setFillColor(this.hexToRgb(this.primaryColor));
+    doc.setFillColor(...this.hexToRgb(this.primaryColor));
     doc.rect(15, yPos, 180, 8, 'F');
     doc.setTextColor(255, 255, 255);
     doc.setFontSize(11);
@@ -258,7 +258,7 @@ export class PDFGeneratorService {
     if (data.topProducts && data.topProducts.length > 0) {
       yPos = this.checkPageBreak(doc, yPos, 60);
 
-      doc.setFillColor(this.hexToRgb(this.successColor));
+      doc.setFillColor(...this.hexToRgb(this.successColor));
       doc.rect(15, yPos, 180, 8, 'F');
       doc.setTextColor(255, 255, 255);
       doc.setFontSize(11);
@@ -293,7 +293,7 @@ export class PDFGeneratorService {
     if (data.topSalespersons && data.topSalespersons.length > 0) {
       yPos = this.checkPageBreak(doc, yPos, 60);
 
-      doc.setFillColor(this.hexToRgb(this.primaryColor));
+      doc.setFillColor(...this.hexToRgb(this.primaryColor));
       doc.rect(15, yPos, 180, 8, 'F');
       doc.setTextColor(255, 255, 255);
       doc.setFontSize(11);
@@ -328,7 +328,7 @@ export class PDFGeneratorService {
     if (data.alerts && data.alerts.length > 0) {
       yPos = this.checkPageBreak(doc, yPos, 40);
 
-      doc.setFillColor(this.hexToRgb(this.warningColor));
+      doc.setFillColor(...this.hexToRgb(this.warningColor));
       doc.rect(15, yPos, 180, 8, 'F');
       doc.setTextColor(255, 255, 255);
       doc.setFontSize(11);
@@ -341,7 +341,7 @@ export class PDFGeneratorService {
         const color = alert.type === 'success' ? this.successColor :
                       alert.type === 'warning' ? this.warningColor : this.dangerColor;
 
-        doc.setFillColor(this.hexToRgb(color));
+        doc.setFillColor(...this.hexToRgb(color));
         doc.circle(18, yPos + 2, 2, 'F');
 
         doc.setFontSize(9);
@@ -382,7 +382,7 @@ export class PDFGeneratorService {
         const progressColor = obj.progress >= 100 ? this.successColor :
                               obj.progress >= 75 ? this.primaryColor :
                               obj.progress >= 50 ? this.warningColor : this.dangerColor;
-        doc.setFillColor(this.hexToRgb(progressColor));
+        doc.setFillColor(...this.hexToRgb(progressColor));
         doc.rect(15, yPos, progressWidth, 4, 'F');
 
         yPos += 8;
@@ -479,12 +479,12 @@ export class PDFGeneratorService {
     // Logo/Nom entreprise (à gauche)
     doc.setFontSize(16);
     doc.setFont('helvetica', 'bold');
-    doc.setTextColor(this.hexToRgb(this.primaryColor));
+    doc.setTextColor(...this.hexToRgb(this.primaryColor));
     doc.text('DDM', 15, yPos);
 
     doc.setFontSize(8);
     doc.setFont('helvetica', 'normal');
-    doc.setTextColor(this.hexToRgb(this.secondaryColor));
+    doc.setTextColor(...this.hexToRgb(this.secondaryColor));
     doc.text('Gestion d\'Entreprise', 15, yPos + 4);
 
     // Titre principal (centre)
@@ -494,7 +494,7 @@ export class PDFGeneratorService {
     doc.text(title, 105, yPos + 2, { align: 'center' });
 
     // Ligne séparatrice
-    doc.setDrawColor(this.hexToRgb(this.primaryColor));
+    doc.setDrawColor(...this.hexToRgb(this.primaryColor));
     doc.setLineWidth(0.5);
     doc.line(15, yPos + 8, 195, yPos + 8);
 
@@ -570,7 +570,7 @@ export class PDFGeneratorService {
     if (signature.simulatedSignature !== false) {
       doc.setFont('brush-script-mt', 'italic');
       doc.setFontSize(size === 'small' ? 12 : 16);
-      doc.setTextColor(this.hexToRgb(this.primaryColor));
+      doc.setTextColor(...this.hexToRgb(this.primaryColor));
 
       // Génère un texte "signature manuscrite"
       const signatureText = signature.name.split(' ').map(w => w[0]).join('');
