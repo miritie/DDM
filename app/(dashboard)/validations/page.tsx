@@ -5,7 +5,7 @@
 
 'use client';
 
-import { useState, useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
 import { ValidationRequest, ValidationStatus, ValidationLevel } from '@/lib/modules/governance/validation-workflow-service';
 
 type FilterStatus = ValidationStatus | 'all';
