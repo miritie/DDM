@@ -262,7 +262,7 @@ function ValidationCard({
   validation: ValidationRequest;
   onProcess: (id: string, status: 'approved' | 'rejected', comment?: string) => void;
   getPriorityColor: (priority: string) => string;
-  getStatusBadge: (status: ValidationStatus) => JSX.Element;
+  getStatusBadge: (status: ValidationStatus) => React.ReactElement;
   getEntityTypeLabel: (entityType: string) => string;
 }) {
   const [showActions, setShowActions] = useState(false);
