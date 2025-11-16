@@ -30,7 +30,7 @@ export async function GET(
     }
 
     // Récupérer les permissions associées via la table role_permissions
-    const permissions = await service.getRolePermissions(role.id);
+    const permissions = await service.getRolePermissions((role as any).id);
 
     return NextResponse.json({
       data: {
@@ -79,7 +79,7 @@ export async function PUT(
 
     // Mettre à jour les permissions via la table role_permissions
     if (body.permissionIds !== undefined) {
-      await service.assignPermissions(existingRole.id, body.permissionIds || []);
+      await service.assignPermissions((existingRole as any).id, body.permissionIds || []);
     }
 
     return NextResponse.json({ data: role });
