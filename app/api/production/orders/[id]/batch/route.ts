@@ -1,0 +1,26 @@
+/**
+ * API Route - Créer un batch/lot de production
+ * Module Production & Usine
+ */
+
+import { NextRequest, NextResponse } from 'next/server';
+import { ProductionOrderService } from '@/lib/modules/production/production-order-service';
+import { requirePermission, PERMISSIONS } from '@/lib/rbac/server';
+
+const service = new ProductionOrderService();
+
+export async function POST(
+  request: NextRequest,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  try {
+    await requirePermission(PERMISSIONS.PRODUCTION_EDIT);
+    const { id } = await params;
+    const body = await request.json();
+
+    const batch = await service.createBatch(id, body);
+    return NextResponse.json({ data: batch }, { status: 201 });
+  } catch (error: any) {
+    return NextResponse.json({ error: error.message }, { status: 500 });
+  }
+}
