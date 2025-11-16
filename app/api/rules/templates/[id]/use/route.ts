@@ -16,6 +16,8 @@ export async function POST(
     const { id } = await params;
     const templateId = id;
     const userId = 'current-user'; // TODO: Récupérer depuis session
+    const userName = 'Current User'; // TODO: Récupérer depuis session
+    const workspaceId = 'default'; // TODO: Récupérer depuis session
 
     const body = await request.json();
 
@@ -44,7 +46,10 @@ export async function POST(
     const newRule = await ruleEngineService.createRuleFromTemplate(
       templateId,
       body.name.trim(),
-      body.conditionValues
+      body.conditionValues,
+      workspaceId,
+      userId,
+      userName
     );
 
     // Mettre à jour les champs optionnels si fournis
@@ -77,7 +82,7 @@ export async function POST(
     // Appliquer les mises à jour si nécessaire
     let finalRule = newRule;
     if (Object.keys(updates).length > 0) {
-      finalRule = await ruleEngineService.updateRule(newRule.RuleId, updates, userId);
+      finalRule = await ruleEngineService.updateRule(newRule.RuleId, updates as any);
     }
 
     return NextResponse.json(

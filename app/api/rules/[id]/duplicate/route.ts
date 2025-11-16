@@ -16,9 +16,10 @@ export async function POST(
     const { id } = await params;
     const ruleId = id;
     const userId = 'current-user'; // TODO: Récupérer depuis session
+    const userName = 'Current User'; // TODO: Récupérer depuis session
 
     // Vérifier que la règle existe
-    const existingRule = await ruleEngineService.getRule(ruleId);
+    const existingRule = await ruleEngineService.getRuleById(ruleId);
 
     if (!existingRule) {
       return NextResponse.json(
@@ -31,7 +32,12 @@ export async function POST(
     }
 
     // Dupliquer la règle
-    const duplicatedRule = await ruleEngineService.duplicateRule(ruleId, userId);
+    const duplicatedRule = await ruleEngineService.duplicateRule(
+      ruleId,
+      `${existingRule.Name} (Copie)`,
+      userId,
+      userName
+    );
 
     return NextResponse.json(
       {

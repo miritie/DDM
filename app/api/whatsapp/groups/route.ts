@@ -15,7 +15,7 @@ export async function GET(request: NextRequest) {
 
     // Récupérer les groupes depuis Airtable (table WhatsAppGroup)
     // Pour l'instant, retourner liste vide
-    const groups = [];
+    const groups: any[] = [];
 
     return NextResponse.json(
       {

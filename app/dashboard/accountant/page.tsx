@@ -116,7 +116,7 @@ export default function AccountantDashboardPage() {
           <div className="flex items-center gap-2">
             <LogoutButton
               variant="ghost"
-              size="icon"
+              size="sm"
               showText={false}
               className="p-3 bg-white/20 backdrop-blur-sm rounded-full hover:bg-white/30 text-white"
             />
@@ -187,7 +187,7 @@ export default function AccountantDashboardPage() {
                   <p className="flex-1 font-medium text-sm">{alert.message}</p>
                   {alert.link && (
                     <button
-                      onClick={() => router.push(alert.link)}
+                      onClick={() => alert.link && router.push(alert.link)}
                       className="text-xs font-semibold hover:underline"
                     >
                       Voir <ArrowRight className="w-3 h-3 inline" />

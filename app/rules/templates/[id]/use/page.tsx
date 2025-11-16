@@ -89,7 +89,7 @@ export default function UseTemplatePage() {
 
       // Initialiser les valeurs par défaut
       const initialValues: Record<string, any> = {};
-      foundTemplate.ConditionTemplate.forEach((cond) => {
+      foundTemplate.ConditionTemplate.forEach((cond: any) => {
         initialValues[cond.field] = cond.defaultValue || '';
       });
       setConditionValues(initialValues);

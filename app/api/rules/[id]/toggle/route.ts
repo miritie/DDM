@@ -18,7 +18,7 @@ export async function PATCH(
     const userId = 'current-user'; // TODO: Récupérer depuis session
 
     // Vérifier que la règle existe
-    const existingRule = await ruleEngineService.getRule(ruleId);
+    const existingRule = await ruleEngineService.getRuleById(ruleId);
 
     if (!existingRule) {
       return NextResponse.json(
@@ -31,11 +31,11 @@ export async function PATCH(
     }
 
     // Basculer le statut
-    const updatedRule = await ruleEngineService.toggleRule(ruleId, userId);
+    const updatedRule = await ruleEngineService.toggleRule(ruleId, !existingRule.IsActive);
 
-    const newStatus = updatedRule.Status;
+    const newStatus = updatedRule.IsActive;
     const message =
-      newStatus === 'active'
+      newStatus
         ? 'Règle activée avec succès'
         : 'Règle désactivée avec succès';
 

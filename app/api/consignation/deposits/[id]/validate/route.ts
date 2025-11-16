@@ -30,7 +30,7 @@ export async function POST(
       );
     }
 
-    const deposit = await depositService.validate(id, validatorId);
+    const deposit = await depositService.validate(id, validatorId, validatorName);
 
     return NextResponse.json({
       success: true,

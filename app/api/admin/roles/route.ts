@@ -57,7 +57,7 @@ export async function POST(request: NextRequest) {
 
     // Assigner les permissions via la table role_permissions
     if (body.permissionIds && body.permissionIds.length > 0) {
-      await service.assignPermissions(role.id, body.permissionIds);
+      await service.assignPermissions((role as any).id, body.permissionIds);
     }
 
     return NextResponse.json({ data: role }, { status: 201 });

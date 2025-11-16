@@ -20,6 +20,7 @@ import {
   TrendingUp,
   Calendar,
   AlertCircle,
+  Plus,
 } from 'lucide-react';
 import { Partner, Deposit, SalesReport, Settlement } from '@/types/modules';
 import { Button } from '@/components/ui/button';

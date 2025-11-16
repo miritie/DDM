@@ -22,7 +22,7 @@ export async function GET(request: NextRequest) {
     // Générer alertes automatiques
     const alerts: Array<{ type: 'success' | 'warning' | 'error'; message: string }> = [];
 
-    if (dashboard.kpis.profit.changePercent < -20) {
+    if (dashboard.kpis.profit.changePercent !== undefined && dashboard.kpis.profit.changePercent < -20) {
       alerts.push({
         type: 'error',
         message: `Bénéfice en forte baisse: ${dashboard.kpis.profit.changePercent.toFixed(1)}%`,
@@ -36,7 +36,7 @@ export async function GET(request: NextRequest) {
       });
     }
 
-    if (dashboard.kpis.revenue.changePercent > 20) {
+    if (dashboard.kpis.revenue.changePercent !== undefined && dashboard.kpis.revenue.changePercent > 20) {
       alerts.push({
         type: 'success',
         message: `Excellente performance ! CA +${dashboard.kpis.revenue.changePercent.toFixed(1)}%`,

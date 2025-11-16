@@ -3,7 +3,7 @@
  * Permet de basculer facilement d'Airtable vers PostgreSQL
  */
 
-import { Pool, PoolClient, QueryResult } from 'pg';
+import { Pool, PoolClient, QueryResult, QueryResultRow } from 'pg';
 
 /**
  * Options pour la méthode list()
@@ -289,7 +289,7 @@ export class PostgresClient {
   /**
    * Exécuter une requête SQL personnalisée
    */
-  async query<T = any>(sql: string, params?: any[]): Promise<QueryResult<T>> {
+  async query<T extends QueryResultRow = any>(sql: string, params?: any[]): Promise<QueryResult<T>> {
     return this.pool.query<T>(sql, params);
   }
 

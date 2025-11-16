@@ -50,6 +50,7 @@ export async function POST(request: NextRequest) {
       workspaceId,
       body.decisionType,
       body.referenceId,
+      body.referenceType || 'generic',
       body.referenceData
     );
 

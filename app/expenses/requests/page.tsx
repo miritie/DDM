@@ -94,7 +94,7 @@ export default function ExpenseRequestsListPage() {
           r.RequestNumber.toLowerCase().includes(query) ||
           r.Title.toLowerCase().includes(query) ||
           r.RequesterName.toLowerCase().includes(query) ||
-          r.Description.toLowerCase().includes(query)
+          r.Description?.toLowerCase().includes(query)
       );
     }
 
@@ -110,7 +110,7 @@ export default function ExpenseRequestsListPage() {
 
     // Catégorie
     if (filters.category) {
-      filtered = filtered.filter((r) => r.Category === filters.category);
+      filtered = filtered.filter((r) => (r.Category as any) === filters.category);
     }
 
     // Date range
@@ -374,7 +374,7 @@ export default function ExpenseRequestsListPage() {
                 request={request}
                 onClick={() => router.push(`/expenses/requests/${request.ExpenseRequestId}`)}
                 showDetails={true}
-                showApprovalActions={needsMyApproval && request.Status === 'pending_approval'}
+                showApprovalActions={needsMyApproval && request.Status === 'submitted'}
               />
             ))}
           </div>

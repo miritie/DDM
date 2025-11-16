@@ -19,7 +19,7 @@ export async function GET(
     const ruleId = id;
 
     // Récupérer la règle
-    const rule = await ruleEngineService.getRule(ruleId);
+    const rule = await ruleEngineService.getRuleById(ruleId);
 
     if (!rule) {
       return NextResponse.json(
@@ -100,7 +100,7 @@ export async function PATCH(
     const body = await request.json();
 
     // Vérifier que la règle existe
-    const existingRule = await ruleEngineService.getRule(ruleId);
+    const existingRule = await ruleEngineService.getRuleById(ruleId);
 
     if (!existingRule) {
       return NextResponse.json(
@@ -170,7 +170,7 @@ export async function PATCH(
     }
 
     // Mettre à jour la règle
-    const updatedRule = await ruleEngineService.updateRule(ruleId, updates, userId);
+    const updatedRule = await ruleEngineService.updateRule(ruleId, updates as any);
 
     return NextResponse.json(
       {
@@ -202,7 +202,7 @@ export async function DELETE(
     const ruleId = id;
 
     // Vérifier que la règle existe
-    const existingRule = await ruleEngineService.getRule(ruleId);
+    const existingRule = await ruleEngineService.getRuleById(ruleId);
 
     if (!existingRule) {
       return NextResponse.json(

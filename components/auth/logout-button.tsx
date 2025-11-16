@@ -11,7 +11,7 @@ import { Button } from '@/components/ui/button';
 
 interface LogoutButtonProps {
   variant?: 'default' | 'outline' | 'ghost';
-  size?: 'default' | 'sm' | 'lg' | 'icon';
+  size?: 'default' | 'sm' | 'lg';
   showText?: boolean;
   className?: string;
 }

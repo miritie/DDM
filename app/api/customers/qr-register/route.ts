@@ -37,7 +37,7 @@ export async function POST(request: NextRequest) {
     const cleanedPhone = phone.replace(/\D/g, '');
 
     // Vérifier si le client existe déjà
-    const existingCustomer = await customerService.findByPhone(workspaceId, cleanedPhone);
+    const existingCustomer = await customerService.getByPhone(cleanedPhone, workspaceId);
 
     if (existingCustomer) {
       // Si le client existe déjà, on peut le mettre à jour avec les nouvelles infos
@@ -95,18 +95,14 @@ export async function POST(request: NextRequest) {
 
     // Créer le client
     const customer = await customerService.create({
+      type: 'individual',
       phone: cleanedPhone,
       firstName: firstName || undefined,
       lastName: lastName || undefined,
       fullName,
       email: email || undefined,
       city: city || undefined,
-      status: 'active',
-      loyaltyTier: 'bronze',
-      source,
-      preferredContactMethod: receiveWhatsApp ? 'whatsapp' : undefined,
       tags: standId ? [`stand_${standId}`] : undefined,
-      referredBy: agentId || undefined,
       workspaceId,
     });
 
@@ -134,7 +130,7 @@ export async function POST(request: NextRequest) {
           // Enregistrer l'envoi dans le customer
           await customerService.update(customer.CustomerId, {
             LastWhatsAppDate: new Date().toISOString(),
-          });
+          } as any);
         } else {
           results.whatsappError = whatsappResult.error || 'Erreur inconnue';
         }
@@ -147,20 +143,16 @@ export async function POST(request: NextRequest) {
 
     // 2. Ajouter le bonus de bienvenue (500 points) - TOUJOURS
     try {
-      await loyaltyService.addPoints({
-        customerId: customer.CustomerId,
-        points: 500,
-        reason: 'welcome_bonus',
-        description: 'Bonus de bienvenue auto-enregistrement',
-        workspaceId,
-      });
+      await loyaltyService.earnPoints(
+        customer.CustomerId,
+        500,
+        'Bonus de bienvenue auto-enregistrement',
+        undefined,
+        'manual',
+        workspaceId
+      );
 
       results.bonusAdded = true;
-
-      // Mettre à jour le solde du client
-      await customerService.update(customer.CustomerId, {
-        LoyaltyPoints: 500,
-      });
     } catch (error) {
       console.error('Erreur ajout bonus:', error);
       results.bonusError = error instanceof Error ? error.message : 'Erreur inconnue';

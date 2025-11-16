@@ -302,11 +302,11 @@ export default function NewMarkdownPage() {
                         className="bg-gray-50 border-2 border-gray-200 rounded-xl p-4"
                       >
                         <div className="flex items-start gap-3">
-                          {line.product?.ImageUrl && (
+                          {(line.product as any)?.ImageUrl && (
                             <div className="w-16 h-16 rounded-lg overflow-hidden bg-white flex-shrink-0">
                               <Image
-                                src={line.product.ImageUrl}
-                                alt={line.product.Name}
+                                src={(line.product as any).ImageUrl}
+                                alt={line.product?.Name || ''}
                                 width={64}
                                 height={64}
                                 className="w-full h-full object-cover"

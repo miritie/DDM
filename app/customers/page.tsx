@@ -17,6 +17,9 @@ import {
   Crown,
   Search,
   X,
+  Zap,
+  Phone,
+  QrCode,
 } from 'lucide-react';
 import { Customer, CustomerStatus, LoyaltyTier } from '@/types/modules';
 import { CustomerCard } from '@/components/customers/customer-card';

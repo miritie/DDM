@@ -122,7 +122,7 @@ export default function QuickMovementPage() {
       productId: selectedProduct.ProductId,
       productName: selectedProduct.Name,
       quantity,
-      productImage: selectedProduct.ImageUrl,
+      productImage: (selectedProduct as any).ImageUrl,
     };
 
     const newLines = new Map(movementLines);

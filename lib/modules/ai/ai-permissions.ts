@@ -46,33 +46,6 @@ export interface AIPermissionSet {
 
 export const AI_PERMISSIONS: Record<EmployeeRole, AIPermissionSet> = {
   /**
-   * OWNER - Accès complet
-   * Décide de la stratégie, a besoin de toutes les analyses
-   */
-  owner: {
-    role: 'owner',
-    displayName: 'Propriétaire',
-    description: 'Accès illimité à toutes les fonctionnalités IA',
-    features: {
-      sales_forecast: 'full',
-      production_suggestions: 'full',
-      stock_optimization: 'full',
-      transfer_suggestions: 'full',
-      price_optimization: 'full',
-      customer_insights: 'full',
-      financial_analysis: 'full',
-      decision_automation: 'full',
-      what_if_simulations: 'full',
-      full_dashboard: 'full',
-      api_access: 'full',
-    },
-    quotas: {
-      // Pas de quotas pour owner
-    },
-    rationale: 'Propriétaire prend les décisions stratégiques majeures, nécessite vision complète',
-  },
-
-  /**
    * ADMIN - Accès quasi-complet
    * Manage l'entreprise au quotidien
    */
@@ -163,8 +136,8 @@ export const AI_PERMISSIONS: Record<EmployeeRole, AIPermissionSet> = {
    * COMMERCIAL - Insights ventes et clients
    * Focus terrain commercial
    */
-  commercial: {
-    role: 'commercial',
+  sales_agent: {
+    role: 'sales_agent',
     displayName: 'Commercial',
     description: 'Prévisions ventes et insights clients',
     features: {
@@ -191,8 +164,8 @@ export const AI_PERMISSIONS: Record<EmployeeRole, AIPermissionSet> = {
    * PRODUCTION_MANAGER - Optimisation production
    * Focus usine et production
    */
-  production_manager: {
-    role: 'production_manager',
+  production: {
+    role: 'production',
     displayName: 'Responsable Production',
     description: 'Optimisation de la production et des stocks',
     features: {
@@ -220,8 +193,8 @@ export const AI_PERMISSIONS: Record<EmployeeRole, AIPermissionSet> = {
    * STOCK_MANAGER - Gestion stocks
    * Focus stocks et logistique
    */
-  stock_manager: {
-    role: 'stock_manager',
+  warehouse_keeper: {
+    role: 'warehouse_keeper',
     displayName: 'Responsable Stock',
     description: 'Optimisation des stocks et transferts',
     features: {
@@ -249,8 +222,8 @@ export const AI_PERMISSIONS: Record<EmployeeRole, AIPermissionSet> = {
    * CASHIER - Accès minimal
    * Juste ce dont il a besoin au quotidien
    */
-  cashier: {
-    role: 'cashier',
+  other: {
+    role: 'other',
     displayName: 'Caissier',
     description: 'Insights clients uniquement',
     features: {
@@ -273,39 +246,11 @@ export const AI_PERMISSIONS: Record<EmployeeRole, AIPermissionSet> = {
   },
 
   /**
-   * HR_MANAGER - RH et équipes
-   * Focus ressources humaines
-   */
-  hr_manager: {
-    role: 'hr_manager',
-    displayName: 'Responsable RH',
-    description: 'Analyses RH et prévisions d\'effectifs',
-    features: {
-      sales_forecast: 'view_only',
-      production_suggestions: 'view_only',
-      stock_optimization: 'none',
-      transfer_suggestions: 'none',
-      price_optimization: 'none',
-      customer_insights: 'none',
-      financial_analysis: 'view_only',
-      decision_automation: 'none',
-      what_if_simulations: 'interactive',
-      full_dashboard: 'none',
-      api_access: 'none',
-    },
-    quotas: {
-      forecastsPerDay: 20,
-      simulationsPerDay: 10,
-    },
-    rationale: 'RH a besoin de prévoir besoins en effectifs basé sur activité prévue',
-  },
-
-  /**
    * DELIVERY_PERSON - Accès très limité
    * Juste pour optimiser tournées
    */
-  delivery_person: {
-    role: 'delivery_person',
+  delivery: {
+    role: 'delivery',
     displayName: 'Livreur',
     description: 'Aucun accès IA',
     features: {
@@ -323,30 +268,6 @@ export const AI_PERMISSIONS: Record<EmployeeRole, AIPermissionSet> = {
     },
     quotas: {},
     rationale: 'Livreur n\'a pas besoin d\'IA pour livraisons',
-  },
-
-  /**
-   * GUEST - Aucun accès
-   */
-  guest: {
-    role: 'guest',
-    displayName: 'Invité',
-    description: 'Aucun accès aux fonctionnalités IA',
-    features: {
-      sales_forecast: 'none',
-      production_suggestions: 'none',
-      stock_optimization: 'none',
-      transfer_suggestions: 'none',
-      price_optimization: 'none',
-      customer_insights: 'none',
-      financial_analysis: 'none',
-      decision_automation: 'none',
-      what_if_simulations: 'none',
-      full_dashboard: 'none',
-      api_access: 'none',
-    },
-    quotas: {},
-    rationale: 'Invité n\'a aucun accès aux analyses',
   },
 };
 

@@ -217,7 +217,7 @@ export default function DashboardDGPage() {
           <div className="flex items-center gap-2">
             <LogoutButton
               variant="ghost"
-              size="icon"
+              size="sm"
               showText={false}
               className="p-3 bg-white/20 backdrop-blur-sm rounded-full hover:bg-white/30 text-white"
             />

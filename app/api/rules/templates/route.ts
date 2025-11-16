@@ -13,7 +13,7 @@ export async function GET(request: NextRequest) {
     const workspaceId = 'default'; // TODO: Récupérer depuis session
 
     // Récupérer tous les templates
-    const templates = await ruleEngineService.listRuleTemplates(workspaceId);
+    const templates = await ruleEngineService.listRuleTemplates();
 
     // Organiser par catégorie
     const templatesByCategory = templates.reduce(

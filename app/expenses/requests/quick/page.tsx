@@ -47,43 +47,43 @@ const urgencyConfig: Record<ExpenseUrgency, { label: string; color: string; grad
 
 const quickCategories = [
   {
-    category: 'fonctionnelle' as ExpenseCategory,
-    subcategory: 'transport' as ExpenseSubcategory,
+    category: 'fonctionnelle' as unknown as ExpenseCategory,
+    subcategory: 'transport' as unknown as ExpenseSubcategory,
     label: 'Transport',
     icon: '🚗',
     gradient: 'from-blue-500 to-cyan-600',
   },
   {
-    category: 'fonctionnelle' as ExpenseCategory,
-    subcategory: 'communication' as ExpenseSubcategory,
+    category: 'fonctionnelle' as unknown as ExpenseCategory,
+    subcategory: 'communication' as unknown as ExpenseSubcategory,
     label: 'Communication',
     icon: '📱',
     gradient: 'from-purple-500 to-pink-600',
   },
   {
-    category: 'fonctionnelle' as ExpenseCategory,
-    subcategory: 'fourniture' as ExpenseSubcategory,
+    category: 'fonctionnelle' as unknown as ExpenseCategory,
+    subcategory: 'fourniture' as unknown as ExpenseSubcategory,
     label: 'Fourniture',
     icon: '📦',
     gradient: 'from-green-500 to-emerald-600',
   },
   {
-    category: 'fonctionnelle' as ExpenseCategory,
-    subcategory: 'maintenance' as ExpenseSubcategory,
+    category: 'fonctionnelle' as unknown as ExpenseCategory,
+    subcategory: 'maintenance' as unknown as ExpenseSubcategory,
     label: 'Maintenance',
     icon: '🔧',
     gradient: 'from-orange-500 to-red-600',
   },
   {
-    category: 'structurelle' as ExpenseCategory,
-    subcategory: 'equipement' as ExpenseSubcategory,
+    category: 'structurelle' as unknown as ExpenseCategory,
+    subcategory: 'equipement' as unknown as ExpenseSubcategory,
     label: 'Équipement',
     icon: '⚙️',
     gradient: 'from-indigo-500 to-purple-600',
   },
   {
-    category: 'fonctionnelle' as ExpenseCategory,
-    subcategory: 'autres_charges' as ExpenseSubcategory,
+    category: 'fonctionnelle' as unknown as ExpenseCategory,
+    subcategory: 'autres_charges' as unknown as ExpenseSubcategory,
     label: 'Autre',
     icon: '💼',
     gradient: 'from-gray-500 to-gray-700',
@@ -96,8 +96,8 @@ export default function QuickExpenseRequestPage() {
 
   // Form state (minimal pour rapidité)
   const [amount, setAmount] = useState<number>(0);
-  const [category, setCategory] = useState<ExpenseCategory>('fonctionnelle');
-  const [subcategory, setSubcategory] = useState<ExpenseSubcategory>('transport');
+  const [category, setCategory] = useState<ExpenseCategory>('fonctionnelle' as unknown as ExpenseCategory);
+  const [subcategory, setSubcategory] = useState<ExpenseSubcategory>('transport' as unknown as ExpenseSubcategory);
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [urgency, setUrgency] = useState<ExpenseUrgency>('normal');

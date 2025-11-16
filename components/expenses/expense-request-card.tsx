@@ -229,10 +229,10 @@ export function ExpenseRequestCard({
             {/* Catégorie */}
             <div className="flex gap-2 flex-wrap">
               <span className="px-3 py-1 rounded-full text-xs font-semibold bg-blue-100 text-blue-700">
-                {getCategoryLabel(request.Category)}
+                {getCategoryLabel(request.Category as any)}
               </span>
               <span className="px-3 py-1 rounded-full text-xs font-semibold bg-purple-100 text-purple-700">
-                {getSubcategoryLabel(request.Subcategory)}
+                {getSubcategoryLabel(request.Subcategory as any)}
               </span>
             </div>
 
@@ -262,7 +262,7 @@ export function ExpenseRequestCard({
             )}
 
             {/* Workflow d'approbation */}
-            {request.Status === 'pending_approval' && request.RequiredApprovalLevels > 0 && (
+            {request.Status === 'submitted' && request.RequiredApprovalLevels > 0 && (
               <div>
                 <div className="flex items-center justify-between mb-2">
                   <span className="text-sm font-medium text-gray-700">
@@ -342,7 +342,7 @@ export function ExpenseRequestCard({
             )}
 
             {/* Paiement */}
-            {request.Status === 'paid' && request.PaidDate && (
+            {request.Status === 'approved' && request.PaidDate && (
               <div className="bg-purple-50 border-2 border-purple-200 rounded-xl p-3">
                 <div className="flex items-center gap-2">
                   <CheckCircle className="w-5 h-5 text-purple-600" />
@@ -360,7 +360,7 @@ export function ExpenseRequestCard({
         )}
 
         {/* Actions d'approbation */}
-        {showApprovalActions && request.Status === 'pending_approval' && (
+        {showApprovalActions && request.Status === 'submitted' && (
           <div className="flex gap-2 pt-2">
             <button
               onClick={(e) => {

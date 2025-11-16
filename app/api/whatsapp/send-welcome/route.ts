@@ -60,7 +60,7 @@ export async function POST(request: NextRequest) {
       try {
         await customerService.update(customerId, {
           LastWhatsAppDate: new Date().toISOString(),
-        });
+        } as any);
       } catch (error) {
         console.error('Erreur mise à jour date WhatsApp:', error);
         // Non bloquant

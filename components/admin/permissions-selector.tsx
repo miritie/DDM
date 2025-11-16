@@ -65,7 +65,7 @@ export function PermissionsSelector({
 
   function handleModuleToggle(module: string, checked: boolean) {
     const modulePermissions = groupedPermissions[module] || [];
-    const modulePermissionIds = modulePermissions.map((p) => p.id);
+    const modulePermissionIds = modulePermissions.map((p) => (p as any).id);
 
     let newSelection: string[];
     if (checked) {
@@ -82,7 +82,7 @@ export function PermissionsSelector({
     const modulePermissions = groupedPermissions[module] || [];
     if (modulePermissions.length === 0) return false;
 
-    const modulePermissionIds = modulePermissions.map((p) => p.id);
+    const modulePermissionIds = modulePermissions.map((p) => (p as any).id);
     return modulePermissionIds.every((id) => selectedPermissionIds.includes(id));
   }
 
@@ -90,7 +90,7 @@ export function PermissionsSelector({
     const modulePermissions = groupedPermissions[module] || [];
     if (modulePermissions.length === 0) return false;
 
-    const modulePermissionIds = modulePermissions.map((p) => p.id);
+    const modulePermissionIds = modulePermissions.map((p) => (p as any).id);
     const selectedCount = modulePermissionIds.filter((id) => selectedPermissionIds.includes(id))
       .length;
 
@@ -129,7 +129,7 @@ export function PermissionsSelector({
         <div className="flex gap-2">
           <button
             type="button"
-            onClick={() => onPermissionsChange(permissions.map((p) => p.id))}
+            onClick={() => onPermissionsChange(permissions.map((p) => (p as any).id))}
             className="text-sm text-blue-600 hover:text-blue-800"
           >
             Tout sélectionner
@@ -171,16 +171,16 @@ export function PermissionsSelector({
                 </CardHeader>
                 <CardContent className="space-y-2">
                   {modulePerms.map((perm) => (
-                    <div key={perm.id} className="flex items-start gap-2">
+                    <div key={(perm as any).id} className="flex items-start gap-2">
                       <Checkbox
-                        id={`perm-${perm.id}`}
-                        checked={selectedPermissionIds.includes(perm.id)}
+                        id={`perm-${(perm as any).id}`}
+                        checked={selectedPermissionIds.includes((perm as any).id)}
                         onCheckedChange={(checked) =>
-                          handlePermissionToggle(perm.id, checked as boolean)
+                          handlePermissionToggle((perm as any).id, checked as boolean)
                         }
                       />
                       <label
-                        htmlFor={`perm-${perm.id}`}
+                        htmlFor={`perm-${(perm as any).id}`}
                         className="text-sm cursor-pointer flex-1"
                       >
                         <div className="font-medium">{perm.Name}</div>

@@ -18,6 +18,7 @@ const createSettlementSchema = z.object({
   totalDue: z.number().min(0),
   currency: z.string().default('XOF'),
   preparedById: z.string(),
+  preparedByName: z.string(),
   notes: z.string().optional(),
 });
 

@@ -125,7 +125,7 @@ export default function RulesPage() {
     }
 
     if (filters.tag) {
-      filtered = filtered.filter(r => r.Tags?.includes(filters.tag));
+      filtered = filtered.filter(r => filters.tag && r.Tags?.includes(filters.tag));
     }
 
     setFilteredRules(filtered);

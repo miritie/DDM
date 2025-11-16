@@ -234,7 +234,7 @@ export default function ExpenseRequestDetailPage({ params }: PageProps) {
   const approvedCount = request.Approvals?.filter((a) => a.Decision === 'approved').length || 0;
 
   // Vérifier si l'utilisateur peut approuver
-  const canApprove = request.Status === 'pending_approval'; // TODO: Vérifier niveau utilisateur
+  const canApprove = request.Status === 'submitted'; // TODO: Vérifier niveau utilisateur
 
   return (
     <div className="min-h-screen bg-gray-50 pb-20">
@@ -313,10 +313,10 @@ export default function ExpenseRequestDetailPage({ params }: PageProps) {
               <p className="text-xs text-gray-600 mb-1">Catégorie</p>
               <div className="flex gap-2 flex-wrap">
                 <span className="px-3 py-1 rounded-full text-xs font-semibold bg-blue-100 text-blue-700">
-                  {getCategoryLabel(request.Category)}
+                  {getCategoryLabel(request.Category as any)}
                 </span>
                 <span className="px-3 py-1 rounded-full text-xs font-semibold bg-purple-100 text-purple-700">
-                  {getSubcategoryLabel(request.Subcategory)}
+                  {getSubcategoryLabel(request.Subcategory as any)}
                 </span>
               </div>
             </div>
@@ -404,7 +404,7 @@ export default function ExpenseRequestDetailPage({ params }: PageProps) {
         )}
 
         {/* Workflow d'approbation */}
-        {request.Status === 'pending_approval' && request.RequiredApprovalLevels > 0 && (
+        {request.Status === 'submitted' && request.RequiredApprovalLevels > 0 && (
           <div className="bg-white rounded-2xl shadow-xl p-6">
             <h2 className="font-bold text-lg text-gray-900 mb-4">
               Circuit d'Approbation ({approvedCount}/{request.RequiredApprovalLevels})
@@ -454,7 +454,7 @@ export default function ExpenseRequestDetailPage({ params }: PageProps) {
                           <p className="text-xs text-gray-600">Niveau {approval.Level}</p>
                         </div>
                       </div>
-                      {approval.Decision !== 'pending' && approval.DecisionDate && (
+                      {approval.Decision && approval.DecisionDate && (
                         <span className="text-xs text-gray-600">
                           {new Date(approval.DecisionDate).toLocaleDateString('fr-FR')}
                         </span>
@@ -482,7 +482,7 @@ export default function ExpenseRequestDetailPage({ params }: PageProps) {
         )}
 
         {/* Paiement */}
-        {request.Status === 'paid' && request.PaidDate && (
+        {request.Status === 'approved' && request.PaidDate && (
           <div className="bg-purple-50 border-2 border-purple-200 rounded-2xl p-6 flex items-start gap-3">
             <CheckCircle className="w-6 h-6 text-purple-600 flex-shrink-0 mt-1" />
             <div>

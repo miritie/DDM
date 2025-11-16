@@ -18,8 +18,8 @@ export async function GET(request: NextRequest) {
     // Calculer les statistiques globales
     const stats = {
       totalRules: allRules.length,
-      activeRules: allRules.filter((r) => r.Status === 'active').length,
-      inactiveRules: allRules.filter((r) => r.Status === 'inactive').length,
+      activeRules: allRules.filter((r) => r.IsActive).length,
+      inactiveRules: allRules.filter((r) => !r.IsActive).length,
       autoExecuteRules: allRules.filter((r) => r.AutoExecute).length,
 
       // Statistiques par type de décision
@@ -34,9 +34,9 @@ export async function GET(request: NextRequest) {
 
       // Statistiques sur les actions recommandées
       byRecommendedAction: {
-        approve: allRules.filter((r) => r.RecommendedAction.action === 'approve').length,
-        reject: allRules.filter((r) => r.RecommendedAction.action === 'reject').length,
-        escalate: allRules.filter((r) => r.RecommendedAction.action === 'escalate').length,
+        approve: allRules.filter((r) => r.RecommendedAction === 'approve').length,
+        reject: allRules.filter((r) => r.RecommendedAction === 'reject').length,
+        escalate: allRules.filter((r) => r.RecommendedAction === 'escalate').length,
       },
     };
 

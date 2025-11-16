@@ -107,7 +107,7 @@ export default function NewProductionOrderPage() {
   }
 
   function getProductImage(productId: string): string | undefined {
-    return products.find((p) => p.ProductId === productId)?.ImageUrl;
+    return (products.find((p) => p.ProductId === productId) as any)?.ImageUrl;
   }
 
   async function handleSave() {

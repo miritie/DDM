@@ -17,7 +17,7 @@ import {
   ChevronRight,
   AlertCircle,
 } from 'lucide-react';
-import { Badge } from '@/components/ui/button';
+import { Badge } from '@/components/ui/badge';
 
 interface PartnerCardProps {
   partner: Partner;

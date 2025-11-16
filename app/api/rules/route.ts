@@ -24,7 +24,8 @@ export async function GET(request: NextRequest) {
 
     // Appliquer les filtres
     if (status) {
-      rules = rules.filter((rule) => rule.Status === status);
+      const isActive = status === 'active';
+      rules = rules.filter((rule) => rule.IsActive === isActive);
     }
 
     if (decisionType) {
@@ -144,18 +145,25 @@ export async function POST(request: NextRequest) {
 
     // Créer la règle
     const newRule = await ruleEngineService.createRule({
-      workspaceId,
       name: body.name.trim(),
       description: body.description?.trim() || '',
       decisionType: body.decisionType,
+      triggerType: body.triggerType || 'automatic',
       conditions: body.conditions,
-      recommendedAction: body.recommendedAction,
+      recommendedAction: body.recommendedAction?.action || body.recommendedAction,
+      customActionData: body.recommendedAction?.customData,
       autoExecute: body.autoExecute || false,
       requiresApproval: body.requiresApproval || false,
-      priority: body.priority || 50,
-      notifyOnMatch: body.notifyOnMatch || false,
-      notifyRoles: body.notifyRoles || [],
-      createdBy: userId,
+      approverRoles: body.approverRoles,
+      priority: body.priority || 100,
+      thresholdAmount: body.thresholdAmount,
+      notifyOnTrigger: body.notifyOnMatch || false,
+      notifyUsers: body.notifyRoles || [],
+      tags: body.tags,
+      notes: body.notes,
+      workspaceId,
+      createdById: userId,
+      createdByName: 'Current User', // TODO: Get from session
     });
 
     return NextResponse.json(

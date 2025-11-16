@@ -16,6 +16,7 @@ import {
   Smartphone,
   Banknote,
   ChevronRight,
+  FileText,
 } from 'lucide-react';
 
 interface SettlementCardProps {

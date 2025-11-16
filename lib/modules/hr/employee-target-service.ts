@@ -218,7 +218,7 @@ export class EmployeeTargetService {
       filterByFormula: `AND({WorkspaceId} = '${workspaceId}', {SellerId} = '${employeeId}', {SaleDate} >= '${startDate}', {SaleDate} <= '${endDate}')`,
     });
 
-    return sales.reduce((sum, sale: any) => sum + (sale.TotalAmount || 0), 0);
+    return sales.reduce((sum: number, sale: any) => sum + (sale.TotalAmount || 0), 0);
   }
 
   /**

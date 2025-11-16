@@ -131,9 +131,9 @@ export function ProductVisualCard({
         <div
           className={`${config.image} flex-shrink-0 rounded-xl overflow-hidden bg-gradient-to-br from-blue-50 to-indigo-50 flex items-center justify-center border-2 border-gray-200`}
         >
-          {product.ImageUrl ? (
+          {(product as any).ImageUrl ? (
             <Image
-              src={product.ImageUrl}
+              src={(product as any).ImageUrl}
               alt={product.Name}
               width={128}
               height={128}
@@ -159,9 +159,9 @@ export function ProductVisualCard({
             {product.Name}
           </h3>
 
-          {product.SKU && (
+          {(product as any).SKU && (
             <p className={`text-gray-500 ${config.text}`}>
-              Réf: {product.SKU}
+              Réf: {(product as any).SKU}
             </p>
           )}
 
@@ -175,9 +175,9 @@ export function ProductVisualCard({
           )}
 
           {/* Prix */}
-          {product.SalePrice && (
+          {(product as any).SalePrice && (
             <p className={`font-semibold text-blue-700 mt-1 ${config.text}`}>
-              {new Intl.NumberFormat('fr-FR').format(product.SalePrice)} F
+              {new Intl.NumberFormat('fr-FR').format((product as any).SalePrice)} F
             </p>
           )}
         </div>

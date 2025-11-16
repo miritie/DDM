@@ -107,7 +107,7 @@ export default function RecipesPage() {
 
   // Récupérer l'image du produit
   function getProductImage(productId: string): string | undefined {
-    return products.find((p) => p.ProductId === productId)?.ImageUrl;
+    return (products.find((p) => p.ProductId === productId) as any)?.ImageUrl;
   }
 
   if (loading) {
