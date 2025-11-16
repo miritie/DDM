@@ -44,7 +44,7 @@ export default function EditRolePage() {
         const role = data.data;
 
         // Charger les permissions depuis la table role_permissions
-        const permissionIds = role.permissions?.map((p: Permission) => p.id) || [];
+        const permissionIds = role.permissions?.map((p: any) => p.id) || [];
 
         setFormData({
           name: role.Name || '',
