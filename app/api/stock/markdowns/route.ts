@@ -5,7 +5,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
-import { getAirtableClient } from '@/lib/airtable/client';
+import { AirtableClient } from '@/lib/airtable/client';
 
 const markdownLineSchema = z.object({
   productId: z.string(),
@@ -34,7 +34,7 @@ export async function GET(request: NextRequest) {
     const startDate = searchParams.get('startDate');
     const endDate = searchParams.get('endDate');
 
-    const airtable = getAirtableClient();
+    const airtable = new AirtableClient();
     const base = airtable.base(process.env.AIRTABLE_BASE_ID!);
 
     let filterFormula = '';
@@ -97,7 +97,7 @@ export async function POST(request: NextRequest) {
     const body = await request.json();
     const validatedData = createMarkdownSchema.parse(body);
 
-    const airtable = getAirtableClient();
+    const airtable = new AirtableClient();
     const base = airtable.base(process.env.AIRTABLE_BASE_ID!);
 
     // Générer numéro de démarque

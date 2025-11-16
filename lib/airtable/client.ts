@@ -193,4 +193,14 @@ export class AirtableClient {
       throw error;
     }
   }
+
+  /**
+   * Accès direct à l'objet base Airtable pour utilisation avancée
+   */
+  base(baseId?: string) {
+    if (baseId) {
+      return airtable.base(baseId);
+    }
+    return base;
+  }
 }
