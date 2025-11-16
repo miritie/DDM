@@ -11,9 +11,10 @@ const thresholdService = new ValidationThresholdService();
 
 export async function PUT(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const { id } = await params;
     const body = await request.json();
 
     const {
@@ -42,7 +43,7 @@ export async function PUT(
     }
 
     // Mettre à jour le seuil
-    const threshold = await thresholdService.updateThreshold(params.id, {
+    const threshold = await thresholdService.updateThreshold(id, {
       level1Threshold,
       level2Threshold,
       level3Threshold,
@@ -73,10 +74,11 @@ export async function PUT(
 
 export async function DELETE(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    await thresholdService.deleteThreshold(params.id);
+    const { id } = await params;
+    await thresholdService.deleteThreshold(id);
 
     return NextResponse.json(
       {

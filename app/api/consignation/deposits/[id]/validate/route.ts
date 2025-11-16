@@ -11,9 +11,10 @@ const depositService = new DepositService();
 
 export async function POST(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const { id } = await params;
     const workspaceId = await getCurrentWorkspaceId();
     if (!workspaceId) {
       return NextResponse.json({ error: 'Non autorisé' }, { status: 401 });
@@ -29,7 +30,7 @@ export async function POST(
       );
     }
 
-    const deposit = await depositService.validate(params.id, validatorId);
+    const deposit = await depositService.validate(id, validatorId);
 
     return NextResponse.json({
       success: true,

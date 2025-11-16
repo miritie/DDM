@@ -15,9 +15,10 @@ const service = new FeedbackService();
  */
 export async function POST(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const { id } = await params;
     await requirePermission(PERMISSIONS.CUSTOMER_EDIT);
 
     const body = await request.json();
@@ -31,7 +32,7 @@ export async function POST(
     }
 
     const feedback = await service.respond(
-      params.id,
+      id,
       response,
       respondedById,
       respondedByName

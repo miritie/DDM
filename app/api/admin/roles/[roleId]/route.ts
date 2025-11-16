@@ -14,12 +14,13 @@ const service = new RoleService();
  */
 export async function GET(
   request: NextRequest,
-  { params }: { params: { roleId: string } }
+  { params }: { params: Promise<{ roleId: string }> }
 ) {
   try {
     await requirePermission(PERMISSIONS.ADMIN_ROLES_VIEW);
 
-    const role = await service.getById(params.roleId);
+    const { roleId } = await params;
+    const role = await service.getById(roleId);
 
     if (!role) {
       return NextResponse.json(
@@ -51,15 +52,16 @@ export async function GET(
  */
 export async function PUT(
   request: NextRequest,
-  { params }: { params: { roleId: string } }
+  { params }: { params: Promise<{ roleId: string }> }
 ) {
   try {
     await requirePermission(PERMISSIONS.ADMIN_ROLES_UPDATE);
 
+    const { roleId } = await params;
     const body = await request.json();
 
     // Récupérer le rôle existant pour obtenir son UUID
-    const existingRole = await service.getById(params.roleId);
+    const existingRole = await service.getById(roleId);
     if (!existingRole) {
       return NextResponse.json(
         { error: 'Rôle introuvable' },
@@ -68,7 +70,7 @@ export async function PUT(
     }
 
     // Mettre à jour le rôle
-    const role = await service.update(params.roleId, {
+    const role = await service.update(roleId, {
       name: body.name,
       description: body.description,
       permissionIds: body.permissionIds,
@@ -95,12 +97,13 @@ export async function PUT(
  */
 export async function DELETE(
   request: NextRequest,
-  { params }: { params: { roleId: string } }
+  { params }: { params: Promise<{ roleId: string }> }
 ) {
   try {
     await requirePermission(PERMISSIONS.ADMIN_ROLES_DELETE);
 
-    await service.delete(params.roleId);
+    const { roleId } = await params;
+    await service.delete(roleId);
 
     return NextResponse.json({ success: true });
   } catch (error: any) {

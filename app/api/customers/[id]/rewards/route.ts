@@ -15,12 +15,13 @@ const service = new LoyaltyService();
  */
 export async function GET(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const { id } = await params;
     await requirePermission(PERMISSIONS.CUSTOMER_VIEW);
 
-    const customerId = params.id;
+    const customerId = id;
     const rewards = await service.getCustomerRewards(customerId);
 
     return NextResponse.json({ data: rewards });

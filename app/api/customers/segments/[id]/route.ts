@@ -15,12 +15,13 @@ const service = new SegmentService();
  */
 export async function GET(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const { id } = await params;
     await requirePermission(PERMISSIONS.CUSTOMER_VIEW);
 
-    const segment = await service.getById(params.id);
+    const segment = await service.getById(id);
 
     if (!segment) {
       return NextResponse.json({ error: 'Segment non trouvé' }, { status: 404 });
@@ -42,13 +43,14 @@ export async function GET(
  */
 export async function PATCH(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const { id } = await params;
     await requirePermission(PERMISSIONS.CUSTOMER_EDIT);
 
     const body = await request.json();
-    const segment = await service.update(params.id, body);
+    const segment = await service.update(id, body);
 
     return NextResponse.json({ data: segment });
   } catch (error: any) {

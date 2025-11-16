@@ -35,15 +35,16 @@ const updatePartnerSchema = z.object({
  */
 export async function GET(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const { id } = await params;
     const workspaceId = await getCurrentWorkspaceId();
     if (!workspaceId) {
       return NextResponse.json({ error: 'Non autorisé' }, { status: 401 });
     }
 
-    const partner = await partnerService.getById(params.id);
+    const partner = await partnerService.getById(id);
 
     if (!partner) {
       return NextResponse.json(
@@ -75,16 +76,17 @@ export async function GET(
  */
 export async function PATCH(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const { id } = await params;
     const workspaceId = await getCurrentWorkspaceId();
     if (!workspaceId) {
       return NextResponse.json({ error: 'Non autorisé' }, { status: 401 });
     }
 
     // Vérifier que le partenaire existe et appartient au workspace
-    const existing = await partnerService.getById(params.id);
+    const existing = await partnerService.getById(id);
     if (!existing) {
       return NextResponse.json(
         { error: 'Partenaire non trouvé' },
@@ -102,7 +104,7 @@ export async function PATCH(
     const validatedData = updatePartnerSchema.parse(body);
 
     // Mettre à jour
-    const updated = await partnerService.update(params.id, validatedData);
+    const updated = await partnerService.update(id, validatedData);
 
     return NextResponse.json({
       success: true,

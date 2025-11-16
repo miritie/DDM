@@ -12,10 +12,11 @@ const ruleEngineService = new RuleEngineService();
 
 export async function GET(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const ruleId = params.id;
+    const { id } = await params;
+    const ruleId = id;
 
     // Récupérer la règle
     const rule = await ruleEngineService.getRule(ruleId);
@@ -89,10 +90,11 @@ export async function GET(
 
 export async function PATCH(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const ruleId = params.id;
+    const { id } = await params;
+    const ruleId = id;
     const userId = 'current-user'; // TODO: Récupérer depuis session
 
     const body = await request.json();
@@ -193,10 +195,11 @@ export async function PATCH(
 
 export async function DELETE(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const ruleId = params.id;
+    const { id } = await params;
+    const ruleId = id;
 
     // Vérifier que la règle existe
     const existingRule = await ruleEngineService.getRule(ruleId);

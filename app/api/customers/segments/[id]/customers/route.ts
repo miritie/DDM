@@ -16,13 +16,14 @@ const service = new SegmentService();
  */
 export async function GET(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const { id } = await params;
     await requirePermission(PERMISSIONS.CUSTOMER_VIEW);
 
     const workspaceId = await getCurrentWorkspaceId();
-    const customers = await service.getSegmentCustomers(params.id, workspaceId);
+    const customers = await service.getSegmentCustomers(id, workspaceId);
 
     return NextResponse.json({ data: customers });
   } catch (error: any) {

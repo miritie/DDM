@@ -10,9 +10,10 @@ const validationService = new ValidationWorkflowService();
 
 export async function POST(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const { id } = await params;
     const body = await request.json();
 
     const {
@@ -59,7 +60,7 @@ export async function POST(
 
     // Traiter la validation
     const validationRequest = await validationService.processValidation({
-      validationRequestId: params.id,
+      validationRequestId: id,
       validatedBy,
       status,
       comment,

@@ -10,10 +10,11 @@ const ruleEngineService = new RuleEngineService();
 
 export async function POST(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const templateId = params.id;
+    const { id } = await params;
+    const templateId = id;
     const userId = 'current-user'; // TODO: Récupérer depuis session
 
     const body = await request.json();

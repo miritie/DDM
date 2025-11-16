@@ -15,12 +15,13 @@ const service = new CustomerService();
  */
 export async function POST(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const { id } = await params;
     await requirePermission(PERMISSIONS.CUSTOMER_EDIT);
 
-    const customer = await service.activate(params.id);
+    const customer = await service.activate(id);
 
     return NextResponse.json({
       data: customer,

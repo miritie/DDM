@@ -12,15 +12,16 @@ const depositService = new DepositService();
 
 export async function GET(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const { id } = await params;
     const workspaceId = await getCurrentWorkspaceId();
     if (!workspaceId) {
       return NextResponse.json({ error: 'Non autorisé' }, { status: 401 });
     }
 
-    const deposit = await depositService.getById(params.id);
+    const deposit = await depositService.getById(id);
 
     if (!deposit) {
       return NextResponse.json({ error: 'Dépôt non trouvé' }, { status: 404 });
@@ -45,15 +46,16 @@ export async function GET(
 
 export async function PATCH(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const { id } = await params;
     const workspaceId = await getCurrentWorkspaceId();
     if (!workspaceId) {
       return NextResponse.json({ error: 'Non autorisé' }, { status: 401 });
     }
 
-    const existing = await depositService.getById(params.id);
+    const existing = await depositService.getById(id);
     if (!existing) {
       return NextResponse.json({ error: 'Dépôt non trouvé' }, { status: 404 });
     }
@@ -63,7 +65,7 @@ export async function PATCH(
     }
 
     const body = await request.json();
-    const updated = await depositService.update(params.id, body);
+    const updated = await depositService.update(id, body);
 
     return NextResponse.json({
       success: true,

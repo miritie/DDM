@@ -10,10 +10,11 @@ const ruleEngineService = new RuleEngineService();
 
 export async function PATCH(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const ruleId = params.id;
+    const { id } = await params;
+    const ruleId = id;
     const userId = 'current-user'; // TODO: Récupérer depuis session
 
     // Vérifier que la règle existe
