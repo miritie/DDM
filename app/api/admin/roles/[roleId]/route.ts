@@ -55,7 +55,7 @@ export async function PUT(
   { params }: { params: Promise<{ roleId: string }> }
 ) {
   try {
-    await requirePermission(PERMISSIONS.ADMIN_ROLES_UPDATE);
+    await requirePermission(PERMISSIONS.ADMIN_ROLES_EDIT);
 
     const { roleId } = await params;
     const body = await request.json();

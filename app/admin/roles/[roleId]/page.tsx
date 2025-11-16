@@ -112,7 +112,7 @@ export default function EditRolePage() {
 
   if (loading) {
     return (
-      <ProtectedPage permission={PERMISSIONS.ADMIN_ROLES_UPDATE}>
+      <ProtectedPage permission={PERMISSIONS.ADMIN_ROLES_EDIT}>
         <div className="p-8 max-w-7xl mx-auto">
           <div className="flex items-center justify-center py-12">
             <Loader2 className="h-8 w-8 animate-spin text-blue-600" />
@@ -125,7 +125,7 @@ export default function EditRolePage() {
 
   if (notFound) {
     return (
-      <ProtectedPage permission={PERMISSIONS.ADMIN_ROLES_UPDATE}>
+      <ProtectedPage permission={PERMISSIONS.ADMIN_ROLES_EDIT}>
         <div className="p-8 max-w-7xl mx-auto">
           <Card className="border-red-200 bg-red-50">
             <CardHeader>
@@ -148,7 +148,7 @@ export default function EditRolePage() {
   }
 
   return (
-    <ProtectedPage permission={PERMISSIONS.ADMIN_ROLES_UPDATE}>
+    <ProtectedPage permission={PERMISSIONS.ADMIN_ROLES_EDIT}>
       <div className="p-8 max-w-7xl mx-auto">
         <div className="flex items-center justify-between mb-8">
           <h1 className="text-3xl font-bold flex items-center gap-2">
