@@ -183,3 +183,6 @@ export class LoyaltyService {
     });
   }
 }
+
+// Export singleton instance
+export const loyaltyService = new LoyaltyService();

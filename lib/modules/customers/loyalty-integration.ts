@@ -48,10 +48,10 @@ const LOYALTY_CONFIG = {
     firstPurchase: 100,
     tierUpgrade: 500,
     milestone: {
-      10orders: 200,
-      25orders: 500,
-      50orders: 1000,
-      100orders: 2000,
+      '10orders': 200,
+      '25orders': 500,
+      '50orders': 1000,
+      '100orders': 2000,
     },
   },
 };

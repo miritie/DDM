@@ -318,3 +318,6 @@ export class CustomerService {
     };
   }
 }
+
+// Export singleton instance
+export const customerService = new CustomerService();

@@ -3,7 +3,7 @@
  * Prévisions ventes, suggestions production, optimisations stocks
  */
 
-import { AirtableClient } from '@/lib/airtable/airtable-client';
+import { AirtableClient } from '@/lib/airtable/client';
 
 const airtable = new AirtableClient();
 

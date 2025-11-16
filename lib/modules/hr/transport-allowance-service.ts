@@ -3,7 +3,7 @@
  * Module RH - Remboursement des frais de déplacement
  */
 
-import { AirtableClient } from '@/lib/airtable/airtable-client';
+import { AirtableClient } from '@/lib/airtable/client';
 import {
   TransportAllowance,
   TransportAllowanceRule,

@@ -3,7 +3,7 @@
  * Gestion, exécution et monitoring des règles automatisées
  */
 
-import { AirtableClient } from '@/lib/airtable/airtable-client';
+import { AirtableClient } from '@/lib/airtable/client';
 import {
   DecisionRule,
   DecisionRecommendation,

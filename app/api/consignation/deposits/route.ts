@@ -7,7 +7,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { DepositService } from '@/lib/modules/consignation/deposit-service';
-import { getWorkspaceId } from '@/lib/auth/workspace';
+import { getCurrentWorkspaceId } from '@/lib/auth/get-session';
 
 const depositService = new DepositService();
 
@@ -38,7 +38,7 @@ const createDepositSchema = z.object({
  */
 export async function GET(request: NextRequest) {
   try {
-    const workspaceId = await getWorkspaceId(request);
+    const workspaceId = await getCurrentWorkspaceId();
     if (!workspaceId) {
       return NextResponse.json({ error: 'Non autorisé' }, { status: 401 });
     }
@@ -74,7 +74,7 @@ export async function GET(request: NextRequest) {
  */
 export async function POST(request: NextRequest) {
   try {
-    const workspaceId = await getWorkspaceId(request);
+    const workspaceId = await getCurrentWorkspaceId();
     if (!workspaceId) {
       return NextResponse.json({ error: 'Non autorisé' }, { status: 401 });
     }

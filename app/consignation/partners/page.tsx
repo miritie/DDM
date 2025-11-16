@@ -1,4 +1,4 @@
-('use client');
+'use client';
 
 /**
  * Page - Liste des Partenaires de Consignation (Mobile-First)
