@@ -4,16 +4,14 @@
 
 import Airtable, { FieldSet, Records } from 'airtable';
 
-// Configuration Airtable
+// Configuration Airtable (optionnel - migration vers PostgreSQL en cours)
 const apiKey = process.env.AIRTABLE_API_KEY;
 const baseId = process.env.AIRTABLE_BASE_ID;
 
-if (!apiKey || !baseId) {
-  throw new Error('AIRTABLE_API_KEY and AIRTABLE_BASE_ID must be set in .env.local');
-}
-
-const airtable = new Airtable({ apiKey });
-const base = airtable.base(baseId);
+// Airtable est désormais optionnel car la migration vers PostgreSQL est en cours
+// Si les clés ne sont pas définies, les méthodes retourneront des erreurs explicites
+const airtable = apiKey ? new Airtable({ apiKey }) : null;
+const base = (airtable && baseId) ? airtable.base(baseId) : null;
 
 /**
  * Options pour les requêtes list
@@ -34,6 +32,11 @@ export class AirtableClient {
    * Liste les enregistrements d'une table
    */
   async list<T>(tableName: string, options: ListOptions = {}): Promise<T[]> {
+    if (!base) {
+      console.warn('Airtable not configured - returning empty array');
+      return [];
+    }
+
     try {
       // Construire les options de sélection en ne gardant que les valeurs définies
       const selectOptions: any = {};
@@ -62,6 +65,11 @@ export class AirtableClient {
    * Récupère un enregistrement par son ID
    */
   async get<T>(tableName: string, recordId: string): Promise<T | null> {
+    if (!base) {
+      console.warn('Airtable not configured - operation skipped');
+      return null;
+    }
+
     try {
       const record = await base(tableName).find(recordId);
       return {
@@ -80,7 +88,12 @@ export class AirtableClient {
   /**
    * Crée un nouvel enregistrement
    */
-  async create<T>(tableName: string, data: Partial<T>): Promise<T> {
+  async create<T>(tableName: string, data: Partial<T>): Promise<T | null> {
+    if (!base) {
+      console.warn('Airtable not configured - operation skipped');
+      return null;
+    }
+
     try {
       const record = await base(tableName).create(data as FieldSet);
       return {
@@ -100,7 +113,12 @@ export class AirtableClient {
     tableName: string,
     recordId: string,
     data: Partial<T>
-  ): Promise<T> {
+  ): Promise<T | null> {
+    if (!base) {
+      console.warn('Airtable not configured - operation skipped');
+      return null;
+    }
+
     try {
       const record = await base(tableName).update(recordId, data as FieldSet);
       return {
@@ -117,6 +135,11 @@ export class AirtableClient {
    * Supprime un enregistrement
    */
   async delete(tableName: string, recordId: string): Promise<void> {
+    if (!base) {
+      console.warn('Airtable not configured - operation skipped');
+      return;
+    }
+
     try {
       await base(tableName).destroy(recordId);
     } catch (error) {
@@ -129,6 +152,11 @@ export class AirtableClient {
    * Crée plusieurs enregistrements en batch
    */
   async batchCreate<T>(tableName: string, records: Partial<T>[]): Promise<T[]> {
+    if (!base) {
+      console.warn('Airtable not configured - operation skipped');
+      return [];
+    }
+
     try {
       const created = await base(tableName).create(
         records.map((r) => ({ fields: r as FieldSet }))
@@ -150,6 +178,11 @@ export class AirtableClient {
     tableName: string,
     updates: Array<{ id: string; fields: Partial<T> }>
   ): Promise<T[]> {
+    if (!base) {
+      console.warn('Airtable not configured - operation skipped');
+      return [];
+    }
+
     try {
       const updated = await base(tableName).update(
         updates.map((u) => ({
@@ -171,6 +204,11 @@ export class AirtableClient {
    * Supprime plusieurs enregistrements en batch
    */
   async batchDelete(tableName: string, recordIds: string[]): Promise<void> {
+    if (!base) {
+      console.warn('Airtable not configured - operation skipped');
+      return;
+    }
+
     try {
       await base(tableName).destroy(recordIds);
     } catch (error) {
@@ -183,6 +221,11 @@ export class AirtableClient {
    * Compte le nombre d'enregistrements
    */
   async count(tableName: string, filterByFormula?: string): Promise<number> {
+    if (!base) {
+      console.warn('Airtable not configured - operation skipped');
+      return 0;
+    }
+
     try {
       const records = await this.list(tableName, {
         filterByFormula,
