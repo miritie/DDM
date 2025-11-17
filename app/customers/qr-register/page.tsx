@@ -1,9 +1,9 @@
+'use client';
+
 /**
  * Page - QR Code Auto-Enregistrement Client
  * Le client scanne le QR et remplit lui-même ses infos
  */
-
-'use client';
 
 import { useState, useEffect } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';

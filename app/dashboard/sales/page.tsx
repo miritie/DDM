@@ -1,9 +1,9 @@
+'use client';
+
 /**
  * Dashboard Commercial / Vendeur
  * Vue optimisée pour les actions de vente rapides
  */
-
-'use client';
 
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';

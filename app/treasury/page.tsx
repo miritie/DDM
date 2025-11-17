@@ -1,9 +1,9 @@
+'use client';
+
 /**
  * Page - Trésorerie Multi-wallet
  * Module 7.3
  */
-
-'use client';
 
 import * as React from 'react';
 import { useRouter } from 'next/navigation';

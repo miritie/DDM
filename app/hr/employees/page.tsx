@@ -1,9 +1,9 @@
+'use client';
+
 /**
  * Page - Gestion des Employés
  * Module Ressources Humaines
  */
-
-'use client';
 
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';

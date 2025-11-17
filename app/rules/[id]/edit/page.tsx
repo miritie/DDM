@@ -1,9 +1,9 @@
+'use client';
+
 /**
  * Page - Édition d'une Règle
  * Mobile-First - Formulaire de modification de règle existante
  */
-
-'use client';
 
 import { useState, useEffect } from 'react';
 import { useParams, useRouter } from 'next/navigation';

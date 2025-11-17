@@ -1,8 +1,8 @@
+'use client';
+
 /**
  * Page d'erreur d'authentification
  */
-
-'use client';
 
 import * as React from 'react';
 import { Suspense } from 'react';

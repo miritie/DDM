@@ -1,10 +1,10 @@
+'use client';
+
 /**
  * Page - Dashboard Direction Générale
  * Mobile-First - Vision temps réel de l'entreprise
  * KPIs, Graphiques, Alertes, Actions rapides
  */
-
-'use client';
 
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';

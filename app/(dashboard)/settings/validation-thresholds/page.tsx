@@ -1,9 +1,9 @@
+'use client';
+
 /**
  * Page - Configuration des Seuils de Validation
  * Interface mobile-first pour gérer les seuils par type d'entité
  */
-
-'use client';
 
 import { useState, useEffect } from 'react';
 import { ValidationThreshold, ValidatableEntityType } from '@/lib/modules/governance/validation-workflow-service';

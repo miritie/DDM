@@ -1,9 +1,9 @@
+'use client';
+
 /**
  * Page - Nouvelle Transaction
  * Module 7.3
  */
-
-'use client';
 
 import * as React from 'react';
 import { useRouter } from 'next/navigation';

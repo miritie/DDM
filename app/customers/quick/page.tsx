@@ -1,9 +1,9 @@
+'use client';
+
 /**
  * Page - Ajout Client ULTRA-Rapide (Mobile-First)
  * Objectif: Capturer un client en < 5 secondes avec juste son numéro
  */
-
-'use client';
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';

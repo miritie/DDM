@@ -1,9 +1,9 @@
+'use client';
+
 /**
  * Dashboard Comptable
  * Vue financière: trésorerie, dépenses, paie, rapports
  */
-
-'use client';
 
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';

@@ -1,8 +1,8 @@
+'use client';
+
 /**
  * Page - Liste Complète des Demandes de Dépenses (Mobile-First)
  */
-
-'use client';
 
 import { useState, useEffect } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';

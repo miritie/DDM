@@ -1,9 +1,9 @@
+'use client';
+
 /**
  * Dashboard Administrateur
  * Vue d'ensemble système, utilisateurs, sécurité, et gestion
  */
-
-'use client';
 
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';

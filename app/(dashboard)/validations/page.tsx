@@ -1,9 +1,9 @@
+'use client';
+
 /**
  * Page - File de Validation Centralisée
  * Interface mobile-first pour la validation hiérarchique
  */
-
-'use client';
 
 import React, { useState, useEffect } from 'react';
 import { ValidationRequest, ValidationStatus, ValidationLevel } from '@/lib/modules/governance/validation-workflow-service';

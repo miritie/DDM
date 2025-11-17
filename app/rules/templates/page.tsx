@@ -1,9 +1,9 @@
+'use client';
+
 /**
  * Page - Templates de Règles
  * Mobile-First - Bibliothèque de templates prêts à l'emploi
  */
-
-'use client';
 
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';

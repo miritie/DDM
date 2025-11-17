@@ -1,9 +1,9 @@
+'use client';
+
 /**
  * Page - Pointage d'Arrivée Géolocalisé (Mobile-First)
  * Module RH - Check-in avec photo et géolocalisation
  */
-
-'use client';
 
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';

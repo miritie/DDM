@@ -1,9 +1,9 @@
+'use client';
+
 /**
  * Page - Détails Avance/Dette
  * Module 7.5
  */
-
-'use client';
 
 import * as React from 'react';
 import { useRouter, useParams } from 'next/navigation';

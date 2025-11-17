@@ -1,8 +1,8 @@
+'use client';
+
 /**
  * Page - Dashboard Dépenses & Sollicitations (Mobile-First)
  */
-
-'use client';
 
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';

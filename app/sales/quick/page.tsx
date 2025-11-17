@@ -1,10 +1,10 @@
+'use client';
+
 /**
  * Page - VENTE RAPIDE ⚡
  * Vendre en 1 CLIC - Interface ultra-rapide et efficace
  * Module Ventes & Encaissements
  */
-
-'use client';
 
 import { useState, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';

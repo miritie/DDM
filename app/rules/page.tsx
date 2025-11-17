@@ -1,10 +1,10 @@
+'use client';
+
 /**
  * Page - Gestion des Règles Métier
  * Dashboard et liste des règles automatisées
  * Mobile-First
  */
-
-'use client';
 
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';

@@ -1,10 +1,10 @@
+'use client';
+
 /**
  * Page - Dashboard IA Prédictif
  * Tableau de bord centralisé pour tous les insights et prévisions IA
  * Mobile-First avec permissions par rôle
  */
-
-'use client';
 
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';

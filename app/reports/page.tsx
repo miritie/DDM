@@ -1,9 +1,9 @@
+'use client';
+
 /**
  * Page - Gestion des Rapports
  * Module Rapports & Analytics
  */
-
-'use client';
 
 import { useEffect, useState } from 'react';
 import { Report, ReportExecution } from '@/types/modules';

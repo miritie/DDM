@@ -1,9 +1,9 @@
+'use client';
+
 /**
  * Page - Journal des Validations
  * Historique complet avec traçabilité et géolocalisation
  */
-
-'use client';
 
 import { useState, useEffect } from 'react';
 import { ValidationRequest, Validation, ValidatableEntityType } from '@/lib/modules/governance/validation-workflow-service';

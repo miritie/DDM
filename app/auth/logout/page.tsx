@@ -1,8 +1,8 @@
+'use client';
+
 /**
  * Page de déconnexion
  */
-
-'use client';
 
 import * as React from 'react';
 import { signOut } from 'next-auth/react';

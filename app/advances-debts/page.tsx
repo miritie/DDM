@@ -1,9 +1,9 @@
+'use client';
+
 /**
  * Page - Liste des Avances & Dettes
  * Module 7.5
  */
-
-'use client';
 
 import * as React from 'react';
 import { useRouter } from 'next/navigation';

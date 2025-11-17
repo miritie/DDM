@@ -1,9 +1,9 @@
+'use client';
+
 /**
  * Page - Dashboard Analytics avec KPIs et Graphiques
  * Module Rapports & Analytics
  */
-
-'use client';
 
 import { useEffect, useState } from 'react';
 import { GlobalDashboard, DashboardKPI } from '@/types/modules';

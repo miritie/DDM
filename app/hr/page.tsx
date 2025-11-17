@@ -1,9 +1,9 @@
+'use client';
+
 /**
  * Page - Dashboard RH (Mobile-First)
  * Module Ressources Humaines
  */
-
-'use client';
 
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';

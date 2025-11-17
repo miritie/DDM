@@ -1,9 +1,9 @@
+'use client';
+
 /**
  * Page - Configuration Rapports & Transmission
  * Mobile-First - Paramétrage Point Flash, Dépenses quotidiennes, Groupes WhatsApp
  */
-
-'use client';
 
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';

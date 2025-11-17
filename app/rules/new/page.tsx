@@ -1,9 +1,9 @@
+'use client';
+
 /**
  * Page - Création de Règle Métier
  * Wizard mobile-first en 4 étapes
  */
-
-'use client';
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';

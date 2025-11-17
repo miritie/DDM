@@ -1,9 +1,9 @@
+'use client';
+
 /**
  * Dashboard Manager
  * Vue opérationnelle: ventes, stock, employés, clients
  */
-
-'use client';
 
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
