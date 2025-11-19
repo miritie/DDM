@@ -64,7 +64,11 @@ export class LeaveService {
       UpdatedAt: new Date().toISOString(),
     };
 
-    return await airtableClient.create<Leave>('Leave', leave);
+    const created = await airtableClient.create<Leave>('Leave', leave);
+    if (!created) {
+      throw new Error('Failed to create leave - Airtable not configured');
+    }
+    return created;
   }
 
   async getById(leaveId: string): Promise<Leave | null> {
@@ -114,7 +118,7 @@ export class LeaveService {
       throw new Error('Ce congé a déjà été traité');
     }
 
-    return await airtableClient.update<Leave>(
+    const updated = await airtableClient.update<Leave>(
       'Leave',
       (leaves[0] as any)._recordId,
       {
@@ -125,6 +129,10 @@ export class LeaveService {
         UpdatedAt: new Date().toISOString(),
       }
     );
+    if (!updated) {
+      throw new Error('Failed to update leave - Airtable not configured');
+    }
+    return updated;
   }
 
   async cancel(leaveId: string): Promise<Leave> {
@@ -136,7 +144,7 @@ export class LeaveService {
       throw new Error('Congé non trouvé');
     }
 
-    return await airtableClient.update<Leave>(
+    const updated = await airtableClient.update<Leave>(
       'Leave',
       (leaves[0] as any)._recordId,
       {
@@ -144,6 +152,10 @@ export class LeaveService {
         UpdatedAt: new Date().toISOString(),
       }
     );
+    if (!updated) {
+      throw new Error('Failed to update leave - Airtable not configured');
+    }
+    return updated;
   }
 
   async getBalance(employeeId: string, year: number = new Date().getFullYear()): Promise<LeaveBalance[]> {

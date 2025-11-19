@@ -204,10 +204,16 @@ export class TransactionService {
 
     const recordId = (records[0] as any)._recordId;
 
-    return await airtableClient.update<Transaction>('Transaction', recordId, {
+    const updated = await airtableClient.update<Transaction>('Transaction', recordId, {
       ...updates,
       UpdatedAt: new Date().toISOString(),
     });
+
+    if (!updated) {
+      throw new Error('Failed to update transaction - Airtable not configured');
+    }
+
+    return updated;
   }
 
   /**
@@ -277,7 +283,11 @@ export class TransactionService {
       UpdatedAt: new Date().toISOString(),
     };
 
-    return await airtableClient.create<Transaction>('Transaction', transaction);
+    const created = await airtableClient.create<Transaction>('Transaction', transaction);
+    if (!created) {
+      throw new Error('Failed to create transaction - Airtable not configured');
+    }
+    return created;
   }
 
   /**

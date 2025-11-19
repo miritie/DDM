@@ -137,6 +137,9 @@ export class ConsignationReturnService {
       'ConsignationReturn',
       returnDoc
     );
+    if (!created) {
+      throw new Error('Failed to create consignation return - Airtable not configured');
+    }
 
     // Mettre à jour les quantités dans le dépôt
     for (const line of input.lines) {
@@ -412,7 +415,7 @@ export class ConsignationReturnService {
       throw new Error('Retour non trouvé');
     }
 
-    return await airtableClient.update<ConsignationReturn>(
+    const updated = await airtableClient.update<ConsignationReturn>(
       'ConsignationReturn',
       (returns[0] as any)._recordId,
       {
@@ -420,5 +423,9 @@ export class ConsignationReturnService {
         UpdatedAt: new Date().toISOString(),
       }
     );
+    if (!updated) {
+      throw new Error('Failed to update consignation return - Airtable not configured');
+    }
+    return updated;
   }
 }

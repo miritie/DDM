@@ -119,7 +119,11 @@ export class PartnerService {
       UpdatedAt: new Date().toISOString(),
     };
 
-    return await airtableClient.create<Partner>('Partner', partner);
+    const created = await airtableClient.create<Partner>('Partner', partner);
+    if (!created) {
+      throw new Error('Failed to create partner - Airtable not configured');
+    }
+    return created;
   }
 
   /**
@@ -222,11 +226,15 @@ export class PartnerService {
     if (updates.notes !== undefined) updateData.Notes = updates.notes;
     if (updates.tags !== undefined) updateData.Tags = updates.tags;
 
-    return await airtableClient.update<Partner>(
+    const updated = await airtableClient.update<Partner>(
       'Partner',
       (partners[0] as any)._recordId,
       updateData
     );
+    if (!updated) {
+      throw new Error('Failed to update partner - Airtable not configured');
+    }
+    return updated;
   }
 
   /**
@@ -279,11 +287,15 @@ export class PartnerService {
     if (updates.totalReturned !== undefined) updateData.TotalReturned = updates.totalReturned;
     if (updates.currentBalance !== undefined) updateData.CurrentBalance = updates.currentBalance;
 
-    return await airtableClient.update<Partner>(
+    const updated = await airtableClient.update<Partner>(
       'Partner',
       (partners[0] as any)._recordId,
       updateData
     );
+    if (!updated) {
+      throw new Error('Failed to update partner - Airtable not configured');
+    }
+    return updated;
   }
 
   /**

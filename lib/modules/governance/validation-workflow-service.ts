@@ -186,7 +186,9 @@ export class ValidationWorkflowService {
       'ValidationRequest',
       validationRequest
     );
-
+    if (!created) {
+      throw new Error('Failed to create validation request - Airtable not configured');
+    }
     return created;
   }
 
@@ -288,6 +290,9 @@ export class ValidationWorkflowService {
         UpdatedAt: new Date().toISOString(),
       }
     );
+    if (!updated) {
+      throw new Error('Failed to update validation request - Airtable not configured');
+    }
 
     // Envoyer notifications selon le statut
     await this.sendNotifications(updated, validation);

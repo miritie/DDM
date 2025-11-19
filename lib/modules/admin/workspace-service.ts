@@ -82,7 +82,13 @@ export class WorkspaceService {
       UpdatedAt: new Date().toISOString(),
     };
 
-    return await airtableClient.create<Workspace>('Workspace', workspace);
+    const created = await airtableClient.create<Workspace>('Workspace', workspace);
+
+    if (!created) {
+      throw new Error('Failed to create workspace - Airtable not configured');
+    }
+
+    return created;
   }
 
   /**
@@ -112,10 +118,16 @@ export class WorkspaceService {
 
     const recordId = (records[0] as any)._recordId;
 
-    return await airtableClient.update<Workspace>('Workspace', recordId, {
+    const updated = await airtableClient.update<Workspace>('Workspace', recordId, {
       ...updates,
       UpdatedAt: new Date().toISOString(),
     });
+
+    if (!updated) {
+      throw new Error('Failed to update workspace - Airtable not configured');
+    }
+
+    return updated;
   }
 
   /**

@@ -104,6 +104,9 @@ export class MovementService {
       'StockMovement',
       movement
     );
+    if (!created) {
+      throw new Error('Failed to create stock movement - Airtable not configured');
+    }
 
     // Auto-validate certain types of movements
     if (input.type === 'entry' || input.type === 'adjustment') {
@@ -136,7 +139,7 @@ export class MovementService {
       filterByFormula: `{MovementId} = '${input.movementId}'`,
     });
 
-    return await airtableClient.update<StockMovement>(
+    const updated = await airtableClient.update<StockMovement>(
       'StockMovement',
       (movements[0] as any)._recordId,
       {
@@ -146,6 +149,10 @@ export class MovementService {
         UpdatedAt: new Date().toISOString(),
       }
     );
+    if (!updated) {
+      throw new Error('Failed to update stock movement - Airtable not configured');
+    }
+    return updated;
   }
 
   /**
@@ -165,7 +172,7 @@ export class MovementService {
       filterByFormula: `{MovementId} = '${movementId}'`,
     });
 
-    return await airtableClient.update<StockMovement>(
+    const updated = await airtableClient.update<StockMovement>(
       'StockMovement',
       (movements[0] as any)._recordId,
       {
@@ -173,6 +180,10 @@ export class MovementService {
         UpdatedAt: new Date().toISOString(),
       }
     );
+    if (!updated) {
+      throw new Error('Failed to update stock movement - Airtable not configured');
+    }
+    return updated;
   }
 
   /**

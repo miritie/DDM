@@ -113,7 +113,11 @@ export class IngredientService {
       UpdatedAt: new Date().toISOString(),
     };
 
-    return await airtableClient.create<Ingredient>('Ingredient', ingredient);
+    const created = await airtableClient.create<Ingredient>('Ingredient', ingredient);
+    if (!created) {
+      throw new Error('Failed to create ingredient - Airtable not configured');
+    }
+    return created;
   }
 
   /**
@@ -143,10 +147,14 @@ export class IngredientService {
 
     const recordId = (records[0] as any)._recordId;
 
-    return await airtableClient.update<Ingredient>('Ingredient', recordId, {
+    const updated = await airtableClient.update<Ingredient>('Ingredient', recordId, {
       ...updates,
       UpdatedAt: new Date().toISOString(),
     });
+    if (!updated) {
+      throw new Error('Failed to update ingredient - Airtable not configured');
+    }
+    return updated;
   }
 
   /**
@@ -175,11 +183,15 @@ export class IngredientService {
 
     const recordId = (records[0] as any)._recordId;
 
-    return await airtableClient.update<Ingredient>('Ingredient', recordId, {
+    const updated = await airtableClient.update<Ingredient>('Ingredient', recordId, {
       CurrentStock: newStock,
       UnitCost: newUnitCost,
       UpdatedAt: new Date().toISOString(),
     });
+    if (!updated) {
+      throw new Error('Failed to update ingredient - Airtable not configured');
+    }
+    return updated;
   }
 
   /**
@@ -209,10 +221,14 @@ export class IngredientService {
 
     const recordId = (records[0] as any)._recordId;
 
-    return await airtableClient.update<Ingredient>('Ingredient', recordId, {
+    const updated = await airtableClient.update<Ingredient>('Ingredient', recordId, {
       CurrentStock: newStock,
       UpdatedAt: new Date().toISOString(),
     });
+    if (!updated) {
+      throw new Error('Failed to update ingredient - Airtable not configured');
+    }
+    return updated;
   }
 
   /**

@@ -45,7 +45,11 @@ export class CustomerService {
       UpdatedAt: new Date().toISOString(),
     };
 
-    return await airtableClient.create<Customer>('Client', customer);
+    const created = await airtableClient.create<Customer>('Client', customer);
+    if (!created) {
+      throw new Error('Failed to create customer - Airtable not configured');
+    }
+    return created;
   }
 
   /**
@@ -121,7 +125,7 @@ export class CustomerService {
       throw new Error('Client non trouvé');
     }
 
-    return await airtableClient.update<Customer>(
+    const updated = await airtableClient.update<Customer>(
       'Client',
       (customers[0] as any)._recordId,
       {
@@ -129,6 +133,10 @@ export class CustomerService {
         UpdatedAt: new Date().toISOString(),
       }
     );
+    if (!updated) {
+      throw new Error('Failed to update customer - Airtable not configured');
+    }
+    return updated;
   }
 
   /**

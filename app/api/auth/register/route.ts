@@ -61,6 +61,13 @@ export async function POST(request: NextRequest) {
 
     const user = await airtableClient.create<User>('User', newUser);
 
+    if (!user) {
+      return NextResponse.json(
+        { error: 'Airtable not configured - user registration disabled' },
+        { status: 503 }
+      );
+    }
+
     return NextResponse.json({
       success: true,
       user: {

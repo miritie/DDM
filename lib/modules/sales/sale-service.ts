@@ -121,6 +121,9 @@ export class SaleService {
     };
 
     const createdSale = await airtableClient.create<Sale>('Sale', sale);
+    if (!createdSale) {
+      throw new Error('Failed to create sale - Airtable not configured');
+    }
 
     // Create sale items
     for (const item of input.items) {
@@ -138,7 +141,10 @@ export class SaleService {
         UpdatedAt: new Date().toISOString(),
       };
 
-      await airtableClient.create<SaleItem>('SaleItem', saleItem);
+      const createdItem = await airtableClient.create<SaleItem>('SaleItem', saleItem);
+      if (!createdItem) {
+        throw new Error('Failed to create sale item - Airtable not configured');
+      }
     }
 
     return createdSale;
@@ -220,11 +226,15 @@ export class SaleService {
       UpdatedAt: new Date().toISOString(),
     };
 
-    return await airtableClient.update<Sale>(
+    const updated = await airtableClient.update<Sale>(
       'Sale',
       (sales[0] as any)._recordId,
       updates
     );
+    if (!updated) {
+      throw new Error('Failed to update sale - Airtable not configured');
+    }
+    return updated;
   }
 
   /**
@@ -287,6 +297,9 @@ export class SaleService {
       'SalePayment',
       payment
     );
+    if (!createdPayment) {
+      throw new Error('Failed to create sale payment - Airtable not configured');
+    }
 
     // Update sale amounts
     const newAmountPaid = sale.AmountPaid + input.amount;
@@ -303,12 +316,15 @@ export class SaleService {
       filterByFormula: `{SaleId} = '${input.saleId}'`,
     });
 
-    await airtableClient.update<Sale>('Sale', (sales[0] as any)._recordId, {
+    const updatedSale = await airtableClient.update<Sale>('Sale', (sales[0] as any)._recordId, {
       AmountPaid: newAmountPaid,
       Balance: newBalance,
       PaymentStatus: newPaymentStatus,
       UpdatedAt: new Date().toISOString(),
     });
+    if (!updatedSale) {
+      throw new Error('Failed to update sale - Airtable not configured');
+    }
 
     return createdPayment;
   }

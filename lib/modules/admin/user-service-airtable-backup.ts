@@ -106,7 +106,13 @@ export class UserService {
       UpdatedAt: new Date().toISOString(),
     };
 
-    return await airtableClient.create<User>('User', user);
+    const created = await airtableClient.create<User>('User', user);
+
+    if (!created) {
+      throw new Error('Failed to create user - Airtable not configured');
+    }
+
+    return created;
   }
 
   /**
@@ -136,10 +142,16 @@ export class UserService {
 
     const recordId = (records[0] as any)._recordId;
 
-    return await airtableClient.update<User>('User', recordId, {
+    const updated = await airtableClient.update<User>('User', recordId, {
       ...updates,
       UpdatedAt: new Date().toISOString(),
     });
+
+    if (!updated) {
+      throw new Error('Failed to update user - Airtable not configured');
+    }
+
+    return updated;
   }
 
   /**

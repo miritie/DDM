@@ -73,7 +73,9 @@ export class ValidationThresholdService {
       'ValidationThreshold',
       threshold
     );
-
+    if (!created) {
+      throw new Error('Failed to create validation threshold - Airtable not configured');
+    }
     return created;
   }
 
@@ -113,7 +115,9 @@ export class ValidationThresholdService {
         UpdatedAt: new Date().toISOString(),
       }
     );
-
+    if (!updated) {
+      throw new Error('Failed to update validation threshold - Airtable not configured');
+    }
     return updated;
   }
 

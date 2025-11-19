@@ -106,7 +106,11 @@ export class SettlementService {
       UpdatedAt: new Date().toISOString(),
     };
 
-    return await airtableClient.create<Settlement>('Settlement', settlement);
+    const created = await airtableClient.create<Settlement>('Settlement', settlement);
+    if (!created) {
+      throw new Error('Failed to create settlement - Airtable not configured');
+    }
+    return created;
   }
 
   /**
@@ -222,11 +226,15 @@ export class SettlementService {
       UpdatedAt: new Date().toISOString(),
     };
 
-    return await airtableClient.update<Settlement>(
+    const updated = await airtableClient.update<Settlement>(
       'Settlement',
       (settlement as any)._recordId,
       updateData
     );
+    if (!updated) {
+      throw new Error('Failed to update settlement - Airtable not configured');
+    }
+    return updated;
   }
 
   /**
@@ -268,11 +276,15 @@ export class SettlementService {
         : `Annulation: ${reason}`;
     }
 
-    return await airtableClient.update<Settlement>(
+    const updated = await airtableClient.update<Settlement>(
       'Settlement',
       (settlement as any)._recordId,
       updateData
     );
+    if (!updated) {
+      throw new Error('Failed to update settlement - Airtable not configured');
+    }
+    return updated;
   }
 
   /**
@@ -289,10 +301,14 @@ export class SettlementService {
 
     const settlement = settlements[0];
 
-    return await airtableClient.update<Settlement>('Settlement', (settlement as any)._recordId, {
+    const updated = await airtableClient.update<Settlement>('Settlement', (settlement as any)._recordId, {
       TransactionId: transactionId,
       UpdatedAt: new Date().toISOString(),
     });
+    if (!updated) {
+      throw new Error('Failed to update settlement - Airtable not configured');
+    }
+    return updated;
   }
 
   /**

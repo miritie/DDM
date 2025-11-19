@@ -57,6 +57,9 @@ export class StockMovementService {
     };
 
     const createdMovement = await airtableClient.create<StockMovement>('StockMovement', movement);
+    if (!createdMovement) {
+      throw new Error('Failed to create stock movement - Airtable not configured');
+    }
 
     // Valider automatiquement le mouvement (mettre à jour les stocks)
     await this.validate(createdMovement.MovementId);
@@ -174,7 +177,7 @@ export class StockMovementService {
       }
 
       // Marquer le mouvement comme validé
-      return await airtableClient.update<StockMovement>(
+      const updated = await airtableClient.update<StockMovement>(
         'StockMovement',
         (movements[0] as any)._recordId,
         {
@@ -183,6 +186,10 @@ export class StockMovementService {
           UpdatedAt: new Date().toISOString(),
         }
       );
+      if (!updated) {
+        throw new Error('Failed to update stock movement - Airtable not configured');
+      }
+      return updated;
     } catch (error: any) {
       // En cas d'erreur, annuler le mouvement
       await airtableClient.update<StockMovement>(
@@ -213,7 +220,7 @@ export class StockMovementService {
       throw new Error('Impossible d\'annuler un mouvement validé. Créez un mouvement inverse.');
     }
 
-    return await airtableClient.update<StockMovement>(
+    const updated = await airtableClient.update<StockMovement>(
       'StockMovement',
       (movements[0] as any)._recordId,
       {
@@ -221,6 +228,10 @@ export class StockMovementService {
         UpdatedAt: new Date().toISOString(),
       }
     );
+    if (!updated) {
+      throw new Error('Failed to update stock movement - Airtable not configured');
+    }
+    return updated;
   }
 
   /**

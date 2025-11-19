@@ -64,7 +64,11 @@ export class ExpenseService {
       UpdatedAt: new Date().toISOString(),
     };
 
-    return await airtableClient.create<Expense>('Expense', expense);
+    const created = await airtableClient.create<Expense>('Expense', expense);
+    if (!created) {
+      throw new Error('Failed to create expense - Airtable not configured');
+    }
+    return created;
   }
 
   async getById(expenseId: string): Promise<Expense | null> {
@@ -126,7 +130,7 @@ export class ExpenseService {
       throw new Error('Seules les dépenses en attente peuvent être approuvées');
     }
 
-    return await airtableClient.update<Expense>(
+    const updated = await airtableClient.update<Expense>(
       'Expense',
       (expenses[0] as any)._recordId,
       {
@@ -134,6 +138,10 @@ export class ExpenseService {
         UpdatedAt: new Date().toISOString(),
       }
     );
+    if (!updated) {
+      throw new Error('Failed to update expense - Airtable not configured');
+    }
+    return updated;
   }
 
   async pay(input: PayExpenseInput): Promise<Expense> {
@@ -149,7 +157,7 @@ export class ExpenseService {
       throw new Error('Seules les dépenses approuvées peuvent être payées');
     }
 
-    return await airtableClient.update<Expense>(
+    const updated = await airtableClient.update<Expense>(
       'Expense',
       (expenses[0] as any)._recordId,
       {
@@ -160,6 +168,10 @@ export class ExpenseService {
         UpdatedAt: new Date().toISOString(),
       }
     );
+    if (!updated) {
+      throw new Error('Failed to update expense - Airtable not configured');
+    }
+    return updated;
   }
 
   async reject(expenseId: string): Promise<Expense> {
@@ -175,7 +187,7 @@ export class ExpenseService {
       throw new Error('Seules les dépenses en attente peuvent être rejetées');
     }
 
-    return await airtableClient.update<Expense>(
+    const updated = await airtableClient.update<Expense>(
       'Expense',
       (expenses[0] as any)._recordId,
       {
@@ -183,6 +195,10 @@ export class ExpenseService {
         UpdatedAt: new Date().toISOString(),
       }
     );
+    if (!updated) {
+      throw new Error('Failed to update expense - Airtable not configured');
+    }
+    return updated;
   }
 
   async cancel(expenseId: string): Promise<Expense> {
@@ -198,7 +214,7 @@ export class ExpenseService {
       throw new Error('Une dépense payée ne peut pas être annulée');
     }
 
-    return await airtableClient.update<Expense>(
+    const updated = await airtableClient.update<Expense>(
       'Expense',
       (expenses[0] as any)._recordId,
       {
@@ -206,6 +222,10 @@ export class ExpenseService {
         UpdatedAt: new Date().toISOString(),
       }
     );
+    if (!updated) {
+      throw new Error('Failed to update expense - Airtable not configured');
+    }
+    return updated;
   }
 
   async addAttachment(input: AddAttachmentInput): Promise<ExpenseAttachment> {
@@ -220,7 +240,11 @@ export class ExpenseService {
       UploadedAt: new Date().toISOString(),
     };
 
-    return await airtableClient.create<ExpenseAttachment>('ExpenseAttachment', attachment);
+    const created = await airtableClient.create<ExpenseAttachment>('ExpenseAttachment', attachment);
+    if (!created) {
+      throw new Error('Failed to create expense attachment - Airtable not configured');
+    }
+    return created;
   }
 
   async getAttachments(expenseId: string): Promise<ExpenseAttachment[]> {

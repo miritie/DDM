@@ -181,10 +181,14 @@ export class DecisionEngineService {
       UpdatedAt: new Date().toISOString(),
     };
 
-    return await airtableClient.create<DecisionRecommendation>(
+    const created = await airtableClient.create<DecisionRecommendation>(
       'DecisionRecommendation',
       recommendation
     );
+    if (!created) {
+      throw new Error('Failed to create decision recommendation - Airtable not configured');
+    }
+    return created;
   }
 
   /**
@@ -213,10 +217,14 @@ export class DecisionEngineService {
       UpdatedAt: new Date().toISOString(),
     };
 
-    return await airtableClient.create<DecisionRecommendation>(
+    const created = await airtableClient.create<DecisionRecommendation>(
       'DecisionRecommendation',
       recommendation
     );
+    if (!created) {
+      throw new Error('Failed to create decision recommendation - Airtable not configured');
+    }
+    return created;
   }
 
   /**
@@ -363,11 +371,15 @@ export class DecisionEngineService {
       }
     }
 
-    return await airtableClient.update<DecisionRecommendation>(
+    const updated = await airtableClient.update<DecisionRecommendation>(
       'DecisionRecommendation',
       (recommendation as any)._recordId,
       updateData
     );
+    if (!updated) {
+      throw new Error('Failed to update decision recommendation - Airtable not configured');
+    }
+    return updated;
   }
 
   /**

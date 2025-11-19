@@ -31,7 +31,13 @@ export class JournalService {
       UpdatedAt: new Date().toISOString(),
     };
 
-    return await airtableClient.create<Journal>('Journal', journal);
+    const created = await airtableClient.create<Journal>('Journal', journal);
+
+    if (!created) {
+      throw new Error('Failed to create journal - Airtable not configured');
+    }
+
+    return created;
   }
 
   async getById(journalId: string): Promise<Journal | null> {

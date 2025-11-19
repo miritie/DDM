@@ -93,7 +93,11 @@ export class EmployeeService {
       UpdatedAt: new Date().toISOString(),
     };
 
-    return await airtableClient.create<Employee>('Employee', employee);
+    const created = await airtableClient.create<Employee>('Employee', employee);
+    if (!created) {
+      throw new Error('Failed to create employee - Airtable not configured');
+    }
+    return created;
   }
 
   /**
@@ -160,11 +164,15 @@ export class EmployeeService {
       UpdatedAt: new Date().toISOString(),
     };
 
-    return await airtableClient.update<Employee>(
+    const updated = await airtableClient.update<Employee>(
       'Employee',
       (employees[0] as any)._recordId,
       updates
     );
+    if (!updated) {
+      throw new Error('Failed to update employee - Airtable not configured');
+    }
+    return updated;
   }
 
   /**

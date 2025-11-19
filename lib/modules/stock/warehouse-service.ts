@@ -60,7 +60,11 @@ export class WarehouseService {
       UpdatedAt: new Date().toISOString(),
     };
 
-    return await airtableClient.create<Warehouse>('Warehouse', warehouse);
+    const created = await airtableClient.create<Warehouse>('Warehouse', warehouse);
+    if (!created) {
+      throw new Error('Failed to create warehouse - Airtable not configured');
+    }
+    return created;
   }
 
   /**
@@ -115,11 +119,15 @@ export class WarehouseService {
       UpdatedAt: new Date().toISOString(),
     };
 
-    return await airtableClient.update<Warehouse>(
+    const updated = await airtableClient.update<Warehouse>(
       'Warehouse',
       (warehouses[0] as any)._recordId,
       updates
     );
+    if (!updated) {
+      throw new Error('Failed to update warehouse - Airtable not configured');
+    }
+    return updated;
   }
 
   /**

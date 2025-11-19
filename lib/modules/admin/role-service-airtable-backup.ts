@@ -79,7 +79,13 @@ export class RoleService {
       UpdatedAt: new Date().toISOString(),
     };
 
-    return await airtableClient.create<Role>('Role', role);
+    const created = await airtableClient.create<Role>('Role', role);
+
+    if (!created) {
+      throw new Error('Failed to create role - Airtable not configured');
+    }
+
+    return created;
   }
 
   /**
@@ -109,10 +115,16 @@ export class RoleService {
 
     const recordId = (records[0] as any)._recordId;
 
-    return await airtableClient.update<Role>('Role', recordId, {
+    const updated = await airtableClient.update<Role>('Role', recordId, {
       ...updates,
       UpdatedAt: new Date().toISOString(),
     });
+
+    if (!updated) {
+      throw new Error('Failed to update role - Airtable not configured');
+    }
+
+    return updated;
   }
 
   /**

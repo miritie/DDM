@@ -84,7 +84,11 @@ export class ExpenseProofService {
       UploadedAt: new Date().toISOString(),
     };
 
-    return await airtableClient.create<ExpenseProof>('ExpenseProof', proof);
+    const created = await airtableClient.create<ExpenseProof>('ExpenseProof', proof);
+    if (!created) {
+      throw new Error('Failed to create expense proof - Airtable not configured');
+    }
+    return created;
   }
 
   /**
@@ -139,11 +143,15 @@ export class ExpenseProofService {
       updateData.Description = updates.description;
     }
 
-    return await airtableClient.update<ExpenseProof>(
+    const updated = await airtableClient.update<ExpenseProof>(
       'ExpenseProof',
       proof._recordId,
       updateData
     );
+    if (!updated) {
+      throw new Error('Failed to update expense proof - Airtable not configured');
+    }
+    return updated;
   }
 
   /**

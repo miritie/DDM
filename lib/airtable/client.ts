@@ -242,7 +242,7 @@ export class AirtableClient {
    */
   base(baseId?: string) {
     if (baseId) {
-      return airtable.base(baseId);
+      return airtable ? airtable.base(baseId) : null;
     }
     return base;
   }

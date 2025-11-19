@@ -61,7 +61,11 @@ export class AttendanceService {
       UpdatedAt: new Date().toISOString(),
     };
 
-    return await airtableClient.create<Attendance>('Attendance', attendance);
+    const created = await airtableClient.create<Attendance>('Attendance', attendance);
+    if (!created) {
+      throw new Error('Failed to create attendance - Airtable not configured');
+    }
+    return created;
   }
 
   async getById(attendanceId: string): Promise<Attendance | null> {
@@ -133,7 +137,7 @@ export class AttendanceService {
     const checkOutTime = updates.checkOutTime || currentAttendance.CheckOutTime;
     const workedHours = this.calculateWorkedHours(checkInTime, checkOutTime);
 
-    return await airtableClient.update<Attendance>(
+    const updated = await airtableClient.update<Attendance>(
       'Attendance',
       (attendances[0] as any)._recordId,
       {
@@ -142,6 +146,10 @@ export class AttendanceService {
         UpdatedAt: new Date().toISOString(),
       } as any
     );
+    if (!updated) {
+      throw new Error('Failed to update attendance - Airtable not configured');
+    }
+    return updated;
   }
 
   async validate(input: ValidateAttendanceInput): Promise<Attendance> {
@@ -153,7 +161,7 @@ export class AttendanceService {
       throw new Error('Présence non trouvée');
     }
 
-    return await airtableClient.update<Attendance>(
+    const updated = await airtableClient.update<Attendance>(
       'Attendance',
       (attendances[0] as any)._recordId,
       {
@@ -162,6 +170,10 @@ export class AttendanceService {
         UpdatedAt: new Date().toISOString(),
       }
     );
+    if (!updated) {
+      throw new Error('Failed to update attendance - Airtable not configured');
+    }
+    return updated;
   }
 
   async delete(attendanceId: string): Promise<void> {

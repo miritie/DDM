@@ -106,6 +106,9 @@ export class AdvanceDebtService {
     };
 
     const created = await airtableClient.create<AdvanceDebt>('AdvanceDebt', advanceDebt);
+    if (!created) {
+      throw new Error('Failed to create advance debt - Airtable not configured');
+    }
 
     // Créer les échéanciers si fournis
     if (input.schedules && input.schedules.length > 0) {
@@ -144,10 +147,16 @@ export class AdvanceDebtService {
 
     const recordId = (records[0] as any)._recordId;
 
-    return await airtableClient.update<AdvanceDebt>('AdvanceDebt', recordId, {
+    const updated = await airtableClient.update<AdvanceDebt>('AdvanceDebt', recordId, {
       ...updates,
       UpdatedAt: new Date().toISOString(),
     });
+
+    if (!updated) {
+      throw new Error('Failed to update advance debt - Airtable not configured');
+    }
+
+    return updated;
   }
 
   /**
@@ -230,7 +239,13 @@ export class AdvanceDebtService {
       UpdatedAt: new Date().toISOString(),
     };
 
-    return await airtableClient.create<AdvanceDebtSchedule>('AdvanceDebtSchedule', schedule);
+    const created = await airtableClient.create<AdvanceDebtSchedule>('AdvanceDebtSchedule', schedule);
+
+    if (!created) {
+      throw new Error('Failed to create advance debt schedule - Airtable not configured');
+    }
+
+    return created;
   }
 
   /**
@@ -247,12 +262,18 @@ export class AdvanceDebtService {
 
     const recordId = (schedules[0] as any)._recordId;
 
-    return await airtableClient.update<AdvanceDebtSchedule>('AdvanceDebtSchedule', recordId, {
+    const updated = await airtableClient.update<AdvanceDebtSchedule>('AdvanceDebtSchedule', recordId, {
       IsPaid: true,
       PaidAt: new Date().toISOString(),
       PaidAmount: paidAmount,
       UpdatedAt: new Date().toISOString(),
     });
+
+    if (!updated) {
+      throw new Error('Failed to mark schedule as paid - Airtable not configured');
+    }
+
+    return updated;
   }
 
   /**
@@ -273,7 +294,13 @@ export class AdvanceDebtService {
       UpdatedAt: new Date().toISOString(),
     };
 
-    return await airtableClient.create<AdvanceDebtMovement>('AdvanceDebtMovement', movement);
+    const created = await airtableClient.create<AdvanceDebtMovement>('AdvanceDebtMovement', movement);
+
+    if (!created) {
+      throw new Error('Failed to create advance debt movement - Airtable not configured');
+    }
+
+    return created;
   }
 
   /**

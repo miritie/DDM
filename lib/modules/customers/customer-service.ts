@@ -120,7 +120,11 @@ export class CustomerService {
       UpdatedAt: new Date().toISOString(),
     };
 
-    return await airtableClient.create<Customer>('Customer', customer);
+    const created = await airtableClient.create<Customer>('Customer', customer);
+    if (!created) {
+      throw new Error('Failed to create customer - Airtable not configured');
+    }
+    return created;
   }
 
   async getById(customerId: string): Promise<Customer | null> {
@@ -171,11 +175,15 @@ export class CustomerService {
       }
     });
 
-    return await airtableClient.update<Customer>(
+    const updated = await airtableClient.update<Customer>(
       'Customer',
       (customers[0] as any)._recordId,
       updateData
     );
+    if (!updated) {
+      throw new Error('Failed to update customer - Airtable not configured');
+    }
+    return updated;
   }
 
   async updateStats(
@@ -190,7 +198,7 @@ export class CustomerService {
     const newTotalSpent = customer.TotalSpent + orderAmount;
     const newAverageOrderValue = newTotalSpent / newTotalOrders;
 
-    return await airtableClient.update<Customer>('Customer', (customer as any)._recordId, {
+    const updated = await airtableClient.update<Customer>('Customer', (customer as any)._recordId, {
       TotalOrders: newTotalOrders,
       TotalSpent: newTotalSpent,
       AverageOrderValue: newAverageOrderValue,
@@ -201,6 +209,10 @@ export class CustomerService {
       TotalPointsEarned: customer.TotalPointsEarned + pointsEarned,
       UpdatedAt: new Date().toISOString(),
     });
+    if (!updated) {
+      throw new Error('Failed to update customer - Airtable not configured');
+    }
+    return updated;
   }
 
   async updateLoyaltyTier(customerId: string, newTier: LoyaltyTier): Promise<Customer> {
@@ -210,10 +222,14 @@ export class CustomerService {
 
     if (customers.length === 0) throw new Error('Client non trouvé');
 
-    return await airtableClient.update<Customer>('Customer', (customers[0] as any)._recordId, {
+    const updated = await airtableClient.update<Customer>('Customer', (customers[0] as any)._recordId, {
       LoyaltyTier: newTier,
       UpdatedAt: new Date().toISOString(),
     });
+    if (!updated) {
+      throw new Error('Failed to update customer - Airtable not configured');
+    }
+    return updated;
   }
 
   async search(workspaceId: string, query: string): Promise<Customer[]> {

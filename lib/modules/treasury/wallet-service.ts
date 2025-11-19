@@ -87,7 +87,11 @@ export class WalletService {
       UpdatedAt: new Date().toISOString(),
     };
 
-    return await airtableClient.create<Wallet>('Wallet', wallet);
+    const created = await airtableClient.create<Wallet>('Wallet', wallet);
+    if (!created) {
+      throw new Error('Failed to create wallet - Airtable not configured');
+    }
+    return created;
   }
 
   /**
@@ -109,10 +113,14 @@ export class WalletService {
 
     const recordId = (records[0] as any)._recordId;
 
-    return await airtableClient.update<Wallet>('Wallet', recordId, {
+    const updated = await airtableClient.update<Wallet>('Wallet', recordId, {
       ...updates,
       UpdatedAt: new Date().toISOString(),
     });
+    if (!updated) {
+      throw new Error('Failed to update wallet - Airtable not configured');
+    }
+    return updated;
   }
 
   /**

@@ -57,7 +57,11 @@ export class FeedbackService {
       UpdatedAt: new Date().toISOString(),
     };
 
-    return await airtableClient.create<CustomerFeedback>('CustomerFeedback', feedback);
+    const created = await airtableClient.create<CustomerFeedback>('CustomerFeedback', feedback);
+    if (!created) {
+      throw new Error('Failed to create customer feedback - Airtable not configured');
+    }
+    return created;
   }
 
   /**
@@ -143,7 +147,7 @@ export class FeedbackService {
       throw new Error('Feedback non trouvé');
     }
 
-    return await airtableClient.update<CustomerFeedback>(
+    const updated = await airtableClient.update<CustomerFeedback>(
       'CustomerFeedback',
       (feedbacks[0] as any)._recordId,
       {
@@ -154,6 +158,10 @@ export class FeedbackService {
         UpdatedAt: new Date().toISOString(),
       }
     );
+    if (!updated) {
+      throw new Error('Failed to update customer feedback - Airtable not configured');
+    }
+    return updated;
   }
 
   /**
@@ -168,7 +176,7 @@ export class FeedbackService {
       throw new Error('Feedback non trouvé');
     }
 
-    return await airtableClient.update<CustomerFeedback>(
+    const updated = await airtableClient.update<CustomerFeedback>(
       'CustomerFeedback',
       (feedbacks[0] as any)._recordId,
       {
@@ -176,6 +184,10 @@ export class FeedbackService {
         UpdatedAt: new Date().toISOString(),
       }
     );
+    if (!updated) {
+      throw new Error('Failed to update customer feedback - Airtable not configured');
+    }
+    return updated;
   }
 
   /**
@@ -190,7 +202,7 @@ export class FeedbackService {
       throw new Error('Feedback non trouvé');
     }
 
-    return await airtableClient.update<CustomerFeedback>(
+    const updated = await airtableClient.update<CustomerFeedback>(
       'CustomerFeedback',
       (feedbacks[0] as any)._recordId,
       {
@@ -198,6 +210,10 @@ export class FeedbackService {
         UpdatedAt: new Date().toISOString(),
       }
     );
+    if (!updated) {
+      throw new Error('Failed to update customer feedback - Airtable not configured');
+    }
+    return updated;
   }
 
   /**

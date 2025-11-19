@@ -65,7 +65,11 @@ export class ProductService {
       UpdatedAt: new Date().toISOString(),
     };
 
-    return await airtableClient.create<Product>('Product', product);
+    const created = await airtableClient.create<Product>('Product', product);
+    if (!created) {
+      throw new Error('Failed to create product - Airtable not configured');
+    }
+    return created;
   }
 
   /**
@@ -124,11 +128,15 @@ export class ProductService {
       UpdatedAt: new Date().toISOString(),
     };
 
-    return await airtableClient.update<Product>(
+    const updated = await airtableClient.update<Product>(
       'Product',
       (products[0] as any)._recordId,
       updates
     );
+    if (!updated) {
+      throw new Error('Failed to update product - Airtable not configured');
+    }
+    return updated;
   }
 
   /**

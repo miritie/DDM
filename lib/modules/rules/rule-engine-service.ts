@@ -184,7 +184,11 @@ export class RuleEngineService {
       UpdatedAt: new Date().toISOString(),
     };
 
-    return await airtable.create<DecisionRule>('DecisionRule', data);
+    const created = await airtable.create<DecisionRule>('DecisionRule', data);
+    if (!created) {
+      throw new Error('Failed to create decision rule - Airtable not configured');
+    }
+    return created;
   }
 
   /**
@@ -199,7 +203,11 @@ export class RuleEngineService {
       UpdatedAt: new Date().toISOString(),
     };
 
-    return await airtable.update<DecisionRule>('DecisionRule', ruleId, data);
+    const updated = await airtable.update<DecisionRule>('DecisionRule', ruleId, data);
+    if (!updated) {
+      throw new Error('Failed to update decision rule - Airtable not configured');
+    }
+    return updated;
   }
 
   /**
@@ -522,7 +530,11 @@ export class RuleEngineService {
       UpdatedAt: new Date().toISOString(),
     };
 
-    return await airtable.create<DecisionRecommendation>('DecisionRecommendation', data);
+    const created = await airtable.create<DecisionRecommendation>('DecisionRecommendation', data);
+    if (!created) {
+      throw new Error('Failed to create decision recommendation - Airtable not configured');
+    }
+    return created;
   }
 
   /**
@@ -620,7 +632,11 @@ export class RuleEngineService {
       UpdatedAt: new Date().toISOString(),
     };
 
-    return await airtable.create<RuleTemplate>('RuleTemplate', data);
+    const created = await airtable.create<RuleTemplate>('RuleTemplate', data);
+    if (!created) {
+      throw new Error('Failed to create rule template - Airtable not configured');
+    }
+    return created;
   }
 
   /**

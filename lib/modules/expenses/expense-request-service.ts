@@ -51,7 +51,11 @@ export class ExpenseRequestService {
       UpdatedAt: new Date().toISOString(),
     };
 
-    return await airtableClient.create<ExpenseRequest>('ExpenseRequest', request);
+    const created = await airtableClient.create<ExpenseRequest>('ExpenseRequest', request);
+    if (!created) {
+      throw new Error('Failed to create expense request - Airtable not configured');
+    }
+    return created;
   }
 
   async getById(requestId: string): Promise<ExpenseRequest | null> {
@@ -101,7 +105,7 @@ export class ExpenseRequestService {
       throw new Error('Seules les demandes en brouillon peuvent être soumises');
     }
 
-    return await airtableClient.update<ExpenseRequest>(
+    const updated = await airtableClient.update<ExpenseRequest>(
       'ExpenseRequest',
       (requests[0] as any)._recordId,
       {
@@ -109,6 +113,10 @@ export class ExpenseRequestService {
         UpdatedAt: new Date().toISOString(),
       } as any
     );
+    if (!updated) {
+      throw new Error('Failed to update expense request - Airtable not configured');
+    }
+    return updated;
   }
 
   async approve(input: ApproveRejectInput): Promise<ExpenseRequest> {
@@ -137,9 +145,12 @@ export class ExpenseRequestService {
       UpdatedAt: new Date().toISOString(),
     };
 
-    await airtableClient.create<ExpenseApprovalStep>('ExpenseApprovalStep', approvalStep);
+    const createdStep = await airtableClient.create<ExpenseApprovalStep>('ExpenseApprovalStep', approvalStep);
+    if (!createdStep) {
+      throw new Error('Failed to create expense approval step - Airtable not configured');
+    }
 
-    return await airtableClient.update<ExpenseRequest>(
+    const updated = await airtableClient.update<ExpenseRequest>(
       'ExpenseRequest',
       (requests[0] as any)._recordId,
       {
@@ -147,6 +158,10 @@ export class ExpenseRequestService {
         UpdatedAt: new Date().toISOString(),
       }
     );
+    if (!updated) {
+      throw new Error('Failed to update expense request - Airtable not configured');
+    }
+    return updated;
   }
 
   async cancel(requestId: string): Promise<ExpenseRequest> {
@@ -162,7 +177,7 @@ export class ExpenseRequestService {
       throw new Error('Impossible d\'annuler une demande déjà traitée');
     }
 
-    return await airtableClient.update<ExpenseRequest>(
+    const updated = await airtableClient.update<ExpenseRequest>(
       'ExpenseRequest',
       (requests[0] as any)._recordId,
       {
@@ -170,6 +185,10 @@ export class ExpenseRequestService {
         UpdatedAt: new Date().toISOString(),
       }
     );
+    if (!updated) {
+      throw new Error('Failed to update expense request - Airtable not configured');
+    }
+    return updated;
   }
 
   async update(
@@ -202,11 +221,15 @@ export class ExpenseRequestService {
     if (updates.amount !== undefined) updateData.Amount = updates.amount;
     if (updates.categoryId !== undefined) updateData.CategoryId = updates.categoryId;
 
-    return await airtableClient.update<ExpenseRequest>(
+    const updated = await airtableClient.update<ExpenseRequest>(
       'ExpenseRequest',
       (requests[0] as any)._recordId,
       updateData
     );
+    if (!updated) {
+      throw new Error('Failed to update expense request - Airtable not configured');
+    }
+    return updated;
   }
 
   async getStatistics(workspaceId: string): Promise<any> {

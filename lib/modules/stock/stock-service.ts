@@ -63,6 +63,9 @@ export class StockService {
           UpdatedAt: new Date().toISOString(),
         }
       );
+      if (!updated) {
+        throw new Error('Failed to update stock item - Airtable not configured');
+      }
 
       await this.checkAndCreateAlert(updated);
       return updated;
@@ -84,6 +87,9 @@ export class StockService {
       };
 
       const created = await airtableClient.create<StockItem>('StockItem', stockItem);
+      if (!created) {
+        throw new Error('Failed to create stock item - Airtable not configured');
+      }
       await this.checkAndCreateAlert(created);
       return created;
     }
@@ -188,6 +194,9 @@ export class StockService {
       (items[0] as any)._recordId,
       updates
     );
+    if (!updated) {
+      throw new Error('Failed to update stock item - Airtable not configured');
+    }
 
     await this.checkAndCreateAlert(updated);
     return updated;
@@ -261,6 +270,9 @@ export class StockService {
           UpdatedAt: new Date().toISOString(),
         }
       );
+      if (!updated) {
+        throw new Error('Failed to update stock item - Airtable not configured');
+      }
 
       await this.checkAndCreateAlert(updated);
       return updated;
@@ -297,6 +309,9 @@ export class StockService {
       };
 
       const created = await airtableClient.create<StockItem>('StockItem', stockItem);
+      if (!created) {
+        throw new Error('Failed to create stock item - Airtable not configured');
+      }
       await this.checkAndCreateAlert(created);
       return created;
     }
@@ -341,6 +356,9 @@ export class StockService {
         UpdatedAt: new Date().toISOString(),
       }
     );
+    if (!updated) {
+      throw new Error('Failed to update stock item - Airtable not configured');
+    }
 
     await this.checkAndCreateAlert(updated);
     return updated;
@@ -386,7 +404,10 @@ export class StockService {
           UpdatedAt: new Date().toISOString(),
         };
 
-        await airtableClient.create<StockAlert>('StockAlert', alert);
+        const createdAlert = await airtableClient.create<StockAlert>('StockAlert', alert);
+        if (!createdAlert) {
+          throw new Error('Failed to create stock alert - Airtable not configured');
+        }
       }
     } else {
       // Resolve existing alerts if stock is back to normal

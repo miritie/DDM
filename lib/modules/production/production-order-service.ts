@@ -254,6 +254,9 @@ export class ProductionOrderService {
     };
 
     const createdOrder = await airtableClient.create<ProductionOrder>('ProductionOrder', order);
+    if (!createdOrder) {
+      throw new Error('Failed to create production order - Airtable not configured');
+    }
 
     // Créer les consommations planifiées d'ingrédients
     const consumptions: IngredientConsumption[] = [];
@@ -282,6 +285,9 @@ export class ProductionOrderService {
         'IngredientConsumption',
         consumption
       );
+      if (!createdConsumption) {
+        throw new Error('Failed to create ingredient consumption - Airtable not configured');
+      }
       consumptions.push(createdConsumption);
     }
 
@@ -319,6 +325,9 @@ export class ProductionOrderService {
       ...updates,
       UpdatedAt: new Date().toISOString(),
     });
+    if (!updatedOrder) {
+      throw new Error('Failed to update production order - Airtable not configured');
+    }
 
     updatedOrder.IngredientConsumptions = await this.getIngredientConsumptions(productionOrderId);
     updatedOrder.Batches = await this.getBatches(productionOrderId);
@@ -490,6 +499,9 @@ export class ProductionOrderService {
     };
 
     const createdBatch = await airtableClient.create<ProductionBatch>('ProductionBatch', batch);
+    if (!createdBatch) {
+      throw new Error('Failed to create production batch - Airtable not configured');
+    }
 
     // Mettre à jour la quantité produite de l'ordre
     const newProducedQty = order.ProducedQuantity + (input.quantityProduced - input.quantityDefective);

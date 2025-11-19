@@ -87,7 +87,11 @@ export class EmployeeTargetService {
       UpdatedAt: new Date().toISOString(),
     };
 
-    return await airtableClient.create<EmployeeTarget>('EmployeeTarget', target);
+    const created = await airtableClient.create<EmployeeTarget>('EmployeeTarget', target);
+    if (!created) {
+      throw new Error('Failed to create employee target - Airtable not configured');
+    }
+    return created;
   }
 
   /**
@@ -172,11 +176,15 @@ export class EmployeeTargetService {
     updateData.AchievementRate = achievementRate;
     updateData.IsAchieved = achievementRate >= 100;
 
-    return await airtableClient.update<EmployeeTarget>(
+    const updated = await airtableClient.update<EmployeeTarget>(
       'EmployeeTarget',
       (target as any)._recordId,
       updateData
     );
+    if (!updated) {
+      throw new Error('Failed to update employee target - Airtable not configured');
+    }
+    return updated;
   }
 
   /**

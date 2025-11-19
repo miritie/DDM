@@ -53,7 +53,11 @@ export class ReportService {
       UpdatedAt: new Date().toISOString(),
     };
 
-    return await airtableClient.create<Report>('Report', report);
+    const created = await airtableClient.create<Report>('Report', report);
+    if (!created) {
+      throw new Error('Failed to create report - Airtable not configured');
+    }
+    return created;
   }
 
   async execute(reportId: string, triggeredById: string): Promise<ReportExecution> {
@@ -78,6 +82,9 @@ export class ReportService {
     };
 
     const createdExecution = await airtableClient.create<ReportExecution>('ReportExecution', execution);
+    if (!createdExecution) {
+      throw new Error('Failed to create report execution - Airtable not configured');
+    }
 
     // Generate report data asynchronously
     try {

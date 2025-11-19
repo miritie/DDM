@@ -156,6 +156,10 @@ export class TransportAllowanceService {
       data
     );
 
+    if (!record) {
+      throw new Error('Failed to create transport allowance - Airtable not configured');
+    }
+
     return record;
   }
 
@@ -171,11 +175,17 @@ export class TransportAllowanceService {
       UpdatedAt: new Date().toISOString(),
     };
 
-    return this.airtable.update<TransportAllowance>(
+    const updated = await this.airtable.update<TransportAllowance>(
       TABLE_TRANSPORT,
       transportId,
       data
     );
+
+    if (!updated) {
+      throw new Error('Failed to update transport allowance - Airtable not configured');
+    }
+
+    return updated;
   }
 
   /**
@@ -361,7 +371,11 @@ export class TransportAllowanceService {
       UpdatedAt: new Date().toISOString(),
     };
 
-    return this.airtable.create<TransportAllowanceRule>(TABLE_RULES, data);
+    const created = await this.airtable.create<TransportAllowanceRule>(TABLE_RULES, data);
+    if (!created) {
+      throw new Error('Failed to create transport allowance rule - Airtable not configured');
+    }
+    return created;
   }
 
   /**
@@ -376,11 +390,15 @@ export class TransportAllowanceService {
       UpdatedAt: new Date().toISOString(),
     };
 
-    return this.airtable.update<TransportAllowanceRule>(
+    const updated = await this.airtable.update<TransportAllowanceRule>(
       TABLE_RULES,
       ruleId,
       data
     );
+    if (!updated) {
+      throw new Error('Failed to update transport allowance rule - Airtable not configured');
+    }
+    return updated;
   }
 
   /**

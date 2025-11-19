@@ -141,7 +141,11 @@ export class DepositService {
       line.DepositId = deposit.DepositId!;
     });
 
-    return await airtableClient.create<Deposit>('Deposit', deposit);
+    const created = await airtableClient.create<Deposit>('Deposit', deposit);
+    if (!created) {
+      throw new Error('Failed to create deposit - Airtable not configured');
+    }
+    return created;
   }
 
   /**
@@ -226,11 +230,15 @@ export class DepositService {
     if (updates.notes !== undefined) updateData.Notes = updates.notes;
     if (updates.deliveryProof !== undefined) updateData.DeliveryProof = updates.deliveryProof;
 
-    return await airtableClient.update<Deposit>(
+    const updated = await airtableClient.update<Deposit>(
       'Deposit',
       (deposit as any)._recordId,
       updateData
     );
+    if (!updated) {
+      throw new Error('Failed to update deposit - Airtable not configured');
+    }
+    return updated;
   }
 
   /**
@@ -258,13 +266,17 @@ export class DepositService {
     // Mettre à jour les statistiques du partenaire
     await partnerService.incrementDeposited(deposit.PartnerId, deposit.TotalValue);
 
-    return await airtableClient.update<Deposit>('Deposit', (deposit as any)._recordId, {
+    const updated = await airtableClient.update<Deposit>('Deposit', (deposit as any)._recordId, {
       Status: 'validated',
       ValidatedById: validatedById,
       ValidatedByName: validatedByName,
       ValidatedAt: new Date().toISOString(),
       UpdatedAt: new Date().toISOString(),
     });
+    if (!updated) {
+      throw new Error('Failed to update deposit - Airtable not configured');
+    }
+    return updated;
   }
 
   /**
@@ -301,11 +313,15 @@ export class DepositService {
         : `Annulation: ${reason}`;
     }
 
-    return await airtableClient.update<Deposit>(
+    const updated = await airtableClient.update<Deposit>(
       'Deposit',
       (deposit as any)._recordId,
       updateData
     );
+    if (!updated) {
+      throw new Error('Failed to update deposit - Airtable not configured');
+    }
+    return updated;
   }
 
   /**
@@ -360,11 +376,15 @@ export class DepositService {
       filterByFormula: `{DepositId} = '${depositId}'`,
     });
 
-    return await airtableClient.update<Deposit>('Deposit', (deposits[0] as any)._recordId, {
+    const updated = await airtableClient.update<Deposit>('Deposit', (deposits[0] as any)._recordId, {
       Lines: deposit.Lines,
       Status: newStatus,
       UpdatedAt: new Date().toISOString(),
     });
+    if (!updated) {
+      throw new Error('Failed to update deposit - Airtable not configured');
+    }
+    return updated;
   }
 
   /**

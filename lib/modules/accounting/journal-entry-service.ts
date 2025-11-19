@@ -80,6 +80,10 @@ export class JournalEntryService {
 
     const createdEntry = await airtableClient.create<JournalEntry>('JournalEntry', entry);
 
+    if (!createdEntry) {
+      throw new Error('Failed to create journal entry - Airtable not configured');
+    }
+
     // Create lines
     for (let i = 0; i < input.lines.length; i++) {
       const line = input.lines[i];
@@ -146,12 +150,18 @@ export class JournalEntryService {
       throw new Error('Seules les écritures en brouillon peuvent être comptabilisées');
     }
 
-    return await airtableClient.update<JournalEntry>('JournalEntry', (entries[0] as any)._recordId, {
+    const updated = await airtableClient.update<JournalEntry>('JournalEntry', (entries[0] as any)._recordId, {
       Status: 'posted',
       PostedAt: new Date().toISOString(),
       PostedById: postedById,
       UpdatedAt: new Date().toISOString(),
     });
+
+    if (!updated) {
+      throw new Error('Failed to post journal entry - Airtable not configured');
+    }
+
+    return updated;
   }
 
   async validate(entryId: string, validatedById: string): Promise<JournalEntry> {
@@ -167,12 +177,18 @@ export class JournalEntryService {
       throw new Error('Seules les écritures comptabilisées peuvent être validées');
     }
 
-    return await airtableClient.update<JournalEntry>('JournalEntry', (entries[0] as any)._recordId, {
+    const updated = await airtableClient.update<JournalEntry>('JournalEntry', (entries[0] as any)._recordId, {
       Status: 'validated',
       ValidatedAt: new Date().toISOString(),
       ValidatedById: validatedById,
       UpdatedAt: new Date().toISOString(),
     });
+
+    if (!updated) {
+      throw new Error('Failed to validate journal entry - Airtable not configured');
+    }
+
+    return updated;
   }
 
   async cancel(entryId: string): Promise<JournalEntry> {
@@ -188,10 +204,16 @@ export class JournalEntryService {
       throw new Error('Une écriture validée ne peut pas être annulée');
     }
 
-    return await airtableClient.update<JournalEntry>('JournalEntry', (entries[0] as any)._recordId, {
+    const updated = await airtableClient.update<JournalEntry>('JournalEntry', (entries[0] as any)._recordId, {
       Status: 'cancelled',
       UpdatedAt: new Date().toISOString(),
     });
+
+    if (!updated) {
+      throw new Error('Failed to cancel journal entry - Airtable not configured');
+    }
+
+    return updated;
   }
 
   async getTrialBalance(workspaceId: string, fiscalYear: number, fiscalPeriod?: number): Promise<TrialBalance[]> {

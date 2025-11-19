@@ -28,6 +28,16 @@ const createMarkdownSchema = z.object({
  */
 export async function GET(request: NextRequest) {
   try {
+    // TODO: Migration vers PostgreSQL - Cette route utilise encore Airtable
+    return NextResponse.json(
+      {
+        success: false,
+        error: 'Cette fonctionnalité est en cours de migration vers PostgreSQL',
+      },
+      { status: 503 }
+    );
+
+    /* Migration Airtable -> PostgreSQL en cours
     const { searchParams } = new URL(request.url);
     const warehouseId = searchParams.get('warehouseId');
     const reason = searchParams.get('reason');
@@ -36,6 +46,16 @@ export async function GET(request: NextRequest) {
 
     const airtable = new AirtableClient();
     const base = airtable.base(process.env.AIRTABLE_BASE_ID!);
+
+    if (!base) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: 'Service temporairement indisponible',
+        },
+        { status: 503 }
+      );
+    }
 
     let filterFormula = '';
     const filters: string[] = [];
@@ -76,6 +96,7 @@ export async function GET(request: NextRequest) {
       success: true,
       data: markdowns,
     });
+    */
   } catch (error) {
     console.error('Error fetching markdowns:', error);
     return NextResponse.json(
@@ -94,11 +115,31 @@ export async function GET(request: NextRequest) {
  */
 export async function POST(request: NextRequest) {
   try {
+    // TODO: Migration vers PostgreSQL - Cette route utilise encore Airtable
+    return NextResponse.json(
+      {
+        success: false,
+        error: 'Cette fonctionnalité est en cours de migration vers PostgreSQL',
+      },
+      { status: 503 }
+    );
+
+    /* Migration Airtable -> PostgreSQL en cours
     const body = await request.json();
     const validatedData = createMarkdownSchema.parse(body);
 
     const airtable = new AirtableClient();
     const base = airtable.base(process.env.AIRTABLE_BASE_ID!);
+
+    if (!base) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: 'Service temporairement indisponible',
+        },
+        { status: 503 }
+      );
+    }
 
     // Générer numéro de démarque
     const markdownNumber = `DEM-${Date.now()}`;
@@ -199,6 +240,7 @@ export async function POST(request: NextRequest) {
         MovementId: movement.id,
       },
     });
+    */
   } catch (error) {
     if (error instanceof z.ZodError) {
       return NextResponse.json(

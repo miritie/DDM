@@ -50,7 +50,11 @@ export class SegmentService {
       UpdatedAt: new Date().toISOString(),
     };
 
-    return await airtableClient.create<CustomerSegment>('CustomerSegment', segment);
+    const created = await airtableClient.create<CustomerSegment>('CustomerSegment', segment);
+    if (!created) {
+      throw new Error('Failed to create customer segment - Airtable not configured');
+    }
+    return created;
   }
 
   /**
@@ -102,11 +106,15 @@ export class SegmentService {
       formattedUpdates[pascalKey] = updates[key as keyof CreateSegmentInput];
     });
 
-    return await airtableClient.update<CustomerSegment>(
+    const updated = await airtableClient.update<CustomerSegment>(
       'CustomerSegment',
       (segments[0] as any)._recordId,
       formattedUpdates
     );
+    if (!updated) {
+      throw new Error('Failed to update customer segment - Airtable not configured');
+    }
+    return updated;
   }
 
   /**

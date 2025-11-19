@@ -77,7 +77,11 @@ export class PayrollService {
       UpdatedAt: new Date().toISOString(),
     };
 
-    return await airtableClient.create<Payroll>('Payroll', payroll);
+    const created = await airtableClient.create<Payroll>('Payroll', payroll);
+    if (!created) {
+      throw new Error('Failed to create payroll - Airtable not configured');
+    }
+    return created;
   }
 
   async getById(payrollId: string): Promise<Payroll | null> {
@@ -127,7 +131,7 @@ export class PayrollService {
       throw new Error('Seules les paies en brouillon peuvent être validées');
     }
 
-    return await airtableClient.update<Payroll>(
+    const updated = await airtableClient.update<Payroll>(
       'Payroll',
       (payrolls[0] as any)._recordId,
       {
@@ -135,6 +139,10 @@ export class PayrollService {
         UpdatedAt: new Date().toISOString(),
       }
     );
+    if (!updated) {
+      throw new Error('Failed to update payroll - Airtable not configured');
+    }
+    return updated;
   }
 
   async process(input: ProcessPayrollInput): Promise<Payroll> {
@@ -150,7 +158,7 @@ export class PayrollService {
       throw new Error('La paie doit être validée avant d\'être payée');
     }
 
-    return await airtableClient.update<Payroll>(
+    const updated = await airtableClient.update<Payroll>(
       'Payroll',
       (payrolls[0] as any)._recordId,
       {
@@ -162,6 +170,10 @@ export class PayrollService {
         UpdatedAt: new Date().toISOString(),
       } as any
     );
+    if (!updated) {
+      throw new Error('Failed to update payroll - Airtable not configured');
+    }
+    return updated;
   }
 
   async cancel(payrollId: string): Promise<Payroll> {
@@ -177,7 +189,7 @@ export class PayrollService {
       throw new Error('Une paie payée ne peut pas être annulée');
     }
 
-    return await airtableClient.update<Payroll>(
+    const updated = await airtableClient.update<Payroll>(
       'Payroll',
       (payrolls[0] as any)._recordId,
       {
@@ -185,6 +197,10 @@ export class PayrollService {
         UpdatedAt: new Date().toISOString(),
       }
     );
+    if (!updated) {
+      throw new Error('Failed to update payroll - Airtable not configured');
+    }
+    return updated;
   }
 
   async generateBulkPayroll(

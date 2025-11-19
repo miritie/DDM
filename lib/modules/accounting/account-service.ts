@@ -21,7 +21,7 @@ export interface CreateAccountInput {
 }
 
 export class AccountService {
-  async create(input: CreateAccountInput): Promise<ChartAccount> {
+  async create(input: CreateAccountInput): Promise<ChartAccount | null> {
     const account: Partial<ChartAccount> = {
       AccountId: uuidv4(),
       AccountNumber: input.accountNumber,
@@ -72,7 +72,7 @@ export class AccountService {
     });
   }
 
-  async update(accountId: string, updates: Partial<CreateAccountInput>): Promise<ChartAccount> {
+  async update(accountId: string, updates: Partial<CreateAccountInput>): Promise<ChartAccount | null> {
     const accounts = await airtableClient.list<ChartAccount>('ChartAccount', {
       filterByFormula: `{AccountId} = '${accountId}'`,
     });
@@ -124,7 +124,9 @@ export class AccountService {
           allowDirectPosting: true,
           workspaceId,
         });
-        created.push(account);
+        if (account) {
+          created.push(account);
+        }
       } catch (error) {
         console.error(`Error creating account ${acc.number}:`, error);
       }

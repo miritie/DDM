@@ -79,7 +79,11 @@ export class CommissionService {
       UpdatedAt: new Date().toISOString(),
     };
 
-    return await airtableClient.create<Commission>('Commission', commission);
+    const created = await airtableClient.create<Commission>('Commission', commission);
+    if (!created) {
+      throw new Error('Failed to create commission - Airtable not configured');
+    }
+    return created;
   }
 
   /**
@@ -163,11 +167,15 @@ export class CommissionService {
     if (updates.payrollId !== undefined) updateData.PayrollId = updates.payrollId;
     if (updates.notes !== undefined) updateData.Notes = updates.notes;
 
-    return await airtableClient.update<Commission>(
+    const updated = await airtableClient.update<Commission>(
       'Commission',
       (commission as any)._recordId,
       updateData
     );
+    if (!updated) {
+      throw new Error('Failed to update commission - Airtable not configured');
+    }
+    return updated;
   }
 
   /**

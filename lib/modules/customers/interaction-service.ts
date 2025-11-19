@@ -57,7 +57,11 @@ export class InteractionService {
       UpdatedAt: new Date().toISOString(),
     };
 
-    return await airtableClient.create<CustomerInteraction>('CustomerInteraction', interaction);
+    const created = await airtableClient.create<CustomerInteraction>('CustomerInteraction', interaction);
+    if (!created) {
+      throw new Error('Failed to create customer interaction - Airtable not configured');
+    }
+    return created;
   }
 
   /**
@@ -135,11 +139,15 @@ export class InteractionService {
       updateData[pascalKey] = updates[key as keyof CreateInteractionInput];
     });
 
-    return await airtableClient.update<CustomerInteraction>(
+    const updated = await airtableClient.update<CustomerInteraction>(
       'CustomerInteraction',
       (interactions[0] as any)._recordId,
       updateData
     );
+    if (!updated) {
+      throw new Error('Failed to update customer interaction - Airtable not configured');
+    }
+    return updated;
   }
 
   /**
@@ -154,7 +162,7 @@ export class InteractionService {
       throw new Error('Interaction non trouvée');
     }
 
-    return await airtableClient.update<CustomerInteraction>(
+    const updated = await airtableClient.update<CustomerInteraction>(
       'CustomerInteraction',
       (interactions[0] as any)._recordId,
       {
@@ -162,6 +170,10 @@ export class InteractionService {
         UpdatedAt: new Date().toISOString(),
       }
     );
+    if (!updated) {
+      throw new Error('Failed to update customer interaction - Airtable not configured');
+    }
+    return updated;
   }
 
   /**

@@ -35,7 +35,11 @@ export class ExpenseCategoryService {
       UpdatedAt: new Date().toISOString(),
     };
 
-    return await airtableClient.create<ExpenseCategory>('ExpenseCategory', category);
+    const created = await airtableClient.create<ExpenseCategory>('ExpenseCategory', category);
+    if (!created) {
+      throw new Error('Failed to create expense category - Airtable not configured');
+    }
+    return created;
   }
 
   async getById(categoryId: string): Promise<ExpenseCategory | null> {
@@ -99,11 +103,15 @@ export class ExpenseCategoryService {
     if (updates.color !== undefined) updateData.Color = updates.color;
     if (updates.isActive !== undefined) updateData.IsActive = updates.isActive;
 
-    return await airtableClient.update<ExpenseCategory>(
+    const updated = await airtableClient.update<ExpenseCategory>(
       'ExpenseCategory',
       (categories[0] as any)._recordId,
       updateData
     );
+    if (!updated) {
+      throw new Error('Failed to update expense category - Airtable not configured');
+    }
+    return updated;
   }
 
   async delete(categoryId: string): Promise<void> {

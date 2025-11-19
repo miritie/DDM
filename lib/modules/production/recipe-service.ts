@@ -183,6 +183,9 @@ export class RecipeService {
     };
 
     const createdRecipe = await airtableClient.create<Recipe>('Recipe', recipe);
+    if (!createdRecipe) {
+      throw new Error('Failed to create recipe - Airtable not configured');
+    }
 
     // Créer les lignes de la recette
     const lines: RecipeLine[] = [];
@@ -199,6 +202,9 @@ export class RecipeService {
       };
 
       const createdLine = await airtableClient.create<RecipeLine>('RecipeLine', line);
+      if (!createdLine) {
+        throw new Error('Failed to create recipe line - Airtable not configured');
+      }
       lines.push(createdLine);
     }
 
@@ -230,6 +236,9 @@ export class RecipeService {
       Version: recipe.Version + 1,
       UpdatedAt: new Date().toISOString(),
     });
+    if (!updatedRecipe) {
+      throw new Error('Failed to update recipe - Airtable not configured');
+    }
 
     updatedRecipe.Lines = await this.getRecipeLines(recipeId);
     return updatedRecipe;
@@ -255,7 +264,11 @@ export class RecipeService {
       Notes: lineInput.notes,
     };
 
-    return await airtableClient.create<RecipeLine>('RecipeLine', line);
+    const created = await airtableClient.create<RecipeLine>('RecipeLine', line);
+    if (!created) {
+      throw new Error('Failed to create recipe line - Airtable not configured');
+    }
+    return created;
   }
 
   /**
@@ -286,7 +299,11 @@ export class RecipeService {
     if (updates.loss !== undefined) data.Loss = updates.loss;
     if (updates.notes !== undefined) data.Notes = updates.notes;
 
-    return await airtableClient.update<RecipeLine>('RecipeLine', recordId, data);
+    const updated = await airtableClient.update<RecipeLine>('RecipeLine', recordId, data);
+    if (!updated) {
+      throw new Error('Failed to update recipe line - Airtable not configured');
+    }
+    return updated;
   }
 
   /**

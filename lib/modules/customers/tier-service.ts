@@ -71,7 +71,11 @@ export class TierService {
       UpdatedAt: new Date().toISOString(),
     };
 
-    return await airtableClient.create<LoyaltyTierConfig>('LoyaltyTierConfig', config);
+    const created = await airtableClient.create<LoyaltyTierConfig>('LoyaltyTierConfig', config);
+    if (!created) {
+      throw new Error('Failed to create loyalty tier config - Airtable not configured');
+    }
+    return created;
   }
 
   /**
@@ -119,11 +123,15 @@ export class TierService {
       formattedUpdates[pascalKey] = updates[key as keyof CreateTierConfigInput];
     });
 
-    return await airtableClient.update<LoyaltyTierConfig>(
+    const updated = await airtableClient.update<LoyaltyTierConfig>(
       'LoyaltyTierConfig',
       (configs[0] as any)._recordId,
       formattedUpdates
     );
+    if (!updated) {
+      throw new Error('Failed to update loyalty tier config - Airtable not configured');
+    }
+    return updated;
   }
 
   /**

@@ -115,7 +115,11 @@ export class EmployeeAdvanceService {
       UpdatedAt: new Date().toISOString(),
     };
 
-    return await airtableClient.create<EmployeeAdvance>('EmployeeAdvance', advance);
+    const created = await airtableClient.create<EmployeeAdvance>('EmployeeAdvance', advance);
+    if (!created) {
+      throw new Error('Failed to create employee advance - Airtable not configured');
+    }
+    return created;
   }
 
   /**
@@ -190,13 +194,17 @@ export class EmployeeAdvanceService {
       throw new Error('Seules les avances en attente peuvent être approuvées');
     }
 
-    return await airtableClient.update<EmployeeAdvance>('EmployeeAdvance', (advance as any)._recordId, {
+    const updated = await airtableClient.update<EmployeeAdvance>('EmployeeAdvance', (advance as any)._recordId, {
       Status: 'approved',
       ApprovedById: input.approvedById,
       ApprovedByName: input.approvedByName,
       ApprovedAt: new Date().toISOString(),
       UpdatedAt: new Date().toISOString(),
     });
+    if (!updated) {
+      throw new Error('Failed to update employee advance - Airtable not configured');
+    }
+    return updated;
   }
 
   /**
@@ -226,7 +234,11 @@ export class EmployeeAdvanceService {
       updateData.Notes = advance.Notes ? `${advance.Notes}\n\nRejet: ${reason}` : `Rejet: ${reason}`;
     }
 
-    return await airtableClient.update<EmployeeAdvance>('EmployeeAdvance', (advance as any)._recordId, updateData);
+    const updated = await airtableClient.update<EmployeeAdvance>('EmployeeAdvance', (advance as any)._recordId, updateData);
+    if (!updated) {
+      throw new Error('Failed to update employee advance - Airtable not configured');
+    }
+    return updated;
   }
 
   /**
@@ -247,7 +259,7 @@ export class EmployeeAdvanceService {
       throw new Error('Seules les avances approuvées peuvent être payées');
     }
 
-    return await airtableClient.update<EmployeeAdvance>('EmployeeAdvance', (advance as any)._recordId, {
+    const updated = await airtableClient.update<EmployeeAdvance>('EmployeeAdvance', (advance as any)._recordId, {
       Status: 'paid',
       PaymentDate: input.paymentDate,
       PaymentMethod: input.paymentMethod,
@@ -255,6 +267,10 @@ export class EmployeeAdvanceService {
       TransactionId: input.transactionId,
       UpdatedAt: new Date().toISOString(),
     });
+    if (!updated) {
+      throw new Error('Failed to update employee advance - Airtable not configured');
+    }
+    return updated;
   }
 
   /**
@@ -275,12 +291,16 @@ export class EmployeeAdvanceService {
       throw new Error('Seules les avances payées peuvent être marquées comme déduites');
     }
 
-    return await airtableClient.update<EmployeeAdvance>('EmployeeAdvance', (advance as any)._recordId, {
+    const updated = await airtableClient.update<EmployeeAdvance>('EmployeeAdvance', (advance as any)._recordId, {
       Status: 'deducted',
       DeductionPayrollId: input.deductionPayrollId,
       DeductionDate: input.deductionDate,
       UpdatedAt: new Date().toISOString(),
     });
+    if (!updated) {
+      throw new Error('Failed to update employee advance - Airtable not configured');
+    }
+    return updated;
   }
 
   /**
@@ -399,10 +419,14 @@ export class EmployeeAdvanceService {
       throw new Error('Avance non trouvée');
     }
 
-    return await airtableClient.update<EmployeeAdvance>('EmployeeAdvance', (advances[0] as any)._recordId, {
+    const updated = await airtableClient.update<EmployeeAdvance>('EmployeeAdvance', (advances[0] as any)._recordId, {
       Notes: notes,
       UpdatedAt: new Date().toISOString(),
     });
+    if (!updated) {
+      throw new Error('Failed to update employee advance - Airtable not configured');
+    }
+    return updated;
   }
 
   /**
@@ -431,6 +455,10 @@ export class EmployeeAdvanceService {
     const cancelNote = `Annulation: ${reason || 'Aucune raison fournie'}`;
     updateData.Notes = advance.Notes ? `${advance.Notes}\n\n${cancelNote}` : cancelNote;
 
-    return await airtableClient.update<EmployeeAdvance>('EmployeeAdvance', (advance as any)._recordId, updateData);
+    const updated = await airtableClient.update<EmployeeAdvance>('EmployeeAdvance', (advance as any)._recordId, updateData);
+    if (!updated) {
+      throw new Error('Failed to update employee advance - Airtable not configured');
+    }
+    return updated;
   }
 }

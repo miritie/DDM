@@ -41,7 +41,10 @@ export class LoyaltyService {
       CreatedAt: new Date().toISOString(),
     };
 
-    await airtableClient.create<LoyaltyTransaction>('LoyaltyTransaction', transaction);
+    const created = await airtableClient.create<LoyaltyTransaction>('LoyaltyTransaction', transaction);
+    if (!created) {
+      throw new Error('Failed to create loyalty transaction - Airtable not configured');
+    }
 
     // Mettre à jour le solde du client
     await airtableClient.update('Customer', (customer as any)._recordId, {
@@ -83,7 +86,10 @@ export class LoyaltyService {
       CreatedAt: new Date().toISOString(),
     };
 
-    await airtableClient.create<LoyaltyTransaction>('LoyaltyTransaction', transaction);
+    const created = await airtableClient.create<LoyaltyTransaction>('LoyaltyTransaction', transaction);
+    if (!created) {
+      throw new Error('Failed to create loyalty transaction - Airtable not configured');
+    }
 
     await airtableClient.update('Customer', (customer as any)._recordId, {
       LoyaltyPoints: transaction.BalanceAfter,
@@ -173,7 +179,11 @@ export class LoyaltyService {
       UpdatedAt: new Date().toISOString(),
     };
 
-    return await airtableClient.create<CustomerReward>('CustomerReward', customerReward);
+    const created = await airtableClient.create<CustomerReward>('CustomerReward', customerReward);
+    if (!created) {
+      throw new Error('Failed to create customer reward - Airtable not configured');
+    }
+    return created;
   }
 
   async getCustomerRewards(customerId: string): Promise<CustomerReward[]> {

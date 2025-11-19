@@ -157,7 +157,11 @@ export class SalesReportService {
       line.SalesReportId = report.SalesReportId!;
     });
 
-    return await airtableClient.create<SalesReport>('SalesReport', report);
+    const created = await airtableClient.create<SalesReport>('SalesReport', report);
+    if (!created) {
+      throw new Error('Failed to create sales report - Airtable not configured');
+    }
+    return created;
   }
 
   /**
@@ -236,13 +240,17 @@ export class SalesReportService {
       throw new Error('Seuls les rapports en brouillon peuvent être soumis');
     }
 
-    return await airtableClient.update<SalesReport>('SalesReport', (report as any)._recordId, {
+    const updated = await airtableClient.update<SalesReport>('SalesReport', (report as any)._recordId, {
       Status: 'submitted',
       SubmittedById: submittedById,
       SubmittedByName: submittedByName,
       SubmittedAt: new Date().toISOString(),
       UpdatedAt: new Date().toISOString(),
     });
+    if (!updated) {
+      throw new Error('Failed to update sales report - Airtable not configured');
+    }
+    return updated;
   }
 
   /**
@@ -288,13 +296,17 @@ export class SalesReportService {
       }
     }
 
-    return await airtableClient.update<SalesReport>('SalesReport', (report as any)._recordId, {
+    const updated = await airtableClient.update<SalesReport>('SalesReport', (report as any)._recordId, {
       Status: 'validated',
       ValidatedById: validatedById,
       ValidatedByName: validatedByName,
       ValidatedAt: new Date().toISOString(),
       UpdatedAt: new Date().toISOString(),
     });
+    if (!updated) {
+      throw new Error('Failed to update sales report - Airtable not configured');
+    }
+    return updated;
   }
 
   /**
@@ -315,11 +327,15 @@ export class SalesReportService {
       throw new Error('Seuls les rapports soumis peuvent être rejetés');
     }
 
-    return await airtableClient.update<SalesReport>('SalesReport', (report as any)._recordId, {
+    const updated = await airtableClient.update<SalesReport>('SalesReport', (report as any)._recordId, {
       Status: 'rejected',
       RejectionReason: reason,
       UpdatedAt: new Date().toISOString(),
     });
+    if (!updated) {
+      throw new Error('Failed to update sales report - Airtable not configured');
+    }
+    return updated;
   }
 
   /**
@@ -340,12 +356,16 @@ export class SalesReportService {
       throw new Error('Seuls les rapports validés peuvent être marqués comme traités');
     }
 
-    return await airtableClient.update<SalesReport>('SalesReport', (report as any)._recordId, {
+    const updated = await airtableClient.update<SalesReport>('SalesReport', (report as any)._recordId, {
       Status: 'processed',
       SalesGenerated: true,
       GeneratedSaleIds: generatedSaleIds,
       UpdatedAt: new Date().toISOString(),
     });
+    if (!updated) {
+      throw new Error('Failed to update sales report - Airtable not configured');
+    }
+    return updated;
   }
 
   /**
@@ -377,11 +397,15 @@ export class SalesReportService {
     if (updates.rejectionReason !== undefined)
       updateData.RejectionReason = updates.rejectionReason;
 
-    return await airtableClient.update<SalesReport>(
+    const updated = await airtableClient.update<SalesReport>(
       'SalesReport',
       (report as any)._recordId,
       updateData
     );
+    if (!updated) {
+      throw new Error('Failed to update sales report - Airtable not configured');
+    }
+    return updated;
   }
 
   /**

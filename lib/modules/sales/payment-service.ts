@@ -41,7 +41,11 @@ export class PaymentService {
       CreatedAt: new Date().toISOString(),
     };
 
-    return await airtableClient.create<Payment>('SalePayment', payment);
+    const created = await airtableClient.create<Payment>('SalePayment', payment);
+    if (!created) {
+      throw new Error('Failed to create payment - Airtable not configured');
+    }
+    return created;
   }
 
   /**
