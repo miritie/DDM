@@ -3,11 +3,11 @@
  * Module Ressources Humaines
  */
 
-import { AirtableClient } from '@/lib/airtable/client';
+import { getPostgresClient } from '@/lib/database/postgres-client';
 import { Employee, HRStatistics, Leave } from '@/types/modules';
 import { v4 as uuidv4 } from 'uuid';
 
-const airtableClient = new AirtableClient();
+const postgresClient = getPostgresClient();
 
 export interface CreateEmployeeInput {
   firstName: string;
@@ -53,8 +53,8 @@ export class EmployeeService {
    * Génère un numéro d'employé unique
    */
   async generateEmployeeNumber(workspaceId: string): Promise<string> {
-    const employees = await airtableClient.list<Employee>('Employee', {
-      filterByFormula: `{WorkspaceId} = '${workspaceId}'`,
+    const employees = await postgresClient.list<Employee>('employees', {
+      filterByFormula: `workspace_id = '${workspaceId}'`,
     });
 
     const count = employees.length + 1;
@@ -93,10 +93,7 @@ export class EmployeeService {
       UpdatedAt: new Date().toISOString(),
     };
 
-    const created = await airtableClient.create<Employee>('Employee', employee);
-    if (!created) {
-      throw new Error('Failed to create employee - Airtable not configured');
-    }
+    const created = await postgresClient.create<Employee>('employees', employee);
     return created;
   }
 
@@ -104,8 +101,8 @@ export class EmployeeService {
    * Récupère un employé par ID
    */
   async getById(employeeId: string): Promise<Employee | null> {
-    const employees = await airtableClient.list<Employee>('Employee', {
-      filterByFormula: `{EmployeeId} = '${employeeId}'`,
+    const employees = await postgresClient.list<Employee>('employees', {
+      filterByFormula: `employee_id = '${employeeId}'`,
     });
 
     return employees.length > 0 ? employees[0] : null;
@@ -122,18 +119,18 @@ export class EmployeeService {
       contractType?: string;
     } = {}
   ): Promise<Employee[]> {
-    const filterFormulas: string[] = [`{WorkspaceId} = '${workspaceId}'`];
+    const filterFormulas: string[] = [`workspace_id = '${workspaceId}'`];
 
     if (filters.status) {
-      filterFormulas.push(`{Status} = '${filters.status}'`);
+      filterFormulas.push(`status = '${filters.status}'`);
     }
 
     if (filters.department) {
-      filterFormulas.push(`{Department} = '${filters.department}'`);
+      filterFormulas.push(`department = '${filters.department}'`);
     }
 
     if (filters.contractType) {
-      filterFormulas.push(`{ContractType} = '${filters.contractType}'`);
+      filterFormulas.push(`contract_type = '${filters.contractType}'`);
     }
 
     const filterByFormula =
@@ -141,7 +138,7 @@ export class EmployeeService {
         ? `AND(${filterFormulas.join(', ')})`
         : filterFormulas[0];
 
-    return await airtableClient.list<Employee>('Employee', {
+    return await postgresClient.list<Employee>('employees', {
       filterByFormula,
       sort: [{ field: 'LastName', direction: 'asc' }],
     });
@@ -151,27 +148,40 @@ export class EmployeeService {
    * Met à jour un employé
    */
   async update(employeeId: string, input: UpdateEmployeeInput): Promise<Employee> {
-    const employees = await airtableClient.list<Employee>('Employee', {
-      filterByFormula: `{EmployeeId} = '${employeeId}'`,
+    const employees = await postgresClient.list<Employee>('employees', {
+      filterByFormula: `employee_id = '${employeeId}'`,
     });
 
     if (employees.length === 0) {
       throw new Error('Employé non trouvé');
     }
 
-    const updates: Partial<Employee> = {
-      ...input,
+    const updates: any = {
       UpdatedAt: new Date().toISOString(),
     };
 
-    const updated = await airtableClient.update<Employee>(
-      'Employee',
-      (employees[0] as any)._recordId,
+    if (input.firstName !== undefined) updates.FirstName = input.firstName;
+    if (input.lastName !== undefined) updates.LastName = input.lastName;
+    if (input.email !== undefined) updates.Email = input.email;
+    if (input.phone !== undefined) updates.Phone = input.phone;
+    if (input.department !== undefined) updates.Department = input.department;
+    if (input.position !== undefined) updates.Position = input.position;
+    if (input.baseSalary !== undefined) updates.BaseSalary = input.baseSalary;
+    if (input.bankAccount !== undefined) updates.BankAccount = input.bankAccount;
+    if (input.address !== undefined) updates.Address = input.address;
+    if (input.emergencyContact !== undefined) updates.EmergencyContact = input.emergencyContact;
+    if (input.emergencyPhone !== undefined) updates.EmergencyPhone = input.emergencyPhone;
+    if (input.status !== undefined) updates.Status = input.status;
+
+    if (!employees[0].id) {
+      throw new Error('Employee ID is missing');
+    }
+
+    const updated = await postgresClient.update<Employee>(
+      'employees',
+      employees[0].id,
       updates
     );
-    if (!updated) {
-      throw new Error('Failed to update employee - Airtable not configured');
-    }
     return updated;
   }
 
@@ -244,15 +254,15 @@ export class EmployeeService {
     );
 
     // Get pending leaves
-    const leaves = await airtableClient.list<Leave>('Leave', {
-      filterByFormula: `AND({WorkspaceId} = '${workspaceId}', {Status} = 'pending')`,
+    const leaves = await postgresClient.list<Leave>('leaves', {
+      filterByFormula: `AND(workspace_id = '${workspaceId}', status = 'pending')`,
     });
 
     // Get upcoming leaves
     const now = new Date();
     const nextMonth = new Date(now.getFullYear(), now.getMonth() + 1, now.getDate());
-    const approvedLeaves = await airtableClient.list<Leave>('Leave', {
-      filterByFormula: `AND({WorkspaceId} = '${workspaceId}', {Status} = 'approved')`,
+    const approvedLeaves = await postgresClient.list<Leave>('leaves', {
+      filterByFormula: `AND(workspace_id = '${workspaceId}', status = 'approved')`,
     });
 
     const upcomingLeaves = approvedLeaves

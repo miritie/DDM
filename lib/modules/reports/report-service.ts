@@ -1,9 +1,9 @@
 /**
- * Service - Génération de Rapports
+ * Service - Generation de Rapports
  * Module Rapports & Analytics
  */
 
-import { AirtableClient } from '@/lib/airtable/client';
+import { getPostgresClient } from '@/lib/database/postgres-client';
 import {
   Report,
   ReportExecution,
@@ -20,7 +20,7 @@ import {
 } from '@/types/modules';
 import { v4 as uuidv4 } from 'uuid';
 
-const airtableClient = new AirtableClient();
+const postgresClient = getPostgresClient();
 
 export interface CreateReportInput {
   reportName: string;
@@ -53,20 +53,17 @@ export class ReportService {
       UpdatedAt: new Date().toISOString(),
     };
 
-    const created = await airtableClient.create<Report>('Report', report);
-    if (!created) {
-      throw new Error('Failed to create report - Airtable not configured');
-    }
+    const created = await postgresClient.create<Report>('reports', report);
     return created;
   }
 
   async execute(reportId: string, triggeredById: string): Promise<ReportExecution> {
-    const reports = await airtableClient.list<Report>('Report', {
-      filterByFormula: `{ReportId} = '${reportId}'`,
+    const reports = await postgresClient.list<Report>('reports', {
+      filterByFormula: `report_id = '${reportId}'`,
     });
 
     if (reports.length === 0) {
-      throw new Error('Rapport non trouvé');
+      throw new Error('Rapport non trouve');
     }
 
     const report = reports[0];
@@ -81,35 +78,36 @@ export class ReportService {
       CreatedAt: new Date().toISOString(),
     };
 
-    const createdExecution = await airtableClient.create<ReportExecution>('ReportExecution', execution);
-    if (!createdExecution) {
-      throw new Error('Failed to create report execution - Airtable not configured');
-    }
+    const createdExecution = await postgresClient.create<ReportExecution>('report_executions', execution);
 
     // Generate report data asynchronously
     try {
       const reportData = await this.generateReportData(report);
 
       // Update execution with results
-      await airtableClient.update<ReportExecution>(
-        'ReportExecution',
-        (createdExecution as any)._recordId,
-        {
-          Status: 'completed',
-          CompletedAt: new Date().toISOString(),
-          ResultData: reportData,
-        }
-      );
+      if (createdExecution.id) {
+        await postgresClient.update<ReportExecution>(
+          'report_executions',
+          createdExecution.id,
+          {
+            Status: 'completed',
+            CompletedAt: new Date().toISOString(),
+            ResultData: reportData,
+          }
+        );
+      }
     } catch (error: any) {
-      await airtableClient.update<ReportExecution>(
-        'ReportExecution',
-        (createdExecution as any)._recordId,
-        {
-          Status: 'failed',
-          CompletedAt: new Date().toISOString(),
-          ErrorMessage: error.message,
-        }
-      );
+      if (createdExecution.id) {
+        await postgresClient.update<ReportExecution>(
+          'report_executions',
+          createdExecution.id,
+          {
+            Status: 'failed',
+            CompletedAt: new Date().toISOString(),
+            ErrorMessage: error.message,
+          }
+        );
+      }
       throw error;
     }
 
@@ -131,15 +129,15 @@ export class ReportService {
       case 'hr':
         return await this.generateHRReport(WorkspaceId, Parameters);
       default:
-        throw new Error(`Type de rapport non supporté: ${ReportType}`);
+        throw new Error(`Type de rapport non supporte: ${ReportType}`);
     }
   }
 
   private async generateSalesReport(workspaceId: string, parameters: Record<string, any>): Promise<SalesReport> {
     const { startDate, endDate, groupBy = 'day' } = parameters;
 
-    const sales = await airtableClient.list<Sale>('Sale', {
-      filterByFormula: `AND({WorkspaceId} = '${workspaceId}', {SaleDate} >= '${startDate}', {SaleDate} <= '${endDate}', {Status} != 'cancelled')`,
+    const sales = await postgresClient.list<Sale>('sales', {
+      filterByFormula: `workspace_id = '${workspaceId}' AND sale_date >= '${startDate}' AND sale_date <= '${endDate}' AND status != 'cancelled'`,
     });
 
     const totalRevenue = sales.reduce((sum, s) => sum + s.TotalAmount, 0);
@@ -169,13 +167,13 @@ export class ReportService {
     const productSales = new Map<string, { productId: string; productName: string; quantity: number; revenue: number }>();
 
     for (const sale of sales) {
-      const lines = await airtableClient.list<any>('SaleLine', {
-        filterByFormula: `{SaleId} = '${sale.SaleId}'`,
+      const lines = await postgresClient.list<any>('sale_lines', {
+        filterByFormula: `sale_id = '${sale.SaleId}'`,
       });
 
       for (const line of lines) {
-        const products = await airtableClient.list<Product>('Product', {
-          filterByFormula: `{ProductId} = '${line.ProductId}'`,
+        const products = await postgresClient.list<Product>('products', {
+          filterByFormula: `product_id = '${line.product_id}'`,
         });
 
         if (products.length > 0) {
@@ -189,8 +187,8 @@ export class ReportService {
               revenue: 0,
             });
           }
-          productSales.get(key)!.quantity += line.Quantity;
-          productSales.get(key)!.revenue += line.TotalPrice;
+          productSales.get(key)!.quantity += line.quantity;
+          productSales.get(key)!.revenue += line.total_price;
         }
       }
     }
@@ -203,17 +201,17 @@ export class ReportService {
     const customerSales = new Map<string, { customerId: string; customerName: string; orderCount: number; totalRevenue: number }>();
 
     for (const sale of sales) {
-      const customers = await airtableClient.list<any>('Customer', {
-        filterByFormula: `{CustomerId} = '${sale.ClientId}'`,
+      const customers = await postgresClient.list<any>('customers', {
+        filterByFormula: `customer_id = '${sale.ClientId}'`,
       });
 
       if (customers.length > 0) {
         const customer = customers[0];
-        const key = customer.CustomerId;
+        const key = customer.customer_id;
         if (!customerSales.has(key)) {
           customerSales.set(key, {
-            customerId: customer.CustomerId,
-            customerName: customer.CompanyName || customer.FullName,
+            customerId: customer.customer_id,
+            customerName: customer.company_name || customer.full_name,
             orderCount: 0,
             totalRevenue: 0,
           });
@@ -248,8 +246,8 @@ export class ReportService {
   private async generateExpenseReport(workspaceId: string, parameters: Record<string, any>): Promise<ExpenseReport> {
     const { startDate, endDate, groupBy = 'category' } = parameters;
 
-    const expenses = await airtableClient.list<Expense>('Expense', {
-      filterByFormula: `AND({WorkspaceId} = '${workspaceId}', {CreatedAt} >= '${startDate}', {CreatedAt} <= '${endDate}')`,
+    const expenses = await postgresClient.list<Expense>('expenses', {
+      filterByFormula: `workspace_id = '${workspaceId}' AND created_at >= '${startDate}' AND created_at <= '${endDate}'`,
     });
 
     const totalAmount = expenses.reduce((sum, e) => sum + e.Amount, 0);
@@ -258,17 +256,17 @@ export class ReportService {
     const expensesByCategory = new Map<string, { categoryId: string; categoryName: string; amount: number; count: number }>();
 
     for (const expense of expenses) {
-      const categories = await airtableClient.list<any>('ExpenseCategory', {
-        filterByFormula: `{ExpenseCategoryId} = '${expense.CategoryId}'`,
+      const categories = await postgresClient.list<any>('expense_categories', {
+        filterByFormula: `expense_category_id = '${expense.CategoryId}'`,
       });
 
       if (categories.length > 0) {
         const category = categories[0];
-        const key = category.ExpenseCategoryId;
+        const key = category.expense_category_id;
         if (!expensesByCategory.has(key)) {
           expensesByCategory.set(key, {
-            categoryId: category.ExpenseCategoryId,
-            categoryName: category.Label,
+            categoryId: category.expense_category_id,
+            categoryName: category.label,
             amount: 0,
             count: 0,
           });
@@ -299,14 +297,14 @@ export class ReportService {
       expensesByCategory: {
         labels: categoryData.map(c => c.categoryName),
         datasets: [{
-          label: 'Dépenses par catégorie',
+          label: 'Depenses par categorie',
           data: categoryData.map(c => c.amount),
         }],
       },
       expensesByMonth: {
         labels: Array.from(expensesByPeriod.keys()).sort(),
         datasets: [{
-          label: 'Dépenses mensuelles',
+          label: 'Depenses mensuelles',
           data: Array.from(expensesByPeriod.keys()).sort().map(k => expensesByPeriod.get(k)!.amount),
         }],
       },
@@ -325,8 +323,8 @@ export class ReportService {
   private async generateCashflowReport(workspaceId: string, parameters: Record<string, any>): Promise<CashflowReport> {
     const { startDate, endDate } = parameters;
 
-    const transactions = await airtableClient.list<Transaction>('Transaction', {
-      filterByFormula: `AND({WorkspaceId} = '${workspaceId}', {ProcessedAt} >= '${startDate}', {ProcessedAt} <= '${endDate}')`,
+    const transactions = await postgresClient.list<Transaction>('transactions', {
+      filterByFormula: `workspace_id = '${workspaceId}' AND processed_at >= '${startDate}' AND processed_at <= '${endDate}'`,
     });
 
     const totalInflow = transactions
@@ -356,8 +354,8 @@ export class ReportService {
     });
 
     // Get opening and closing balance
-    const allTransactions = await airtableClient.list<Transaction>('Transaction', {
-      filterByFormula: `AND({WorkspaceId} = '${workspaceId}', {ProcessedAt} < '${endDate}')`,
+    const allTransactions = await postgresClient.list<Transaction>('transactions', {
+      filterByFormula: `workspace_id = '${workspaceId}' AND processed_at < '${endDate}'`,
     });
 
     const closingBalance = allTransactions.reduce((sum, t) =>
@@ -383,7 +381,7 @@ export class ReportService {
           label: 'Encaissements',
           data: monthlyKeys.map(k => cashflowByPeriod.get(k)!.inflow),
         }, {
-          label: 'Décaissements',
+          label: 'Decaissements',
           data: monthlyKeys.map(k => cashflowByPeriod.get(k)!.outflow),
         }],
       },
@@ -391,8 +389,8 @@ export class ReportService {
   }
 
   private async generateInventoryReport(workspaceId: string, parameters: Record<string, any>): Promise<InventoryReport> {
-    const products = await airtableClient.list<Product>('Product', {
-      filterByFormula: `AND({WorkspaceId} = '${workspaceId}', {IsActive} = 1)`,
+    const products = await postgresClient.list<Product>('products', {
+      filterByFormula: `workspace_id = '${workspaceId}' AND is_active = true`,
     });
 
     const totalProducts = products.length;
@@ -441,16 +439,16 @@ export class ReportService {
   private async generateHRReport(workspaceId: string, parameters: Record<string, any>): Promise<HRReport> {
     const { startDate, endDate } = parameters;
 
-    const employees = await airtableClient.list<Employee>('Employee', {
-      filterByFormula: `{WorkspaceId} = '${workspaceId}'`,
+    const employees = await postgresClient.list<Employee>('employees', {
+      filterByFormula: `workspace_id = '${workspaceId}'`,
     });
 
     const activeEmployees = employees.filter(e => e.Status === 'active').length;
     const totalEmployees = employees.length;
 
     // Get leaves
-    const leaves = await airtableClient.list<any>('Leave', {
-      filterByFormula: `AND({WorkspaceId} = '${workspaceId}', {StartDate} >= '${startDate}', {EndDate} <= '${endDate}')`,
+    const leaves = await postgresClient.list<any>('leaves', {
+      filterByFormula: `workspace_id = '${workspaceId}' AND start_date >= '${startDate}' AND end_date <= '${endDate}'`,
     });
 
     const totalLeaveDays = leaves.reduce((sum, l) => sum + (l.DaysCount || 0), 0);
@@ -459,14 +457,14 @@ export class ReportService {
     // Employees by department
     const employeesByDepartment = new Map<string, number>();
     employees.forEach(emp => {
-      const dept = emp.Department || 'Non assigné';
+      const dept = emp.Department || 'Non assigne';
       employeesByDepartment.set(dept, (employeesByDepartment.get(dept) || 0) + 1);
     });
 
     // Employees by position
     const employeesByPosition = new Map<string, number>();
     employees.forEach(emp => {
-      const pos = emp.Position || 'Non assigné';
+      const pos = emp.Position || 'Non assigne';
       employeesByPosition.set(pos, (employeesByPosition.get(pos) || 0) + 1);
     });
 
@@ -483,7 +481,7 @@ export class ReportService {
       employeesByDepartment: {
         labels: deptKeys,
         datasets: [{
-          label: 'Employés par département',
+          label: 'Employes par departement',
           data: deptKeys.map(k => employeesByDepartment.get(k)!),
         }],
       },
@@ -492,33 +490,33 @@ export class ReportService {
   }
 
   async getById(reportId: string): Promise<Report | null> {
-    const reports = await airtableClient.list<Report>('Report', {
-      filterByFormula: `{ReportId} = '${reportId}'`,
+    const reports = await postgresClient.list<Report>('reports', {
+      filterByFormula: `report_id = '${reportId}'`,
     });
     return reports.length > 0 ? reports[0] : null;
   }
 
   async list(workspaceId: string, filters: { reportType?: string; isActive?: boolean } = {}): Promise<Report[]> {
-    const filterFormulas: string[] = [`{WorkspaceId} = '${workspaceId}'`];
+    const filterFormulas: string[] = [`workspace_id = '${workspaceId}'`];
 
     if (filters.reportType) {
-      filterFormulas.push(`{ReportType} = '${filters.reportType}'`);
+      filterFormulas.push(`report_type = '${filters.reportType}'`);
     }
     if (filters.isActive !== undefined) {
-      filterFormulas.push(`{IsActive} = ${filters.isActive ? '1' : '0'}`);
+      filterFormulas.push(`is_active = ${filters.isActive}`);
     }
 
-    const filterByFormula = filterFormulas.length > 1 ? `AND(${filterFormulas.join(', ')})` : filterFormulas[0];
+    const filterByFormula = filterFormulas.join(' AND ');
 
-    return await airtableClient.list<Report>('Report', {
+    return await postgresClient.list<Report>('reports', {
       filterByFormula,
       sort: [{ field: 'CreatedAt', direction: 'desc' }],
     });
   }
 
   async getExecutions(reportId: string): Promise<ReportExecution[]> {
-    return await airtableClient.list<ReportExecution>('ReportExecution', {
-      filterByFormula: `{ReportId} = '${reportId}'`,
+    return await postgresClient.list<ReportExecution>('report_executions', {
+      filterByFormula: `report_id = '${reportId}'`,
       sort: [{ field: 'StartedAt', direction: 'desc' }],
     });
   }

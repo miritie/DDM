@@ -3,12 +3,11 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import { AirtableClient } from '@/lib/airtable/client';
-import { User } from '@/types/modules';
+import { getPostgresClient } from '@/lib/database/postgres-client';
 import bcrypt from 'bcryptjs';
 import { v4 as uuidv4 } from 'uuid';
 
-const airtableClient = new AirtableClient();
+const postgresClient = getPostgresClient();
 
 export async function POST(request: NextRequest) {
   try {
@@ -25,19 +24,20 @@ export async function POST(request: NextRequest) {
 
     if (password.length < 8) {
       return NextResponse.json(
-        { error: 'Le mot de passe doit contenir au moins 8 caractères' },
+        { error: 'Le mot de passe doit contenir au moins 8 caracteres' },
         { status: 400 }
       );
     }
 
-    // Vérifier si l'email existe déjà
-    const existingUsers = await airtableClient.list<User>('User', {
-      filterByFormula: `{Email} = '${email}'`,
-    });
+    // Verifier si l'email existe deja
+    const existingUsers = await postgresClient.query(
+      `SELECT * FROM users WHERE email = $1`,
+      [email]
+    );
 
-    if (existingUsers.length > 0) {
+    if (existingUsers.rows.length > 0) {
       return NextResponse.json(
-        { error: 'Cet email est déjà utilisé' },
+        { error: 'Cet email est deja utilise' },
         { status: 400 }
       );
     }
@@ -45,41 +45,42 @@ export async function POST(request: NextRequest) {
     // Hasher le mot de passe
     const passwordHash = await bcrypt.hash(password, 10);
 
-    // Créer l'utilisateur
-    const newUser: Partial<User> = {
-      UserId: uuidv4(),
-      Email: email,
-      PasswordHash: passwordHash,
-      FullName: fullName,
-      DisplayName: fullName.split(' ')[0],
-      WorkspaceId: process.env.DEFAULT_WORKSPACE_ID || 'workspace_default',
-      RoleId: 'role_user', // Rôle par défaut
-      IsActive: true,
-      CreatedAt: new Date().toISOString(),
-      UpdatedAt: new Date().toISOString(),
-    };
+    // Creer l'utilisateur
+    const userId = uuidv4();
+    const now = new Date().toISOString();
 
-    const user = await airtableClient.create<User>('User', newUser);
+    const users = await postgresClient.query(
+      `INSERT INTO users (user_id, email, password_hash, full_name, display_name, workspace_id, role_id, is_active, created_at, updated_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+       RETURNING *`,
+      [
+        userId,
+        email,
+        passwordHash,
+        fullName,
+        fullName.split(' ')[0],
+        process.env.DEFAULT_WORKSPACE_ID || 'workspace_default',
+        'role_user', // Role par defaut
+        true,
+        now,
+        now,
+      ]
+    );
 
-    if (!user) {
-      return NextResponse.json(
-        { error: 'Airtable not configured - user registration disabled' },
-        { status: 503 }
-      );
-    }
+    const user = users.rows[0];
 
     return NextResponse.json({
       success: true,
       user: {
-        userId: user.UserId,
-        email: user.Email,
-        fullName: user.FullName,
+        userId: user.user_id,
+        email: user.email,
+        fullName: user.full_name,
       },
     });
   } catch (error) {
     console.error('Error creating user:', error);
     return NextResponse.json(
-      { error: 'Erreur lors de la création du compte' },
+      { error: 'Erreur lors de la creation du compte' },
       { status: 500 }
     );
   }

@@ -3,11 +3,11 @@
  * Module Production & Usine
  */
 
-import { AirtableClient } from '@/lib/airtable/client';
+import { getPostgresClient } from '@/lib/database/postgres-client';
 import { Recipe, RecipeLine } from '@/types/modules';
 import { v4 as uuidv4 } from 'uuid';
 
-const airtableClient = new AirtableClient();
+const postgresClient = getPostgresClient();
 
 export interface CreateRecipeInput {
   name: string;
@@ -57,19 +57,19 @@ export class RecipeService {
       productId?: string;
     }
   ): Promise<Recipe[]> {
-    let formulaParts = [`{WorkspaceId} = '${workspaceId}'`];
+    const conditions: string[] = [`workspace_id = '${workspaceId}'`];
 
     if (filters?.isActive !== undefined) {
-      formulaParts.push(`{IsActive} = ${filters.isActive ? 'TRUE()' : 'FALSE()'}`);
+      conditions.push(`is_active = ${filters.isActive}`);
     }
 
     if (filters?.productId) {
-      formulaParts.push(`{ProductId} = '${filters.productId}'`);
+      conditions.push(`product_id = '${filters.productId}'`);
     }
 
-    const recipes = await airtableClient.list<Recipe>('Recipe', {
-      filterByFormula: `AND(${formulaParts.join(', ')})`,
-      sort: [{ field: 'RecipeNumber', direction: 'desc' }],
+    const recipes = await postgresClient.list<Recipe>('recipes', {
+      filterByFormula: conditions.join(' AND '),
+      orderBy: { field: 'recipe_number', direction: 'desc' },
     });
 
     // Charger les lignes pour chaque recette
@@ -84,8 +84,8 @@ export class RecipeService {
    * Récupère une recette par ID
    */
   async getById(recipeId: string): Promise<Recipe | null> {
-    const results = await airtableClient.list<Recipe>('Recipe', {
-      filterByFormula: `{RecipeId} = '${recipeId}'`,
+    const results = await postgresClient.list<Recipe>('recipes', {
+      filterByFormula: `recipe_id = '${recipeId}'`,
     });
 
     if (results.length === 0) {
@@ -102,8 +102,8 @@ export class RecipeService {
    * Récupère une recette par numéro
    */
   async getByNumber(workspaceId: string, recipeNumber: string): Promise<Recipe | null> {
-    const results = await airtableClient.list<Recipe>('Recipe', {
-      filterByFormula: `AND({WorkspaceId} = '${workspaceId}', {RecipeNumber} = '${recipeNumber}')`,
+    const results = await postgresClient.list<Recipe>('recipes', {
+      filterByFormula: `workspace_id = '${workspaceId}' AND recipe_number = '${recipeNumber}'`,
     });
 
     if (results.length === 0) {
@@ -120,9 +120,9 @@ export class RecipeService {
    * Récupère les lignes d'une recette
    */
   async getRecipeLines(recipeId: string): Promise<RecipeLine[]> {
-    return await airtableClient.list<RecipeLine>('RecipeLine', {
-      filterByFormula: `{RecipeId} = '${recipeId}'`,
-      sort: [{ field: 'CreatedAt', direction: 'asc' }],
+    return await postgresClient.list<RecipeLine>('recipe_lines', {
+      filterByFormula: `recipe_id = '${recipeId}'`,
+      orderBy: { field: 'created_at', direction: 'asc' },
     });
   }
 
@@ -135,9 +135,9 @@ export class RecipeService {
     const month = String(now.getMonth() + 1).padStart(2, '0');
     const prefix = `REC-${year}${month}`;
 
-    const existingRecipes = await airtableClient.list<Recipe>('Recipe', {
-      filterByFormula: `AND({WorkspaceId} = '${workspaceId}', SEARCH('${prefix}', {RecipeNumber}) = 1)`,
-      sort: [{ field: 'RecipeNumber', direction: 'desc' }],
+    const existingRecipes = await postgresClient.list<Recipe>('recipes', {
+      filterByFormula: `workspace_id = '${workspaceId}' AND recipe_number LIKE '${prefix}%'`,
+      orderBy: { field: 'recipe_number', direction: 'desc' },
     });
 
     let nextNumber = 1;
@@ -182,10 +182,7 @@ export class RecipeService {
       UpdatedAt: new Date().toISOString(),
     };
 
-    const createdRecipe = await airtableClient.create<Recipe>('Recipe', recipe);
-    if (!createdRecipe) {
-      throw new Error('Failed to create recipe - Airtable not configured');
-    }
+    const createdRecipe = await postgresClient.create<Recipe>('recipes', recipe);
 
     // Créer les lignes de la recette
     const lines: RecipeLine[] = [];
@@ -201,10 +198,7 @@ export class RecipeService {
         Notes: lineInput.notes,
       };
 
-      const createdLine = await airtableClient.create<RecipeLine>('RecipeLine', line);
-      if (!createdLine) {
-        throw new Error('Failed to create recipe line - Airtable not configured');
-      }
+      const createdLine = await postgresClient.create<RecipeLine>('recipe_lines', line);
       lines.push(createdLine);
     }
 
@@ -221,24 +215,34 @@ export class RecipeService {
       throw new Error('Recette non trouvée');
     }
 
-    const records = await airtableClient.list<Recipe>('Recipe', {
-      filterByFormula: `{RecipeId} = '${recipeId}'`,
+    const records = await postgresClient.list<Recipe>('recipes', {
+      filterByFormula: `recipe_id = '${recipeId}'`,
     });
 
     if (records.length === 0) {
       throw new Error('Recette non trouvée');
     }
 
-    const recordId = (records[0] as any)._recordId;
+    const recordId = records[0].id;
+    if (!recordId) {
+      throw new Error('ID d\'enregistrement non trouvé');
+    }
 
-    const updatedRecipe = await airtableClient.update<Recipe>('Recipe', recordId, {
-      ...updates,
+    const updateData: Record<string, any> = {
       Version: recipe.Version + 1,
       UpdatedAt: new Date().toISOString(),
-    });
-    if (!updatedRecipe) {
-      throw new Error('Failed to update recipe - Airtable not configured');
-    }
+    };
+    if (updates.name !== undefined) updateData.Name = updates.name;
+    if (updates.productId !== undefined) updateData.ProductId = updates.productId;
+    if (updates.productName !== undefined) updateData.ProductName = updates.productName;
+    if (updates.outputQuantity !== undefined) updateData.OutputQuantity = updates.outputQuantity;
+    if (updates.outputUnit !== undefined) updateData.OutputUnit = updates.outputUnit;
+    if (updates.estimatedDuration !== undefined) updateData.EstimatedDuration = updates.estimatedDuration;
+    if (updates.instructions !== undefined) updateData.Instructions = updates.instructions;
+    if (updates.yieldRate !== undefined) updateData.YieldRate = updates.yieldRate;
+    if (updates.isActive !== undefined) updateData.IsActive = updates.isActive;
+
+    const updatedRecipe = await postgresClient.update<Recipe>('recipes', recordId, updateData);
 
     updatedRecipe.Lines = await this.getRecipeLines(recipeId);
     return updatedRecipe;
@@ -264,10 +268,7 @@ export class RecipeService {
       Notes: lineInput.notes,
     };
 
-    const created = await airtableClient.create<RecipeLine>('RecipeLine', line);
-    if (!created) {
-      throw new Error('Failed to create recipe line - Airtable not configured');
-    }
+    const created = await postgresClient.create<RecipeLine>('recipe_lines', line);
     return created;
   }
 
@@ -283,26 +284,26 @@ export class RecipeService {
       notes?: string;
     }
   ): Promise<RecipeLine> {
-    const records = await airtableClient.list<RecipeLine>('RecipeLine', {
-      filterByFormula: `{RecipeLineId} = '${recipeLineId}'`,
+    const records = await postgresClient.list<RecipeLine>('recipe_lines', {
+      filterByFormula: `recipe_line_id = '${recipeLineId}'`,
     });
 
     if (records.length === 0) {
       throw new Error('Ligne de recette non trouvée');
     }
 
-    const recordId = (records[0] as any)._recordId;
+    const recordId = records[0].id;
+    if (!recordId) {
+      throw new Error('ID d\'enregistrement non trouvé');
+    }
 
-    const data: Partial<RecipeLine> = {};
+    const data: Record<string, any> = {};
     if (updates.quantity !== undefined) data.Quantity = updates.quantity;
     if (updates.unit !== undefined) data.Unit = updates.unit;
     if (updates.loss !== undefined) data.Loss = updates.loss;
     if (updates.notes !== undefined) data.Notes = updates.notes;
 
-    const updated = await airtableClient.update<RecipeLine>('RecipeLine', recordId, data);
-    if (!updated) {
-      throw new Error('Failed to update recipe line - Airtable not configured');
-    }
+    const updated = await postgresClient.update<RecipeLine>('recipe_lines', recordId, data);
     return updated;
   }
 
@@ -310,16 +311,19 @@ export class RecipeService {
    * Supprime une ligne de recette
    */
   async deleteLine(recipeLineId: string): Promise<void> {
-    const records = await airtableClient.list<RecipeLine>('RecipeLine', {
-      filterByFormula: `{RecipeLineId} = '${recipeLineId}'`,
+    const records = await postgresClient.list<RecipeLine>('recipe_lines', {
+      filterByFormula: `recipe_line_id = '${recipeLineId}'`,
     });
 
     if (records.length === 0) {
       throw new Error('Ligne de recette non trouvée');
     }
 
-    const recordId = (records[0] as any)._recordId;
-    await airtableClient.delete('RecipeLine', recordId);
+    const recordId = records[0].id;
+    if (!recordId) {
+      throw new Error('ID d\'enregistrement non trouvé');
+    }
+    await postgresClient.delete('recipe_lines', recordId);
   }
 
   /**
@@ -392,8 +396,8 @@ export class RecipeService {
 
     for (const line of recipe.Lines) {
       // Récupérer le coût unitaire de l'ingrédient
-      const ingredients = await airtableClient.list('Ingredient', {
-        filterByFormula: `{IngredientId} = '${line.IngredientId}'`,
+      const ingredients = await postgresClient.list('ingredients', {
+        filterByFormula: `ingredient_id = '${line.IngredientId}'`,
       });
 
       if (ingredients.length > 0) {

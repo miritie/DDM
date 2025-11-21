@@ -3,7 +3,7 @@
  * Module 7.5
  */
 
-import { AirtableClient } from '@/lib/airtable/client';
+import { getPostgresClient } from '@/lib/database/postgres-client';
 import {
   AdvanceDebt,
   AdvanceDebtSchedule,
@@ -15,7 +15,7 @@ import {
 } from '@/types/modules';
 import { v4 as uuidv4 } from 'uuid';
 
-const airtableClient = new AirtableClient();
+const postgresClient = getPostgresClient();
 
 export interface CreateAdvanceDebtInput {
   type: AdvanceDebtType;
@@ -53,20 +53,20 @@ export class AdvanceDebtService {
     status?: AdvanceDebtStatus;
     accountId?: string;
   }): Promise<AdvanceDebt[]> {
-    let formula = `{WorkspaceId} = '${workspaceId}'`;
+    let formula = `workspace_id = '${workspaceId}'`;
 
     if (filters?.type) {
-      formula += `, {Type} = '${filters.type}'`;
+      formula += ` AND type = '${filters.type}'`;
     }
     if (filters?.status) {
-      formula += `, {Status} = '${filters.status}'`;
+      formula += ` AND status = '${filters.status}'`;
     }
     if (filters?.accountId) {
-      formula += `, {AccountId} = '${filters.accountId}'`;
+      formula += ` AND account_id = '${filters.accountId}'`;
     }
 
-    return await airtableClient.list<AdvanceDebt>('AdvanceDebt', {
-      filterByFormula: `AND(${formula})`,
+    return await postgresClient.list<AdvanceDebt>('advance_debts', {
+      filterByFormula: formula,
       sort: [{ field: 'CreatedAt', direction: 'desc' }],
     });
   }
@@ -75,8 +75,8 @@ export class AdvanceDebtService {
    * Récupère une avance/dette par ID
    */
   async getById(advanceDebtId: string): Promise<AdvanceDebt | null> {
-    const results = await airtableClient.list<AdvanceDebt>('AdvanceDebt', {
-      filterByFormula: `{AdvanceDebtId} = '${advanceDebtId}'`,
+    const results = await postgresClient.list<AdvanceDebt>('advance_debts', {
+      filterByFormula: `advance_debt_id = '${advanceDebtId}'`,
     });
     return results[0] || null;
   }
@@ -105,10 +105,7 @@ export class AdvanceDebtService {
       UpdatedAt: new Date().toISOString(),
     };
 
-    const created = await airtableClient.create<AdvanceDebt>('AdvanceDebt', advanceDebt);
-    if (!created) {
-      throw new Error('Failed to create advance debt - Airtable not configured');
-    }
+    const created = await postgresClient.create<AdvanceDebt>('advance_debts', advanceDebt);
 
     // Créer les échéanciers si fournis
     if (input.schedules && input.schedules.length > 0) {
@@ -136,27 +133,24 @@ export class AdvanceDebtService {
       throw new Error('Avance/Dette non trouvée');
     }
 
-    // Récupérer le _recordId Airtable
-    const records = await airtableClient.list<AdvanceDebt>('AdvanceDebt', {
-      filterByFormula: `{AdvanceDebtId} = '${advanceDebtId}'`,
+    // Récupérer le record id PostgreSQL
+    const records = await postgresClient.list<AdvanceDebt>('advance_debts', {
+      filterByFormula: `advance_debt_id = '${advanceDebtId}'`,
     });
 
     if (records.length === 0) {
       throw new Error('Avance/Dette non trouvée');
     }
 
-    const recordId = (records[0] as any)._recordId;
+    const recordId = records[0].id;
+    if (!recordId) {
+      throw new Error('ID not found');
+    }
 
-    const updated = await airtableClient.update<AdvanceDebt>('AdvanceDebt', recordId, {
+    return await postgresClient.update<AdvanceDebt>('advance_debts', recordId, {
       ...updates,
       UpdatedAt: new Date().toISOString(),
     });
-
-    if (!updated) {
-      throw new Error('Failed to update advance debt - Airtable not configured');
-    }
-
-    return updated;
   }
 
   /**
@@ -205,8 +199,8 @@ export class AdvanceDebtService {
    * Récupère les mouvements d'une avance/dette
    */
   async getMovements(advanceDebtId: string): Promise<AdvanceDebtMovement[]> {
-    return await airtableClient.list<AdvanceDebtMovement>('AdvanceDebtMovement', {
-      filterByFormula: `{AdvanceDebtId} = '${advanceDebtId}'`,
+    return await postgresClient.list<AdvanceDebtMovement>('advance_debt_movements', {
+      filterByFormula: `advance_debt_id = '${advanceDebtId}'`,
       sort: [{ field: 'ProcessedAt', direction: 'desc' }],
     });
   }
@@ -215,8 +209,8 @@ export class AdvanceDebtService {
    * Récupère les échéanciers d'une avance/dette
    */
   async getSchedules(advanceDebtId: string): Promise<AdvanceDebtSchedule[]> {
-    return await airtableClient.list<AdvanceDebtSchedule>('AdvanceDebtSchedule', {
-      filterByFormula: `{AdvanceDebtId} = '${advanceDebtId}'`,
+    return await postgresClient.list<AdvanceDebtSchedule>('advance_debt_schedules', {
+      filterByFormula: `advance_debt_id = '${advanceDebtId}'`,
       sort: [{ field: 'DueDate', direction: 'asc' }],
     });
   }
@@ -239,41 +233,32 @@ export class AdvanceDebtService {
       UpdatedAt: new Date().toISOString(),
     };
 
-    const created = await airtableClient.create<AdvanceDebtSchedule>('AdvanceDebtSchedule', schedule);
-
-    if (!created) {
-      throw new Error('Failed to create advance debt schedule - Airtable not configured');
-    }
-
-    return created;
+    return await postgresClient.create<AdvanceDebtSchedule>('advance_debt_schedules', schedule);
   }
 
   /**
    * Marque un échéancier comme payé
    */
   async markSchedulePaid(scheduleId: string, paidAmount: number): Promise<AdvanceDebtSchedule> {
-    const schedules = await airtableClient.list<AdvanceDebtSchedule>('AdvanceDebtSchedule', {
-      filterByFormula: `{ScheduleId} = '${scheduleId}'`,
+    const schedules = await postgresClient.list<AdvanceDebtSchedule>('advance_debt_schedules', {
+      filterByFormula: `schedule_id = '${scheduleId}'`,
     });
 
     if (schedules.length === 0) {
       throw new Error('Échéancier non trouvé');
     }
 
-    const recordId = (schedules[0] as any)._recordId;
+    const recordId = schedules[0].id;
+    if (!recordId) {
+      throw new Error('ID not found');
+    }
 
-    const updated = await airtableClient.update<AdvanceDebtSchedule>('AdvanceDebtSchedule', recordId, {
+    return await postgresClient.update<AdvanceDebtSchedule>('advance_debt_schedules', recordId, {
       IsPaid: true,
       PaidAt: new Date().toISOString(),
       PaidAmount: paidAmount,
       UpdatedAt: new Date().toISOString(),
     });
-
-    if (!updated) {
-      throw new Error('Failed to mark schedule as paid - Airtable not configured');
-    }
-
-    return updated;
   }
 
   /**
@@ -294,13 +279,7 @@ export class AdvanceDebtService {
       UpdatedAt: new Date().toISOString(),
     };
 
-    const created = await airtableClient.create<AdvanceDebtMovement>('AdvanceDebtMovement', movement);
-
-    if (!created) {
-      throw new Error('Failed to create advance debt movement - Airtable not configured');
-    }
-
-    return created;
+    return await postgresClient.create<AdvanceDebtMovement>('advance_debt_movements', movement);
   }
 
   /**
@@ -312,8 +291,8 @@ export class AdvanceDebtService {
     const year = date.getFullYear();
     const month = String(date.getMonth() + 1).padStart(2, '0');
 
-    const existingRecords = await airtableClient.list<AdvanceDebt>('AdvanceDebt', {
-      filterByFormula: `AND({WorkspaceId} = '${workspaceId}', {Type} = '${type}')`,
+    const existingRecords = await postgresClient.list<AdvanceDebt>('advance_debts', {
+      filterByFormula: `workspace_id = '${workspaceId}' AND type = '${type}'`,
     });
 
     const sequence = String(existingRecords.length + 1).padStart(4, '0');

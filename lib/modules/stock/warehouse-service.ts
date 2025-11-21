@@ -3,11 +3,11 @@
  * Module Stocks & Mouvements
  */
 
-import { AirtableClient } from '@/lib/airtable/client';
+import { getPostgresClient } from '@/lib/database/postgres-client';
 import { Warehouse } from '@/types/modules';
 import { v4 as uuidv4 } from 'uuid';
 
-const airtableClient = new AirtableClient();
+const postgresClient = getPostgresClient();
 
 export interface CreateWarehouseInput {
   name: string;
@@ -33,8 +33,8 @@ export class WarehouseService {
    * Génère un code entrepôt unique
    */
   async generateWarehouseCode(workspaceId: string): Promise<string> {
-    const warehouses = await airtableClient.list<Warehouse>('Warehouse', {
-      filterByFormula: `{WorkspaceId} = '${workspaceId}'`,
+    const warehouses = await postgresClient.list<Warehouse>('warehouses', {
+      filterByFormula: `{workspace_id} = '${workspaceId}'`,
     });
 
     const count = warehouses.length + 1;
@@ -60,10 +60,7 @@ export class WarehouseService {
       UpdatedAt: new Date().toISOString(),
     };
 
-    const created = await airtableClient.create<Warehouse>('Warehouse', warehouse);
-    if (!created) {
-      throw new Error('Failed to create warehouse - Airtable not configured');
-    }
+    const created = await postgresClient.create<Warehouse>('warehouses', warehouse);
     return created;
   }
 
@@ -71,8 +68,8 @@ export class WarehouseService {
    * Récupère un entrepôt par ID
    */
   async getById(warehouseId: string): Promise<Warehouse | null> {
-    const warehouses = await airtableClient.list<Warehouse>('Warehouse', {
-      filterByFormula: `{WarehouseId} = '${warehouseId}'`,
+    const warehouses = await postgresClient.list<Warehouse>('warehouses', {
+      filterByFormula: `{warehouse_id} = '${warehouseId}'`,
     });
 
     return warehouses.length > 0 ? warehouses[0] : null;
@@ -85,10 +82,10 @@ export class WarehouseService {
     workspaceId: string,
     filters: { isActive?: boolean } = {}
   ): Promise<Warehouse[]> {
-    const filterFormulas: string[] = [`{WorkspaceId} = '${workspaceId}'`];
+    const filterFormulas: string[] = [`{workspace_id} = '${workspaceId}'`];
 
     if (filters.isActive !== undefined) {
-      filterFormulas.push(`{IsActive} = ${filters.isActive ? 1 : 0}`);
+      filterFormulas.push(`{is_active} = ${filters.isActive ? 1 : 0}`);
     }
 
     const filterByFormula =
@@ -96,7 +93,7 @@ export class WarehouseService {
         ? `AND(${filterFormulas.join(', ')})`
         : filterFormulas[0];
 
-    return await airtableClient.list<Warehouse>('Warehouse', {
+    return await postgresClient.list<Warehouse>('warehouses', {
       filterByFormula,
       sort: [{ field: 'Name', direction: 'asc' }],
     });
@@ -106,27 +103,32 @@ export class WarehouseService {
    * Met à jour un entrepôt
    */
   async update(warehouseId: string, input: UpdateWarehouseInput): Promise<Warehouse> {
-    const warehouses = await airtableClient.list<Warehouse>('Warehouse', {
-      filterByFormula: `{WarehouseId} = '${warehouseId}'`,
+    const warehouses = await postgresClient.list<Warehouse>('warehouses', {
+      filterByFormula: `{warehouse_id} = '${warehouseId}'`,
     });
 
     if (warehouses.length === 0) {
       throw new Error('Entrepôt non trouvé');
     }
 
+    if (!warehouses[0].id) {
+      throw new Error('ID d\'entrepôt manquant pour mise à jour');
+    }
+
     const updates: Partial<Warehouse> = {
-      ...input,
+      Name: input.name,
+      Location: input.location,
+      Address: input.address,
+      ManagerId: input.managerId,
+      IsActive: input.isActive,
       UpdatedAt: new Date().toISOString(),
     };
 
-    const updated = await airtableClient.update<Warehouse>(
-      'Warehouse',
-      (warehouses[0] as any)._recordId,
+    const updated = await postgresClient.update<Warehouse>(
+      'warehouses',
+      warehouses[0].id,
       updates
     );
-    if (!updated) {
-      throw new Error('Failed to update warehouse - Airtable not configured');
-    }
     return updated;
   }
 

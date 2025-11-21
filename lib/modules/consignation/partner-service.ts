@@ -3,11 +3,11 @@
  * Module Consignation & Partenaires
  */
 
-import { AirtableClient } from '@/lib/airtable/client';
+import { getPostgresClient } from '@/lib/database/postgres-client';
 import { Partner, PartnerType, PartnerStatus } from '@/types/modules';
 import { v4 as uuidv4 } from 'uuid';
 
-const airtableClient = new AirtableClient();
+const postgresClient = getPostgresClient();
 
 export interface CreatePartnerInput {
   name: string;
@@ -57,46 +57,46 @@ export interface PartnerFilters {
 
 export class PartnerService {
   /**
-   * Générer le code partenaire (PAR-0001, PAR-0002, etc.)
+   * Generer le code partenaire (PAR-0001, PAR-0002, etc.)
    */
   async generatePartnerCode(workspaceId: string): Promise<string> {
-    const partners = await airtableClient.list<Partner>('Partner', {
-      filterByFormula: `{WorkspaceId} = '${workspaceId}'`,
+    const partners = await postgresClient.list<any>('partners', {
+      filterByFormula: `{workspace_id} = '${workspaceId}'`,
     });
     return `PAR-${String(partners.length + 1).padStart(4, '0')}`;
   }
 
   /**
-   * Créer un nouveau partenaire
+   * Creer un nouveau partenaire
    */
   async create(input: CreatePartnerInput): Promise<Partner> {
     // Validation: commission entre 0 et 100%
     if (input.commissionRate < 0 || input.commissionRate > 100) {
-      throw new Error('Le taux de commission doit être entre 0 et 100%');
+      throw new Error('Le taux de commission doit etre entre 0 et 100%');
     }
 
     // Validation: termes de paiement positifs
     if (input.paymentTerms < 0) {
-      throw new Error('Les termes de paiement doivent être positifs');
+      throw new Error('Les termes de paiement doivent etre positifs');
     }
 
-    // Validation: téléphone unique
-    const existing = await airtableClient.list<Partner>('Partner', {
-      filterByFormula: `AND({WorkspaceId} = '${input.workspaceId}', {Phone} = '${input.phone}')`,
+    // Validation: telephone unique
+    const existing = await postgresClient.list<any>('partners', {
+      filterByFormula: `AND({workspace_id} = '${input.workspaceId}', {phone} = '${input.phone}')`,
     });
 
     if (existing.length > 0) {
-      throw new Error('Un partenaire avec ce numéro de téléphone existe déjà');
+      throw new Error('Un partenaire avec ce numero de telephone existe deja');
     }
 
     const partnerCode = await this.generatePartnerCode(input.workspaceId);
 
-    const partner: Partial<Partner> = {
+    const partner: any = {
       PartnerId: uuidv4(),
       PartnerCode: partnerCode,
       Name: input.name,
       Type: input.type,
-      Status: 'pending', // Par défaut en attente
+      Status: 'pending', // Par defaut en attente
       ContactPerson: input.contactPerson,
       Phone: input.phone,
       Email: input.email,
@@ -119,89 +119,87 @@ export class PartnerService {
       UpdatedAt: new Date().toISOString(),
     };
 
-    const created = await airtableClient.create<Partner>('Partner', partner);
-    if (!created) {
-      throw new Error('Failed to create partner - Airtable not configured');
-    }
-    return created;
+    const created = await postgresClient.create<any>('partners', partner);
+    return this.mapToPartner(created);
   }
 
   /**
-   * Récupérer un partenaire par son ID
+   * Recuperer un partenaire par son ID
    */
   async getById(partnerId: string): Promise<Partner | null> {
-    const partners = await airtableClient.list<Partner>('Partner', {
-      filterByFormula: `{PartnerId} = '${partnerId}'`,
+    const partners = await postgresClient.list<any>('partners', {
+      filterByFormula: `{partner_id} = '${partnerId}'`,
     });
-    return partners.length > 0 ? partners[0] : null;
+    return partners.length > 0 ? this.mapToPartner(partners[0]) : null;
   }
 
   /**
-   * Récupérer un partenaire par son code
+   * Recuperer un partenaire par son code
    */
   async getByCode(partnerCode: string, workspaceId: string): Promise<Partner | null> {
-    const partners = await airtableClient.list<Partner>('Partner', {
-      filterByFormula: `AND({WorkspaceId} = '${workspaceId}', {PartnerCode} = '${partnerCode}')`,
+    const partners = await postgresClient.list<any>('partners', {
+      filterByFormula: `AND({workspace_id} = '${workspaceId}', {partner_code} = '${partnerCode}')`,
     });
-    return partners.length > 0 ? partners[0] : null;
+    return partners.length > 0 ? this.mapToPartner(partners[0]) : null;
   }
 
   /**
    * Lister les partenaires avec filtres
    */
   async list(workspaceId: string, filters: PartnerFilters = {}): Promise<Partner[]> {
-    const filterFormulas: string[] = [`{WorkspaceId} = '${workspaceId}'`];
+    const filterFormulas: string[] = [`{workspace_id} = '${workspaceId}'`];
 
     if (filters.status) {
-      filterFormulas.push(`{Status} = '${filters.status}'`);
+      filterFormulas.push(`{status} = '${filters.status}'`);
     }
     if (filters.type) {
-      filterFormulas.push(`{Type} = '${filters.type}'`);
+      filterFormulas.push(`{type} = '${filters.type}'`);
     }
     if (filters.city) {
-      filterFormulas.push(`{City} = '${filters.city}'`);
+      filterFormulas.push(`{city} = '${filters.city}'`);
     }
     if (filters.region) {
-      filterFormulas.push(`{Region} = '${filters.region}'`);
+      filterFormulas.push(`{region} = '${filters.region}'`);
     }
     if (filters.minBalance !== undefined) {
-      filterFormulas.push(`{CurrentBalance} >= ${filters.minBalance}`);
+      filterFormulas.push(`{current_balance} >= ${filters.minBalance}`);
     }
     if (filters.maxBalance !== undefined) {
-      filterFormulas.push(`{CurrentBalance} <= ${filters.maxBalance}`);
+      filterFormulas.push(`{current_balance} <= ${filters.maxBalance}`);
     }
 
     const filterByFormula =
       filterFormulas.length > 1 ? `AND(${filterFormulas.join(', ')})` : filterFormulas[0];
 
-    return await airtableClient.list<Partner>('Partner', {
+    const results = await postgresClient.list<any>('partners', {
       filterByFormula,
       sort: [{ field: 'Name', direction: 'asc' }],
     });
+    return results.map((record: any) => this.mapToPartner(record));
   }
 
   /**
-   * Mettre à jour un partenaire
+   * Mettre a jour un partenaire
    */
   async update(partnerId: string, updates: UpdatePartnerInput): Promise<Partner> {
-    const partners = await airtableClient.list<Partner>('Partner', {
-      filterByFormula: `{PartnerId} = '${partnerId}'`,
+    const partners = await postgresClient.list<any>('partners', {
+      filterByFormula: `{partner_id} = '${partnerId}'`,
     });
 
     if (partners.length === 0) {
-      throw new Error('Partenaire non trouvé');
+      throw new Error('Partenaire non trouve');
     }
 
     // Validation: commission entre 0 et 100%
     if (updates.commissionRate !== undefined) {
       if (updates.commissionRate < 0 || updates.commissionRate > 100) {
-        throw new Error('Le taux de commission doit être entre 0 et 100%');
+        throw new Error('Le taux de commission doit etre entre 0 et 100%');
       }
     }
 
     // Validation: termes de paiement positifs
     if (updates.paymentTerms !== undefined && updates.paymentTerms < 0) {
-      throw new Error('Les termes de paiement doivent être positifs');
+      throw new Error('Les termes de paiement doivent etre positifs');
     }
 
     const updateData: any = {
@@ -226,15 +224,12 @@ export class PartnerService {
     if (updates.notes !== undefined) updateData.Notes = updates.notes;
     if (updates.tags !== undefined) updateData.Tags = updates.tags;
 
-    const updated = await airtableClient.update<Partner>(
-      'Partner',
-      (partners[0] as any)._recordId,
+    const updated = await postgresClient.update<any>(
+      'partners',
+      partners[0].id,
       updateData
     );
-    if (!updated) {
-      throw new Error('Failed to update partner - Airtable not configured');
-    }
-    return updated;
+    return this.mapToPartner(updated);
   }
 
   /**
@@ -252,14 +247,14 @@ export class PartnerService {
   }
 
   /**
-   * Désactiver un partenaire
+   * Desactiver un partenaire
    */
   async deactivate(partnerId: string): Promise<Partner> {
     return await this.update(partnerId, { status: 'inactive' });
   }
 
   /**
-   * Mettre à jour les statistiques financières d'un partenaire
+   * Mettre a jour les statistiques financieres d'un partenaire
    */
   async updateFinancials(
     partnerId: string,
@@ -270,12 +265,12 @@ export class PartnerService {
       currentBalance?: number;
     }
   ): Promise<Partner> {
-    const partners = await airtableClient.list<Partner>('Partner', {
-      filterByFormula: `{PartnerId} = '${partnerId}'`,
+    const partners = await postgresClient.list<any>('partners', {
+      filterByFormula: `{partner_id} = '${partnerId}'`,
     });
 
     if (partners.length === 0) {
-      throw new Error('Partenaire non trouvé');
+      throw new Error('Partenaire non trouve');
     }
 
     const updateData: any = {
@@ -287,23 +282,20 @@ export class PartnerService {
     if (updates.totalReturned !== undefined) updateData.TotalReturned = updates.totalReturned;
     if (updates.currentBalance !== undefined) updateData.CurrentBalance = updates.currentBalance;
 
-    const updated = await airtableClient.update<Partner>(
-      'Partner',
-      (partners[0] as any)._recordId,
+    const updated = await postgresClient.update<any>(
+      'partners',
+      partners[0].id,
       updateData
     );
-    if (!updated) {
-      throw new Error('Failed to update partner - Airtable not configured');
-    }
-    return updated;
+    return this.mapToPartner(updated);
   }
 
   /**
-   * Incrémenter les dépôts d'un partenaire
+   * Incrementer les depots d'un partenaire
    */
   async incrementDeposited(partnerId: string, amount: number): Promise<Partner> {
     const partner = await this.getById(partnerId);
-    if (!partner) throw new Error('Partenaire non trouvé');
+    if (!partner) throw new Error('Partenaire non trouve');
 
     return await this.updateFinancials(partnerId, {
       totalDeposited: partner.TotalDeposited + amount,
@@ -311,11 +303,11 @@ export class PartnerService {
   }
 
   /**
-   * Incrémenter les ventes d'un partenaire et ajuster le solde
+   * Incrementer les ventes d'un partenaire et ajuster le solde
    */
   async incrementSold(partnerId: string, salesAmount: number): Promise<Partner> {
     const partner = await this.getById(partnerId);
-    if (!partner) throw new Error('Partenaire non trouvé');
+    if (!partner) throw new Error('Partenaire non trouve');
 
     // Calculer la commission
     const commission = (salesAmount * partner.CommissionRate) / 100;
@@ -328,11 +320,11 @@ export class PartnerService {
   }
 
   /**
-   * Incrémenter les retours d'un partenaire
+   * Incrementer les retours d'un partenaire
    */
   async incrementReturned(partnerId: string, amount: number): Promise<Partner> {
     const partner = await this.getById(partnerId);
-    if (!partner) throw new Error('Partenaire non trouvé');
+    if (!partner) throw new Error('Partenaire non trouve');
 
     return await this.updateFinancials(partnerId, {
       totalReturned: partner.TotalReturned + amount,
@@ -340,14 +332,14 @@ export class PartnerService {
   }
 
   /**
-   * Payer un partenaire (réduire le solde)
+   * Payer un partenaire (reduire le solde)
    */
   async pay(partnerId: string, amount: number): Promise<Partner> {
     const partner = await this.getById(partnerId);
-    if (!partner) throw new Error('Partenaire non trouvé');
+    if (!partner) throw new Error('Partenaire non trouve');
 
     if (amount > partner.CurrentBalance) {
-      throw new Error('Le montant à payer dépasse le solde actuel');
+      throw new Error('Le montant a payer depasse le solde actuel');
     }
 
     return await this.updateFinancials(partnerId, {
@@ -426,7 +418,7 @@ export class PartnerService {
   }
 
   /**
-   * Vérifier si un partenaire a un contrat actif
+   * Verifier si un partenaire a un contrat actif
    */
   async hasActiveContract(partnerId: string): Promise<boolean> {
     const partner = await this.getById(partnerId);
@@ -446,7 +438,7 @@ export class PartnerService {
   }
 
   /**
-   * Obtenir les partenaires avec contrats expirant bientôt
+   * Obtenir les partenaires avec contrats expirant bientot
    */
   async getExpiringContracts(
     workspaceId: string,
@@ -463,5 +455,38 @@ export class PartnerService {
       const endDate = new Date(p.ContractEndDate);
       return endDate >= now && endDate <= futureDate;
     });
+  }
+
+  /**
+   * Map database record to Partner type
+   */
+  private mapToPartner(record: any): Partner {
+    return {
+      PartnerId: record.partner_id,
+      PartnerCode: record.partner_code,
+      Name: record.name,
+      Type: record.type,
+      Status: record.status,
+      ContactPerson: record.contact_person,
+      Phone: record.phone,
+      Email: record.email,
+      Address: record.address,
+      City: record.city,
+      Region: record.region,
+      ContractStartDate: record.contract_start_date,
+      ContractEndDate: record.contract_end_date,
+      CommissionRate: record.commission_rate,
+      PaymentTerms: record.payment_terms,
+      TotalDeposited: record.total_deposited,
+      TotalSold: record.total_sold,
+      TotalReturned: record.total_returned,
+      CurrentBalance: record.current_balance,
+      Currency: record.currency,
+      Notes: record.notes,
+      Tags: record.tags,
+      WorkspaceId: record.workspace_id,
+      CreatedAt: record.created_at,
+      UpdatedAt: record.updated_at,
+    };
   }
 }

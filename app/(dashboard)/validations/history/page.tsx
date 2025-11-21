@@ -342,16 +342,16 @@ function ValidationTrace({ validation, index }: { validation: Validation; index:
               <p className="text-xs font-medium text-gray-700 mb-1">📍 Géolocalisation</p>
               <div className="bg-white bg-opacity-50 p-2 rounded text-xs space-y-1">
                 <p>
-                  Latitude: {validation.Geolocation.latitude.toFixed(6)}
+                  Latitude: {validation.Geolocation.Latitude.toFixed(6)}
                 </p>
                 <p>
-                  Longitude: {validation.Geolocation.longitude.toFixed(6)}
+                  Longitude: {validation.Geolocation.Longitude.toFixed(6)}
                 </p>
-                {validation.Geolocation.accuracy && (
-                  <p>Précision: ±{validation.Geolocation.accuracy.toFixed(0)}m</p>
+                {validation.Geolocation.Accuracy && (
+                  <p>Précision: ±{validation.Geolocation.Accuracy.toFixed(0)}m</p>
                 )}
-                {validation.Geolocation.address && (
-                  <p className="text-gray-600">Adresse: {validation.Geolocation.address}</p>
+                {validation.Geolocation.Address && (
+                  <p className="text-gray-600">Adresse: {validation.Geolocation.Address}</p>
                 )}
               </div>
             </div>

@@ -3,11 +3,11 @@
  * Module Clients & Fidélité
  */
 
-import { AirtableClient } from '@/lib/airtable/client';
+import { getPostgresClient } from '@/lib/database/postgres-client';
 import { CustomerInteraction } from '@/types/modules';
 import { v4 as uuidv4 } from 'uuid';
 
-const airtableClient = new AirtableClient();
+const postgresClient = getPostgresClient();
 
 export type InteractionType = 'call' | 'email' | 'sms' | 'visit' | 'complaint' | 'feedback' | 'note';
 export type SentimentType = 'positive' | 'neutral' | 'negative';
@@ -35,7 +35,7 @@ export class InteractionService {
    * Crée une interaction client
    */
   async create(input: CreateInteractionInput): Promise<CustomerInteraction> {
-    const interaction: Partial<CustomerInteraction> = {
+    const interaction = {
       InteractionId: uuidv4(),
       CustomerId: input.customerId,
       CustomerName: input.customerName,
@@ -57,10 +57,7 @@ export class InteractionService {
       UpdatedAt: new Date().toISOString(),
     };
 
-    const created = await airtableClient.create<CustomerInteraction>('CustomerInteraction', interaction);
-    if (!created) {
-      throw new Error('Failed to create customer interaction - Airtable not configured');
-    }
+    const created = await postgresClient.create<CustomerInteraction>('customer_interactions', interaction);
     return created;
   }
 
@@ -68,9 +65,9 @@ export class InteractionService {
    * Liste les interactions d'un client
    */
   async listByCustomer(customerId: string): Promise<CustomerInteraction[]> {
-    return await airtableClient.list<CustomerInteraction>('CustomerInteraction', {
-      filterByFormula: `{CustomerId} = '${customerId}'`,
-      sort: [{ field: 'InteractionDate', direction: 'desc' }],
+    return await postgresClient.list<CustomerInteraction>('customer_interactions', {
+      where: { customer_id: customerId },
+      orderBy: { field: 'interaction_date', direction: 'desc' },
     });
   }
 
@@ -87,22 +84,17 @@ export class InteractionService {
       employeeId?: string;
     }
   ): Promise<CustomerInteraction[]> {
-    const filterFormulas: string[] = [`{WorkspaceId} = '${workspaceId}'`];
+    const where: any = { workspace_id: workspaceId };
 
-    if (filters?.type) filterFormulas.push(`{Type} = '${filters.type}'`);
-    if (filters?.sentiment) filterFormulas.push(`{Sentiment} = '${filters.sentiment}'`);
-    if (filters?.followUpRequired !== undefined)
-      filterFormulas.push(`{FollowUpRequired} = ${filters.followUpRequired ? 1 : 0}`);
-    if (filters?.followUpDone !== undefined)
-      filterFormulas.push(`{FollowUpDone} = ${filters.followUpDone ? 1 : 0}`);
-    if (filters?.employeeId) filterFormulas.push(`{EmployeeId} = '${filters.employeeId}'`);
+    if (filters?.type) where.type = filters.type;
+    if (filters?.sentiment) where.sentiment = filters.sentiment;
+    if (filters?.followUpRequired !== undefined) where.follow_up_required = filters.followUpRequired;
+    if (filters?.followUpDone !== undefined) where.follow_up_done = filters.followUpDone;
+    if (filters?.employeeId) where.employee_id = filters.employeeId;
 
-    const filterByFormula =
-      filterFormulas.length > 1 ? `AND(${filterFormulas.join(', ')})` : filterFormulas[0];
-
-    return await airtableClient.list<CustomerInteraction>('CustomerInteraction', {
-      filterByFormula,
-      sort: [{ field: 'InteractionDate', direction: 'desc' }],
+    return await postgresClient.list<CustomerInteraction>('customer_interactions', {
+      where,
+      orderBy: { field: 'interaction_date', direction: 'desc' },
     });
   }
 
@@ -110,8 +102,8 @@ export class InteractionService {
    * Récupère une interaction par ID
    */
   async getById(interactionId: string): Promise<CustomerInteraction | null> {
-    const interactions = await airtableClient.list<CustomerInteraction>('CustomerInteraction', {
-      filterByFormula: `{InteractionId} = '${interactionId}'`,
+    const interactions = await postgresClient.list<CustomerInteraction>('customer_interactions', {
+      where: { interaction_id: interactionId },
     });
 
     return interactions.length > 0 ? interactions[0] : null;
@@ -124,13 +116,16 @@ export class InteractionService {
     interactionId: string,
     updates: Partial<CreateInteractionInput>
   ): Promise<CustomerInteraction> {
-    const interactions = await airtableClient.list<CustomerInteraction>('CustomerInteraction', {
-      filterByFormula: `{InteractionId} = '${interactionId}'`,
+    const interactions = await postgresClient.list<CustomerInteraction>('customer_interactions', {
+      where: { interaction_id: interactionId },
     });
 
     if (interactions.length === 0) {
       throw new Error('Interaction non trouvée');
     }
+
+    const interaction = interactions[0];
+    if (!interaction.id) throw new Error('Interaction ID is missing');
 
     const updateData: any = { UpdatedAt: new Date().toISOString() };
 
@@ -139,14 +134,11 @@ export class InteractionService {
       updateData[pascalKey] = updates[key as keyof CreateInteractionInput];
     });
 
-    const updated = await airtableClient.update<CustomerInteraction>(
-      'CustomerInteraction',
-      (interactions[0] as any)._recordId,
+    const updated = await postgresClient.update<CustomerInteraction>(
+      'customer_interactions',
+      interaction.id,
       updateData
     );
-    if (!updated) {
-      throw new Error('Failed to update customer interaction - Airtable not configured');
-    }
     return updated;
   }
 
@@ -154,25 +146,25 @@ export class InteractionService {
    * Marque un suivi comme terminé
    */
   async markFollowUpDone(interactionId: string): Promise<CustomerInteraction> {
-    const interactions = await airtableClient.list<CustomerInteraction>('CustomerInteraction', {
-      filterByFormula: `{InteractionId} = '${interactionId}'`,
+    const interactions = await postgresClient.list<CustomerInteraction>('customer_interactions', {
+      where: { interaction_id: interactionId },
     });
 
     if (interactions.length === 0) {
       throw new Error('Interaction non trouvée');
     }
 
-    const updated = await airtableClient.update<CustomerInteraction>(
-      'CustomerInteraction',
-      (interactions[0] as any)._recordId,
+    const interaction = interactions[0];
+    if (!interaction.id) throw new Error('Interaction ID is missing');
+
+    const updated = await postgresClient.update<CustomerInteraction>(
+      'customer_interactions',
+      interaction.id,
       {
         FollowUpDone: true,
         UpdatedAt: new Date().toISOString(),
       }
     );
-    if (!updated) {
-      throw new Error('Failed to update customer interaction - Airtable not configured');
-    }
     return updated;
   }
 

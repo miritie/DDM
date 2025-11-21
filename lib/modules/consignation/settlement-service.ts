@@ -1,15 +1,15 @@
 /**
- * Service - Gestion des Règlements aux Partenaires
+ * Service - Gestion des Reglements aux Partenaires
  * Module Consignation & Partenaires
  */
 
-import { AirtableClient } from '@/lib/airtable/client';
+import { getPostgresClient } from '@/lib/database/postgres-client';
 import { Settlement, SettlementStatus } from '@/types/modules';
 import { v4 as uuidv4 } from 'uuid';
 import { PartnerService } from './partner-service';
 import { SalesReportService } from './sales-report-service';
 
-const airtableClient = new AirtableClient();
+const postgresClient = getPostgresClient();
 const partnerService = new PartnerService();
 const salesReportService = new SalesReportService();
 
@@ -41,45 +41,45 @@ export interface SettlementFilters {
 
 export class SettlementService {
   /**
-   * Générer le numéro de règlement (SET-202511-0001)
+   * Generer le numero de reglement (SET-202511-0001)
    */
   async generateSettlementNumber(workspaceId: string): Promise<string> {
     const year = new Date().getFullYear();
     const month = String(new Date().getMonth() + 1).padStart(2, '0');
-    const settlements = await airtableClient.list<Settlement>('Settlement', {
-      filterByFormula: `AND({WorkspaceId} = '${workspaceId}', YEAR({CreatedAt}) = ${year}, MONTH({CreatedAt}) = ${parseInt(month)})`,
+    const settlements = await postgresClient.list<any>('settlements', {
+      filterByFormula: `AND({workspace_id} = '${workspaceId}', YEAR({created_at}) = ${year}, MONTH({created_at}) = ${parseInt(month)})`,
     });
     return `SET-${year}${month}-${String(settlements.length + 1).padStart(4, '0')}`;
   }
 
   /**
-   * Créer un nouveau règlement
+   * Creer un nouveau reglement
    */
   async create(input: CreateSettlementInput): Promise<Settlement> {
-    // Validation: vérifier que le partenaire existe
+    // Validation: verifier que le partenaire existe
     const partner = await partnerService.getById(input.partnerId);
     if (!partner) {
-      throw new Error('Partenaire non trouvé');
+      throw new Error('Partenaire non trouve');
     }
 
     // Validation: au moins un rapport de ventes
     if (!input.salesReportIds || input.salesReportIds.length === 0) {
-      throw new Error('Le règlement doit inclure au moins un rapport de ventes');
+      throw new Error('Le reglement doit inclure au moins un rapport de ventes');
     }
 
-    // Validation: vérifier que tous les rapports existent et appartiennent au partenaire
+    // Validation: verifier que tous les rapports existent et appartiennent au partenaire
     let totalDue = 0;
     for (const reportId of input.salesReportIds) {
       const report = await salesReportService.getById(reportId);
       if (!report) {
-        throw new Error(`Rapport de ventes ${reportId} non trouvé`);
+        throw new Error(`Rapport de ventes ${reportId} non trouve`);
       }
       if (report.PartnerId !== input.partnerId) {
-        throw new Error(`Le rapport ${report.ReportNumber} n'appartient pas à ce partenaire`);
+        throw new Error(`Le rapport ${report.ReportNumber} n'appartient pas a ce partenaire`);
       }
       if (!['validated', 'processed'].includes(report.Status)) {
         throw new Error(
-          `Le rapport ${report.ReportNumber} doit être validé ou traité pour être inclus dans un règlement`
+          `Le rapport ${report.ReportNumber} doit etre valide ou traite pour etre inclus dans un reglement`
         );
       }
       totalDue += report.NetAmount;
@@ -87,7 +87,7 @@ export class SettlementService {
 
     const settlementNumber = await this.generateSettlementNumber(input.workspaceId);
 
-    const settlement: Partial<Settlement> = {
+    const settlement: any = {
       SettlementId: uuidv4(),
       SettlementNumber: settlementNumber,
       PartnerId: input.partnerId,
@@ -106,100 +106,98 @@ export class SettlementService {
       UpdatedAt: new Date().toISOString(),
     };
 
-    const created = await airtableClient.create<Settlement>('Settlement', settlement);
-    if (!created) {
-      throw new Error('Failed to create settlement - Airtable not configured');
-    }
-    return created;
+    const created = await postgresClient.create<any>('settlements', settlement);
+    return this.mapToSettlement(created);
   }
 
   /**
-   * Récupérer un règlement par son ID
+   * Recuperer un reglement par son ID
    */
   async getById(settlementId: string): Promise<Settlement | null> {
-    const settlements = await airtableClient.list<Settlement>('Settlement', {
-      filterByFormula: `{SettlementId} = '${settlementId}'`,
+    const settlements = await postgresClient.list<any>('settlements', {
+      filterByFormula: `{settlement_id} = '${settlementId}'`,
     });
-    return settlements.length > 0 ? settlements[0] : null;
+    return settlements.length > 0 ? this.mapToSettlement(settlements[0]) : null;
   }
 
   /**
-   * Récupérer un règlement par son numéro
+   * Recuperer un reglement par son numero
    */
   async getByNumber(settlementNumber: string, workspaceId: string): Promise<Settlement | null> {
-    const settlements = await airtableClient.list<Settlement>('Settlement', {
-      filterByFormula: `AND({WorkspaceId} = '${workspaceId}', {SettlementNumber} = '${settlementNumber}')`,
+    const settlements = await postgresClient.list<any>('settlements', {
+      filterByFormula: `AND({workspace_id} = '${workspaceId}', {settlement_number} = '${settlementNumber}')`,
     });
-    return settlements.length > 0 ? settlements[0] : null;
+    return settlements.length > 0 ? this.mapToSettlement(settlements[0]) : null;
   }
 
   /**
-   * Lister les règlements avec filtres
+   * Lister les reglements avec filtres
    */
   async list(workspaceId: string, filters: SettlementFilters = {}): Promise<Settlement[]> {
-    const filterFormulas: string[] = [`{WorkspaceId} = '${workspaceId}'`];
+    const filterFormulas: string[] = [`{workspace_id} = '${workspaceId}'`];
 
     if (filters.partnerId) {
-      filterFormulas.push(`{PartnerId} = '${filters.partnerId}'`);
+      filterFormulas.push(`{partner_id} = '${filters.partnerId}'`);
     }
     if (filters.status) {
-      filterFormulas.push(`{Status} = '${filters.status}'`);
+      filterFormulas.push(`{status} = '${filters.status}'`);
     }
     if (filters.startDate) {
-      filterFormulas.push(`{CreatedAt} >= '${filters.startDate}'`);
+      filterFormulas.push(`{created_at} >= '${filters.startDate}'`);
     }
     if (filters.endDate) {
-      filterFormulas.push(`{CreatedAt} <= '${filters.endDate}'`);
+      filterFormulas.push(`{created_at} <= '${filters.endDate}'`);
     }
 
     const filterByFormula =
       filterFormulas.length > 1 ? `AND(${filterFormulas.join(', ')})` : filterFormulas[0];
 
-    return await airtableClient.list<Settlement>('Settlement', {
+    const results = await postgresClient.list<any>('settlements', {
       filterByFormula,
       sort: [{ field: 'CreatedAt', direction: 'desc' }],
     });
+    return results.map((record: any) => this.mapToSettlement(record));
   }
 
   /**
-   * Payer un règlement (complet ou partiel)
+   * Payer un reglement (complet ou partiel)
    */
   async pay(settlementId: string, input: PaySettlementInput): Promise<Settlement> {
-    const settlements = await airtableClient.list<Settlement>('Settlement', {
-      filterByFormula: `{SettlementId} = '${settlementId}'`,
+    const settlements = await postgresClient.list<any>('settlements', {
+      filterByFormula: `{settlement_id} = '${settlementId}'`,
     });
 
     if (settlements.length === 0) {
-      throw new Error('Règlement non trouvé');
+      throw new Error('Reglement non trouve');
     }
 
-    const settlement = settlements[0];
+    const settlement = this.mapToSettlement(settlements[0]);
 
     if (settlement.Status === 'completed') {
-      throw new Error('Ce règlement a déjà été payé intégralement');
+      throw new Error('Ce reglement a deja ete paye integralement');
     }
 
     if (settlement.Status === 'cancelled') {
-      throw new Error('Impossible de payer un règlement annulé');
+      throw new Error('Impossible de payer un reglement annule');
     }
 
-    // Montant à payer (par défaut: le restant, sinon le montant spécifié)
+    // Montant a payer (par defaut: le restant, sinon le montant specifie)
     const paymentAmount = input.amount || settlement.AmountRemaining;
 
-    // Validation: montant ne doit pas dépasser le restant
+    // Validation: montant ne doit pas depasser le restant
     if (paymentAmount > settlement.AmountRemaining) {
-      throw new Error('Le montant à payer dépasse le montant restant');
+      throw new Error('Le montant a payer depasse le montant restant');
     }
 
     // Validation: montant positif
     if (paymentAmount <= 0) {
-      throw new Error('Le montant à payer doit être positif');
+      throw new Error('Le montant a payer doit etre positif');
     }
 
     const newAmountPaid = settlement.AmountPaid + paymentAmount;
     const newAmountRemaining = settlement.TotalDue - newAmountPaid;
 
-    // Déterminer le nouveau statut
+    // Determiner le nouveau statut
     let newStatus: SettlementStatus;
     if (newAmountRemaining === 0) {
       newStatus = 'completed';
@@ -209,10 +207,10 @@ export class SettlementService {
       newStatus = 'pending';
     }
 
-    // Mettre à jour le solde du partenaire
+    // Mettre a jour le solde du partenaire
     await partnerService.pay(settlement.PartnerId, paymentAmount);
 
-    // Mettre à jour le règlement
+    // Mettre a jour le reglement
     const updateData: any = {
       Status: newStatus,
       AmountPaid: newAmountPaid,
@@ -226,36 +224,33 @@ export class SettlementService {
       UpdatedAt: new Date().toISOString(),
     };
 
-    const updated = await airtableClient.update<Settlement>(
-      'Settlement',
-      (settlement as any)._recordId,
+    const updated = await postgresClient.update<any>(
+      'settlements',
+      settlements[0].id,
       updateData
     );
-    if (!updated) {
-      throw new Error('Failed to update settlement - Airtable not configured');
-    }
-    return updated;
+    return this.mapToSettlement(updated);
   }
 
   /**
-   * Annuler un règlement
+   * Annuler un reglement
    */
   async cancel(settlementId: string, reason?: string): Promise<Settlement> {
-    const settlements = await airtableClient.list<Settlement>('Settlement', {
-      filterByFormula: `{SettlementId} = '${settlementId}'`,
+    const settlements = await postgresClient.list<any>('settlements', {
+      filterByFormula: `{settlement_id} = '${settlementId}'`,
     });
 
     if (settlements.length === 0) {
-      throw new Error('Règlement non trouvé');
+      throw new Error('Reglement non trouve');
     }
 
-    const settlement = settlements[0];
+    const settlement = this.mapToSettlement(settlements[0]);
 
     if (settlement.Status === 'completed') {
-      throw new Error('Impossible d\'annuler un règlement déjà payé intégralement');
+      throw new Error('Impossible d\'annuler un reglement deja paye integralement');
     }
 
-    // Si déjà partiellement payé, ajuster le solde du partenaire
+    // Si deja partiellement paye, ajuster le solde du partenaire
     if (settlement.AmountPaid > 0) {
       const partner = await partnerService.getById(settlement.PartnerId);
       if (partner) {
@@ -276,61 +271,53 @@ export class SettlementService {
         : `Annulation: ${reason}`;
     }
 
-    const updated = await airtableClient.update<Settlement>(
-      'Settlement',
-      (settlement as any)._recordId,
+    const updated = await postgresClient.update<any>(
+      'settlements',
+      settlements[0].id,
       updateData
     );
-    if (!updated) {
-      throw new Error('Failed to update settlement - Airtable not configured');
-    }
-    return updated;
+    return this.mapToSettlement(updated);
   }
 
   /**
-   * Lier une transaction de trésorerie à un règlement
+   * Lier une transaction de tresorerie a un reglement
    */
   async linkTransaction(settlementId: string, transactionId: string): Promise<Settlement> {
-    const settlements = await airtableClient.list<Settlement>('Settlement', {
-      filterByFormula: `{SettlementId} = '${settlementId}'`,
+    const settlements = await postgresClient.list<any>('settlements', {
+      filterByFormula: `{settlement_id} = '${settlementId}'`,
     });
 
     if (settlements.length === 0) {
-      throw new Error('Règlement non trouvé');
+      throw new Error('Reglement non trouve');
     }
 
-    const settlement = settlements[0];
-
-    const updated = await airtableClient.update<Settlement>('Settlement', (settlement as any)._recordId, {
+    const updated = await postgresClient.update<any>('settlements', settlements[0].id, {
       TransactionId: transactionId,
       UpdatedAt: new Date().toISOString(),
     });
-    if (!updated) {
-      throw new Error('Failed to update settlement - Airtable not configured');
-    }
-    return updated;
+    return this.mapToSettlement(updated);
   }
 
   /**
-   * Obtenir les règlements en attente de paiement
+   * Obtenir les reglements en attente de paiement
    */
   async getPendingSettlements(workspaceId: string): Promise<Settlement[]> {
     return await this.list(workspaceId, { status: 'pending' });
   }
 
   /**
-   * Obtenir les règlements d'un partenaire
+   * Obtenir les reglements d'un partenaire
    */
   async getPartnerSettlements(partnerId: string): Promise<Settlement[]> {
-    const settlements = await airtableClient.list<Settlement>('Settlement', {
-      filterByFormula: `{PartnerId} = '${partnerId}'`,
+    const settlements = await postgresClient.list<any>('settlements', {
+      filterByFormula: `{partner_id} = '${partnerId}'`,
       sort: [{ field: 'CreatedAt', direction: 'desc' }],
     });
-    return settlements;
+    return settlements.map((record: any) => this.mapToSettlement(record));
   }
 
   /**
-   * Calculer le montant total dû à tous les partenaires
+   * Calculer le montant total du a tous les partenaires
    */
   async getTotalDue(workspaceId: string): Promise<number> {
     const settlements = await this.list(workspaceId, { status: 'pending' });
@@ -338,7 +325,7 @@ export class SettlementService {
   }
 
   /**
-   * Obtenir les statistiques des règlements
+   * Obtenir les statistiques des reglements
    */
   async getStatistics(
     workspaceId: string,
@@ -387,7 +374,7 @@ export class SettlementService {
   }
 
   /**
-   * Créer un règlement automatique pour tous les rapports non payés d'un partenaire
+   * Creer un reglement automatique pour tous les rapports non payes d'un partenaire
    */
   async createAutomaticSettlement(
     partnerId: string,
@@ -395,11 +382,11 @@ export class SettlementService {
     preparedByName: string,
     workspaceId: string
   ): Promise<Settlement | null> {
-    // Récupérer tous les rapports validés non encore payés
+    // Recuperer tous les rapports valides non encore payes
     const unpaidReports = await salesReportService.getUnpaidReports(partnerId);
 
     if (unpaidReports.length === 0) {
-      return null; // Aucun rapport à payer
+      return null; // Aucun rapport a payer
     }
 
     const salesReportIds = unpaidReports.map((r) => r.SalesReportId);
@@ -409,13 +396,13 @@ export class SettlementService {
       salesReportIds,
       preparedById,
       preparedByName,
-      notes: 'Règlement automatique généré',
+      notes: 'Reglement automatique genere',
       workspaceId,
     });
   }
 
   /**
-   * Obtenir les règlements en retard (non payés après X jours)
+   * Obtenir les reglements en retard (non payes apres X jours)
    */
   async getOverdueSettlements(workspaceId: string, daysOverdue: number = 30): Promise<Settlement[]> {
     const settlements = await this.list(workspaceId);
@@ -430,5 +417,36 @@ export class SettlementService {
       const createdDate = new Date(s.CreatedAt);
       return createdDate <= overdueDate;
     });
+  }
+
+  /**
+   * Map database record to Settlement type
+   */
+  private mapToSettlement(record: any): Settlement {
+    return {
+      SettlementId: record.settlement_id,
+      SettlementNumber: record.settlement_number,
+      PartnerId: record.partner_id,
+      PartnerName: record.partner_name,
+      Status: record.status,
+      TotalDue: record.total_due,
+      AmountPaid: record.amount_paid,
+      AmountRemaining: record.amount_remaining,
+      Currency: record.currency,
+      SalesReportIds: record.sales_report_ids,
+      PreparedById: record.prepared_by_id,
+      PreparedByName: record.prepared_by_name,
+      PaymentMethod: record.payment_method,
+      PaymentDate: record.payment_date,
+      PaymentProof: record.payment_proof,
+      WalletId: record.wallet_id,
+      PaidById: record.paid_by_id,
+      PaidByName: record.paid_by_name,
+      TransactionId: record.transaction_id,
+      Notes: record.notes,
+      WorkspaceId: record.workspace_id,
+      CreatedAt: record.created_at,
+      UpdatedAt: record.updated_at,
+    };
   }
 }

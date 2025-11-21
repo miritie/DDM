@@ -3,11 +3,11 @@
  * Module Stocks & Mouvements
  */
 
-import { AirtableClient } from '@/lib/airtable/client';
+import { getPostgresClient } from '@/lib/database/postgres-client';
 import { StockItem, StockAlert, Product, Warehouse, StockStatistics } from '@/types/modules';
 import { v4 as uuidv4 } from 'uuid';
 
-const airtableClient = new AirtableClient();
+const postgresClient = getPostgresClient();
 
 export interface CreateStockItemInput {
   productId: string;
@@ -42,8 +42,8 @@ export class StockService {
    */
   async upsertStockItem(input: CreateStockItemInput): Promise<StockItem> {
     // Check if stock item already exists
-    const existing = await airtableClient.list<StockItem>('StockItem', {
-      filterByFormula: `AND({ProductId} = '${input.productId}', {WarehouseId} = '${input.warehouseId}')`,
+    const existing = await postgresClient.list<StockItem>('stock_items', {
+      filterByFormula: `AND({product_id} = '${input.productId}', {warehouse_id} = '${input.warehouseId}')`,
     });
 
     if (existing.length > 0) {
@@ -52,9 +52,9 @@ export class StockService {
       const newQuantity = currentItem.Quantity + input.quantity;
       const newTotalValue = newQuantity * input.unitCost;
 
-      const updated = await airtableClient.update<StockItem>(
-        'StockItem',
-        (existing[0] as any)._recordId,
+      const updated = await postgresClient.update<StockItem>(
+        'stock_items',
+        existing[0].id!,
         {
           Quantity: newQuantity,
           UnitCost: input.unitCost,
@@ -63,9 +63,6 @@ export class StockService {
           UpdatedAt: new Date().toISOString(),
         }
       );
-      if (!updated) {
-        throw new Error('Failed to update stock item - Airtable not configured');
-      }
 
       await this.checkAndCreateAlert(updated);
       return updated;
@@ -86,10 +83,7 @@ export class StockService {
         UpdatedAt: new Date().toISOString(),
       };
 
-      const created = await airtableClient.create<StockItem>('StockItem', stockItem);
-      if (!created) {
-        throw new Error('Failed to create stock item - Airtable not configured');
-      }
+      const created = await postgresClient.create<StockItem>('stock_items', stockItem);
       await this.checkAndCreateAlert(created);
       return created;
     }
@@ -99,8 +93,8 @@ export class StockService {
    * Récupère un article en stock par ID
    */
   async getById(stockItemId: string): Promise<StockItem | null> {
-    const items = await airtableClient.list<StockItem>('StockItem', {
-      filterByFormula: `{StockItemId} = '${stockItemId}'`,
+    const items = await postgresClient.list<StockItem>('stock_items', {
+      filterByFormula: `{stock_item_id} = '${stockItemId}'`,
     });
 
     return items.length > 0 ? items[0] : null;
@@ -113,8 +107,8 @@ export class StockService {
     productId: string,
     warehouseId: string
   ): Promise<StockItem | null> {
-    const items = await airtableClient.list<StockItem>('StockItem', {
-      filterByFormula: `AND({ProductId} = '${productId}', {WarehouseId} = '${warehouseId}')`,
+    const items = await postgresClient.list<StockItem>('stock_items', {
+      filterByFormula: `AND({product_id} = '${productId}', {warehouse_id} = '${warehouseId}')`,
     });
 
     return items.length > 0 ? items[0] : null;
@@ -132,14 +126,14 @@ export class StockService {
       outOfStock?: boolean;
     } = {}
   ): Promise<StockItem[]> {
-    const filterFormulas: string[] = [`{WorkspaceId} = '${workspaceId}'`];
+    const filterFormulas: string[] = [`{workspace_id} = '${workspaceId}'`];
 
     if (filters.warehouseId) {
-      filterFormulas.push(`{WarehouseId} = '${filters.warehouseId}'`);
+      filterFormulas.push(`{warehouse_id} = '${filters.warehouseId}'`);
     }
 
     if (filters.productId) {
-      filterFormulas.push(`{ProductId} = '${filters.productId}'`);
+      filterFormulas.push(`{product_id} = '${filters.productId}'`);
     }
 
     const filterByFormula =
@@ -147,7 +141,7 @@ export class StockService {
         ? `AND(${filterFormulas.join(', ')})`
         : filterFormulas[0];
 
-    let items = await airtableClient.list<StockItem>('StockItem', {
+    let items = await postgresClient.list<StockItem>('stock_items', {
       filterByFormula,
       sort: [{ field: 'CreatedAt', direction: 'desc' }],
     });
@@ -170,8 +164,8 @@ export class StockService {
    * Met à jour un article en stock
    */
   async update(stockItemId: string, input: UpdateStockItemInput): Promise<StockItem> {
-    const items = await airtableClient.list<StockItem>('StockItem', {
-      filterByFormula: `{StockItemId} = '${stockItemId}'`,
+    const items = await postgresClient.list<StockItem>('stock_items', {
+      filterByFormula: `{stock_item_id} = '${stockItemId}'`,
     });
 
     if (items.length === 0) {
@@ -180,7 +174,10 @@ export class StockService {
 
     const currentItem = items[0];
     const updates: Partial<StockItem> = {
-      ...input,
+      Quantity: input.quantity,
+      MinimumStock: input.minimumStock,
+      MaximumStock: input.maximumStock,
+      UnitCost: input.unitCost,
       UpdatedAt: new Date().toISOString(),
     };
 
@@ -189,14 +186,11 @@ export class StockService {
     const newUnitCost = input.unitCost !== undefined ? input.unitCost : currentItem.UnitCost;
     updates.TotalValue = newQuantity * newUnitCost;
 
-    const updated = await airtableClient.update<StockItem>(
-      'StockItem',
-      (items[0] as any)._recordId,
+    const updated = await postgresClient.update<StockItem>(
+      'stock_items',
+      items[0].id!,
       updates
     );
-    if (!updated) {
-      throw new Error('Failed to update stock item - Airtable not configured');
-    }
 
     await this.checkAndCreateAlert(updated);
     return updated;
@@ -251,17 +245,17 @@ export class StockService {
       const newQuantity = existingStock.Quantity + quantity;
       const newUnitCost = unitCost !== undefined ? unitCost : existingStock.UnitCost;
 
-      const items = await airtableClient.list<StockItem>('StockItem', {
-        filterByFormula: `{StockItemId} = '${existingStock.StockItemId}'`,
+      const items = await postgresClient.list<StockItem>('stock_items', {
+        filterByFormula: `{stock_item_id} = '${existingStock.StockItemId}'`,
       });
 
       if (items.length === 0) {
         throw new Error('Article en stock non trouvé');
       }
 
-      const updated = await airtableClient.update<StockItem>(
-        'StockItem',
-        (items[0] as any)._recordId,
+      const updated = await postgresClient.update<StockItem>(
+        'stock_items',
+        items[0].id!,
         {
           Quantity: newQuantity,
           UnitCost: newUnitCost,
@@ -270,9 +264,6 @@ export class StockService {
           UpdatedAt: new Date().toISOString(),
         }
       );
-      if (!updated) {
-        throw new Error('Failed to update stock item - Airtable not configured');
-      }
 
       await this.checkAndCreateAlert(updated);
       return updated;
@@ -283,8 +274,8 @@ export class StockService {
       }
 
       // Get product to set default minimums
-      const products = await airtableClient.list<Product>('Product', {
-        filterByFormula: `{ProductId} = '${productId}'`,
+      const products = await postgresClient.list<Product>('products', {
+        filterByFormula: `{product_id} = '${productId}'`,
       });
 
       if (products.length === 0) {
@@ -308,10 +299,7 @@ export class StockService {
         UpdatedAt: new Date().toISOString(),
       };
 
-      const created = await airtableClient.create<StockItem>('StockItem', stockItem);
-      if (!created) {
-        throw new Error('Failed to create stock item - Airtable not configured');
-      }
+      const created = await postgresClient.create<StockItem>('stock_items', stockItem);
       await this.checkAndCreateAlert(created);
       return created;
     }
@@ -339,26 +327,23 @@ export class StockService {
 
     const newQuantity = existingStock.Quantity - quantity;
 
-    const items = await airtableClient.list<StockItem>('StockItem', {
-      filterByFormula: `{StockItemId} = '${existingStock.StockItemId}'`,
+    const items = await postgresClient.list<StockItem>('stock_items', {
+      filterByFormula: `{stock_item_id} = '${existingStock.StockItemId}'`,
     });
 
     if (items.length === 0) {
       throw new Error('Article en stock non trouvé');
     }
 
-    const updated = await airtableClient.update<StockItem>(
-      'StockItem',
-      (items[0] as any)._recordId,
+    const updated = await postgresClient.update<StockItem>(
+      'stock_items',
+      items[0].id!,
       {
         Quantity: newQuantity,
         TotalValue: newQuantity * existingStock.UnitCost,
         UpdatedAt: new Date().toISOString(),
       }
     );
-    if (!updated) {
-      throw new Error('Failed to update stock item - Airtable not configured');
-    }
 
     await this.checkAndCreateAlert(updated);
     return updated;
@@ -369,8 +354,8 @@ export class StockService {
    */
   async checkAndCreateAlert(stockItem: StockItem): Promise<void> {
     // Check if alert already exists and is not resolved
-    const existingAlerts = await airtableClient.list<StockAlert>('StockAlert', {
-      filterByFormula: `AND({StockItemId} = '${stockItem.StockItemId}', {IsResolved} = 0)`,
+    const existingAlerts = await postgresClient.list<StockAlert>('stock_alerts', {
+      filterByFormula: `AND({stock_item_id} = '${stockItem.StockItemId}', {is_resolved} = 0)`,
     });
 
     let alertType: 'low_stock' | 'out_of_stock' | 'overstock' | null = null;
@@ -404,17 +389,14 @@ export class StockService {
           UpdatedAt: new Date().toISOString(),
         };
 
-        const createdAlert = await airtableClient.create<StockAlert>('StockAlert', alert);
-        if (!createdAlert) {
-          throw new Error('Failed to create stock alert - Airtable not configured');
-        }
+        await postgresClient.create<StockAlert>('stock_alerts', alert);
       }
     } else {
       // Resolve existing alerts if stock is back to normal
       for (const alert of existingAlerts) {
-        await airtableClient.update<StockAlert>(
-          'StockAlert',
-          (alert as any)._recordId,
+        await postgresClient.update<StockAlert>(
+          'stock_alerts',
+          alert.id!,
           {
             IsResolved: true,
             ResolvedAt: new Date().toISOString(),
@@ -433,15 +415,15 @@ export class StockService {
     filters: { alertType?: string; warehouseId?: string } = {}
   ): Promise<StockAlert[]> {
     const filterFormulas: string[] = [
-      `AND({WorkspaceId} = '${workspaceId}', {IsResolved} = 0)`,
+      `AND({workspace_id} = '${workspaceId}', {is_resolved} = 0)`,
     ];
 
     if (filters.alertType) {
-      filterFormulas.push(`{AlertType} = '${filters.alertType}'`);
+      filterFormulas.push(`{alert_type} = '${filters.alertType}'`);
     }
 
     if (filters.warehouseId) {
-      filterFormulas.push(`{WarehouseId} = '${filters.warehouseId}'`);
+      filterFormulas.push(`{warehouse_id} = '${filters.warehouseId}'`);
     }
 
     const filterByFormula =
@@ -449,7 +431,7 @@ export class StockService {
         ? `AND(${filterFormulas.join(', ')})`
         : filterFormulas[0];
 
-    return await airtableClient.list<StockAlert>('StockAlert', {
+    return await postgresClient.list<StockAlert>('stock_alerts', {
       filterByFormula,
       sort: [{ field: 'CreatedAt', direction: 'desc' }],
     });
@@ -460,11 +442,11 @@ export class StockService {
    */
   async getStatistics(workspaceId: string): Promise<StockStatistics> {
     const items = await this.list(workspaceId);
-    const warehouses = await airtableClient.list<Warehouse>('Warehouse', {
-      filterByFormula: `{WorkspaceId} = '${workspaceId}'`,
+    const warehouses = await postgresClient.list<Warehouse>('warehouses', {
+      filterByFormula: `{workspace_id} = '${workspaceId}'`,
     });
-    const products = await airtableClient.list<Product>('Product', {
-      filterByFormula: `{WorkspaceId} = '${workspaceId}'`,
+    const products = await postgresClient.list<Product>('products', {
+      filterByFormula: `{workspace_id} = '${workspaceId}'`,
     });
 
     const totalValue = items.reduce((sum, item) => sum + item.TotalValue, 0);

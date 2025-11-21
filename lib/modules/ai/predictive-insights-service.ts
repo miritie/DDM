@@ -1,11 +1,11 @@
 /**
- * Service - Insights Prédictifs & Analyses IA
- * Prévisions ventes, suggestions production, optimisations stocks
+ * Service - Insights Predictifs & Analyses IA
+ * Previsions ventes, suggestions production, optimisations stocks
  */
 
-import { AirtableClient } from '@/lib/airtable/client';
+import { getPostgresClient } from '@/lib/database/postgres-client';
 
-const airtable = new AirtableClient();
+const postgresClient = getPostgresClient();
 
 // ============================================================================
 // TYPES
@@ -19,13 +19,13 @@ export interface SalesForecast {
   LocationName?: string;
   Period: '7_days' | '30_days' | '90_days';
 
-  // Prévisions
+  // Previsions
   PredictedQuantity: number;
   PredictedRevenue: number;
   ConfidenceLevel: 'very_low' | 'low' | 'medium' | 'high' | 'very_high';
   ConfidenceScore: number; // 0-100
 
-  // Données historiques utilisées
+  // Donnees historiques utilisees
   HistoricalDataPoints: number;
   AverageDailySales: number;
   TrendDirection: 'up' | 'down' | 'stable';
@@ -36,7 +36,7 @@ export interface SalesForecast {
   GrowthRate?: number; // %
   VolatilityScore?: number; // 0-100
 
-  // Métadonnées
+  // Metadonnees
   GeneratedAt: string;
   ValidUntil: string;
   WorkspaceId: string;
@@ -65,7 +65,7 @@ export interface ProductionSuggestion {
   EstimatedProfit: number;
   ROI: number;
 
-  // Ingrédients requis
+  // Ingredients requis
   RequiredIngredients?: Array<{
     ingredientId: string;
     ingredientName: string;
@@ -88,7 +88,7 @@ export interface StockTransferSuggestion {
   ProductId: string;
   ProductName: string;
 
-  // Transfert suggéré
+  // Transfert suggere
   FromLocationId: string;
   FromLocationName: string;
   ToLocationId: string;
@@ -106,7 +106,7 @@ export interface StockTransferSuggestion {
   Priority: 'low' | 'medium' | 'high' | 'urgent';
   EstimatedImpact: string;
 
-  // Prévisions
+  // Previsions
   FromForecastedDemand: number;
   ToForecastedDemand: number;
 
@@ -124,11 +124,11 @@ export interface AIInsight {
   Description: string;
   Impact: 'low' | 'medium' | 'high' | 'critical';
 
-  // Données
+  // Donnees
   RelatedData: Record<string, any>;
   RecommendedActions: string[];
 
-  // Métriques
+  // Metriques
   EstimatedImpactAmount?: number;
   EstimatedImpactPercentage?: number;
 
@@ -149,11 +149,11 @@ export interface AIInsight {
 export class PredictiveInsightsService {
 
   // ==========================================================================
-  // PRÉVISIONS DE VENTES
+  // PREVISIONS DE VENTES
   // ==========================================================================
 
   /**
-   * Générer prévisions de ventes pour un produit
+   * Generer previsions de ventes pour un produit
    */
   async generateSalesForecast(
     workspaceId: string,
@@ -161,11 +161,11 @@ export class PredictiveInsightsService {
     period: '7_days' | '30_days' | '90_days' = '30_days',
     locationId?: string
   ): Promise<SalesForecast> {
-    // 1. Récupérer historique des ventes
+    // 1. Recuperer historique des ventes
     const historicalSales = await this.getHistoricalSales(
       workspaceId,
       productId,
-      this.getPeriodDays(period) * 2, // 2x période pour analyse
+      this.getPeriodDays(period) * 2, // 2x periode pour analyse
       locationId
     );
 
@@ -173,13 +173,13 @@ export class PredictiveInsightsService {
       return this.generateLowConfidenceForecast(workspaceId, productId, period, locationId);
     }
 
-    // 2. Calculer métriques
+    // 2. Calculer metriques
     const avgDailySales = this.calculateAverageDailySales(historicalSales);
     const trend = this.calculateTrend(historicalSales);
     const seasonality = this.detectSeasonality(historicalSales);
     const volatility = this.calculateVolatility(historicalSales);
 
-    // 3. Appliquer prévision
+    // 3. Appliquer prevision
     const periodDays = this.getPeriodDays(period);
     const basePrediction = avgDailySales * periodDays;
 
@@ -198,7 +198,7 @@ export class PredictiveInsightsService {
       trend.percentage
     );
 
-    // 5. Récupérer prix moyen
+    // 5. Recuperer prix moyen
     const avgPrice = await this.getAveragePrice(workspaceId, productId);
 
     const forecast: Partial<SalesForecast> = {
@@ -226,7 +226,7 @@ export class PredictiveInsightsService {
   }
 
   /**
-   * Générer prévisions pour tous les produits top
+   * Generer previsions pour tous les produits top
    */
   async generateTopProductsForecasts(
     workspaceId: string,
@@ -245,7 +245,7 @@ export class PredictiveInsightsService {
         );
         forecasts.push(forecast);
       } catch (error) {
-        console.error(`Erreur prévision produit ${product.ProductId}:`, error);
+        console.error(`Erreur prevision produit ${product.ProductId}:`, error);
       }
     }
 
@@ -257,21 +257,21 @@ export class PredictiveInsightsService {
   // ==========================================================================
 
   /**
-   * Générer suggestions de production
+   * Generer suggestions de production
    */
   async generateProductionSuggestions(
     workspaceId: string
   ): Promise<ProductionSuggestion[]> {
     const suggestions: ProductionSuggestion[] = [];
 
-    // 1. Récupérer produits fabriqués
+    // 1. Recuperer produits fabriques
     const products = await this.getManufacturedProducts(workspaceId);
 
     for (const product of products) {
-      // 2. Récupérer stock actuel
+      // 2. Recuperer stock actuel
       const currentStock = await this.getCurrentStock(workspaceId, product.ProductId);
 
-      // 3. Générer prévision demande 30 jours
+      // 3. Generer prevision demande 30 jours
       const forecast = await this.generateSalesForecast(
         workspaceId,
         product.ProductId,
@@ -281,11 +281,11 @@ export class PredictiveInsightsService {
       const avgDailySales = forecast.AverageDailySales;
       const daysOfStock = avgDailySales > 0 ? currentStock / avgDailySales : 999;
 
-      // 4. Décider si production nécessaire
+      // 4. Decider si production necessaire
       if (daysOfStock < 7) { // Moins de 7 jours de stock
         const priority = this.calculateProductionPriority(daysOfStock, avgDailySales);
 
-        // Quantité suggérée = demande prévue 30j - stock actuel
+        // Quantite suggeree = demande prevue 30j - stock actuel
         const suggestedQuantity = Math.max(
           0,
           Math.round(forecast.PredictedQuantity - currentStock)
@@ -308,7 +308,7 @@ export class PredictiveInsightsService {
       }
     }
 
-    // Trier par priorité
+    // Trier par priorite
     return suggestions.sort((a, b) => {
       const priorityOrder = { urgent: 4, high: 3, medium: 2, low: 1 };
       return priorityOrder[b.Priority] - priorityOrder[a.Priority];
@@ -316,7 +316,7 @@ export class PredictiveInsightsService {
   }
 
   /**
-   * Créer suggestion de production détaillée
+   * Creer suggestion de production detaillee
    */
   private async createProductionSuggestion(
     workspaceId: string,
@@ -328,10 +328,10 @@ export class PredictiveInsightsService {
     forecastedDemand: number,
     priority: 'low' | 'medium' | 'high' | 'urgent'
   ): Promise<ProductionSuggestion> {
-    // Récupérer recette/BOM
+    // Recuperer recette/BOM
     const ingredients = await this.getProductIngredients(workspaceId, product.ProductId);
 
-    // Calculer besoins ingrédients
+    // Calculer besoins ingredients
     const requiredIngredients = [];
     for (const ing of ingredients) {
       const quantityNeeded = ing.quantityPerUnit * suggestedQuantity;
@@ -347,7 +347,7 @@ export class PredictiveInsightsService {
       });
     }
 
-    // Calculer coûts et profits
+    // Calculer couts et profits
     const productionCost = this.calculateProductionCost(ingredients, suggestedQuantity);
     const revenue = suggestedQuantity * (product.SalePrice || 0);
     const profit = revenue - productionCost;
@@ -391,21 +391,21 @@ export class PredictiveInsightsService {
   // ==========================================================================
 
   /**
-   * Générer suggestions de transferts entre emplacements
+   * Generer suggestions de transferts entre emplacements
    */
   async generateStockTransferSuggestions(
     workspaceId: string
   ): Promise<StockTransferSuggestion[]> {
     const suggestions: StockTransferSuggestion[] = [];
 
-    // 1. Récupérer tous les emplacements
+    // 1. Recuperer tous les emplacements
     const locations = await this.getLocations(workspaceId);
 
     if (locations.length < 2) {
       return []; // Besoin d'au moins 2 emplacements
     }
 
-    // 2. Récupérer produits
+    // 2. Recuperer produits
     const products = await this.getActiveProducts(workspaceId);
 
     for (const product of products) {
@@ -449,7 +449,7 @@ export class PredictiveInsightsService {
         };
       }
 
-      // 4. Identifier déséquilibres
+      // 4. Identifier desequilibres
       const locationIds = Object.keys(stockByLocation);
 
       for (let i = 0; i < locationIds.length; i++) {
@@ -460,13 +460,13 @@ export class PredictiveInsightsService {
           const fromData = stockByLocation[fromId];
           const toData = stockByLocation[toId];
 
-          // Si FROM a excès ET TO a déficit
+          // Si FROM a exces ET TO a deficit
           if (fromData.daysOfStock > 30 && toData.daysOfStock < 7) {
             const fromLocation = locations.find(l => l.LocationId === fromId);
             const toLocation = locations.find(l => l.LocationId === toId);
 
             if (fromLocation && toLocation) {
-              // Quantité = demande prévue TO - stock actuel TO
+              // Quantite = demande prevue TO - stock actuel TO
               const suggestedQuantity = Math.min(
                 Math.round(toData.forecast30Days - toData.stock),
                 Math.round(fromData.stock - fromData.forecast30Days) // Max disponible FROM
@@ -491,7 +491,7 @@ export class PredictiveInsightsService {
       }
     }
 
-    // Trier par priorité
+    // Trier par priorite
     return suggestions.sort((a, b) => {
       const priorityOrder = { urgent: 4, high: 3, medium: 2, low: 1 };
       return priorityOrder[b.Priority] - priorityOrder[a.Priority];
@@ -499,7 +499,7 @@ export class PredictiveInsightsService {
   }
 
   /**
-   * Créer suggestion de transfert
+   * Creer suggestion de transfert
    */
   private createTransferSuggestion(
     workspaceId: string,
@@ -515,10 +515,10 @@ export class PredictiveInsightsService {
                      toData.daysOfStock < 7 ? 'medium' : 'low';
 
     const reasoning = `${toLocation.Name} risque une rupture de stock (${toData.daysOfStock.toFixed(1)} jours restants), ` +
-                      `alors que ${fromLocation.Name} a un excédent (${fromData.daysOfStock.toFixed(1)} jours).`;
+                      `alors que ${fromLocation.Name} a un excedent (${fromData.daysOfStock.toFixed(1)} jours).`;
 
-    const estimatedImpact = `Évite une rupture de stock et optimise la répartition. ` +
-                           `Peut générer ~${Math.round(suggestedQuantity * toData.avgDailySales * (product.SalePrice || 0))} F CFA de CA supplémentaire.`;
+    const estimatedImpact = `Evite une rupture de stock et optimise la repartition. ` +
+                           `Peut generer ~${Math.round(suggestedQuantity * toData.avgDailySales * (product.SalePrice || 0))} F CFA de CA supplementaire.`;
 
     return {
       SuggestionId: `TRANS-${Date.now()}-${product.ProductId}`,
@@ -545,11 +545,11 @@ export class PredictiveInsightsService {
   }
 
   // ==========================================================================
-  // AI INSIGHTS GÉNÉRIQUES
+  // AI INSIGHTS GENERIQUES
   // ==========================================================================
 
   /**
-   * Analyser un écran et générer insights contextuels
+   * Analyser un ecran et generer insights contextuels
    */
   async analyzeScreen(
     workspaceId: string,
@@ -579,7 +579,7 @@ export class PredictiveInsightsService {
   }
 
   /**
-   * Analyser données de ventes
+   * Analyser donnees de ventes
    */
   private async analyzeSalesData(
     workspaceId: string,
@@ -587,21 +587,21 @@ export class PredictiveInsightsService {
   ): Promise<AIInsight[]> {
     const insights: AIInsight[] = [];
 
-    // Exemple: Détection baisse de ventes
+    // Exemple: Detection baisse de ventes
     if (screenData.salesTrend === 'down' && screenData.trendPercentage < -15) {
       insights.push({
         InsightId: `INS-${Date.now()}-sales-down`,
         Type: 'alert',
         Category: 'sales',
-        Title: '⚠️ Baisse significative des ventes',
-        Description: `Les ventes ont chuté de ${Math.abs(screenData.trendPercentage)}% par rapport au mois dernier.`,
+        Title: 'Baisse significative des ventes',
+        Description: `Les ventes ont chute de ${Math.abs(screenData.trendPercentage)}% par rapport au mois dernier.`,
         Impact: screenData.trendPercentage < -30 ? 'critical' : 'high',
         RelatedData: screenData,
         RecommendedActions: [
-          'Analyser les produits les plus impactés',
-          'Lancer une promotion ciblée',
+          'Analyser les produits les plus impactes',
+          'Lancer une promotion ciblee',
           'Contacter les clients inactifs',
-          'Vérifier la concurrence',
+          'Verifier la concurrence',
         ],
         EstimatedImpactPercentage: Math.abs(screenData.trendPercentage),
         Status: 'new',
@@ -610,20 +610,20 @@ export class PredictiveInsightsService {
       });
     }
 
-    // Exemple: Opportunité de croissance
+    // Exemple: Opportunite de croissance
     if (screenData.salesTrend === 'up' && screenData.trendPercentage > 20) {
       insights.push({
         InsightId: `INS-${Date.now()}-sales-up`,
         Type: 'opportunity',
         Category: 'sales',
-        Title: '🚀 Forte croissance des ventes',
-        Description: `Les ventes ont augmenté de ${screenData.trendPercentage}% ! Profitez de cette dynamique.`,
+        Title: 'Forte croissance des ventes',
+        Description: `Les ventes ont augmente de ${screenData.trendPercentage}% ! Profitez de cette dynamique.`,
         Impact: 'high',
         RelatedData: screenData,
         RecommendedActions: [
           'Augmenter les stocks des produits phares',
-          'Planifier des productions supplémentaires',
-          'Recruter si besoin pour gérer la demande',
+          'Planifier des productions supplementaires',
+          'Recruter si besoin pour gerer la demande',
         ],
         EstimatedImpactPercentage: screenData.trendPercentage,
         Status: 'new',
@@ -636,7 +636,7 @@ export class PredictiveInsightsService {
   }
 
   /**
-   * Analyser données de stock
+   * Analyser donnees de stock
    */
   private async analyzeStockData(
     workspaceId: string,
@@ -655,14 +655,14 @@ export class PredictiveInsightsService {
           InsightId: `INS-${Date.now()}-stock-low`,
           Type: 'alert',
           Category: 'stock',
-          Title: `⚠️ ${urgentCount} produit(s) en rupture imminente`,
+          Title: `${urgentCount} produit(s) en rupture imminente`,
           Description: `Risque de rupture de stock dans les 3 prochains jours.`,
           Impact: 'critical',
           RelatedData: { products: screenData.lowStockProducts.slice(0, 5) },
           RecommendedActions: [
             'Lancer des ordres de production urgents',
             'Commander aux fournisseurs en express',
-            'Transférer stocks d\'autres emplacements',
+            'Transferer stocks d\'autres emplacements',
           ],
           Status: 'new',
           GeneratedAt: new Date().toISOString(),
@@ -675,7 +675,7 @@ export class PredictiveInsightsService {
   }
 
   /**
-   * Analyser données de production
+   * Analyser donnees de production
    */
   private async analyzeProductionData(
     workspaceId: string,
@@ -683,20 +683,20 @@ export class PredictiveInsightsService {
   ): Promise<AIInsight[]> {
     const insights: AIInsight[] = [];
 
-    // Exemple: Efficacité production
+    // Exemple: Efficacite production
     if (screenData.productionEfficiency && screenData.productionEfficiency < 70) {
       insights.push({
         InsightId: `INS-${Date.now()}-prod-efficiency`,
         Type: 'optimization',
         Category: 'production',
-        Title: '⚙️ Efficacité de production à améliorer',
-        Description: `L'efficacité est de ${screenData.productionEfficiency}%. Objectif: >80%.`,
+        Title: 'Efficacite de production a ameliorer',
+        Description: `L'efficacite est de ${screenData.productionEfficiency}%. Objectif: >80%.`,
         Impact: 'medium',
         RelatedData: screenData,
         RecommendedActions: [
-          'Identifier les goulots d\'étranglement',
-          'Former les équipes',
-          'Vérifier l\'état des équipements',
+          'Identifier les goulots d\'etranglement',
+          'Former les equipes',
+          'Verifier l\'etat des equipements',
           'Optimiser les processus',
         ],
         EstimatedImpactPercentage: 80 - screenData.productionEfficiency,
@@ -710,7 +710,7 @@ export class PredictiveInsightsService {
   }
 
   /**
-   * Analyser données clients
+   * Analyser donnees clients
    */
   private async analyzeCustomerData(
     workspaceId: string,
@@ -718,20 +718,20 @@ export class PredictiveInsightsService {
   ): Promise<AIInsight[]> {
     const insights: AIInsight[] = [];
 
-    // Exemple: Clients à risque de churn
+    // Exemple: Clients a risque de churn
     if (screenData.atRiskCustomers && screenData.atRiskCustomers.length > 0) {
       insights.push({
         InsightId: `INS-${Date.now()}-customer-churn`,
         Type: 'risk',
         Category: 'customer',
-        Title: `⚠️ ${screenData.atRiskCustomers.length} clients à risque`,
-        Description: `Ces clients n'ont pas acheté depuis plus de 90 jours.`,
+        Title: `${screenData.atRiskCustomers.length} clients a risque`,
+        Description: `Ces clients n'ont pas achete depuis plus de 90 jours.`,
         Impact: 'high',
         RelatedData: { customers: screenData.atRiskCustomers.slice(0, 10) },
         RecommendedActions: [
-          'Envoyer une promotion personnalisée',
+          'Envoyer une promotion personnalisee',
           'Appeler les clients VIP',
-          'Enquête de satisfaction',
+          'Enquete de satisfaction',
         ],
         Status: 'new',
         GeneratedAt: new Date().toISOString(),
@@ -752,9 +752,29 @@ export class PredictiveInsightsService {
     days: number,
     locationId?: string
   ): Promise<any[]> {
-    // TODO: Implémenter récupération ventes depuis Airtable
-    // Pour l'instant, retourne données simulées
-    return [];
+    const startDate = new Date();
+    startDate.setDate(startDate.getDate() - days);
+
+    let query = `
+      SELECT si.*, s.sale_date
+      FROM sale_items si
+      JOIN sales s ON si.sale_id = s.sale_id
+      WHERE s.workspace_id = $1 AND si.product_id = $2 AND s.sale_date >= $3
+    `;
+    const params: any[] = [workspaceId, productId, startDate.toISOString()];
+
+    if (locationId) {
+      query += ` AND s.location_id = $4`;
+      params.push(locationId);
+    }
+
+    query += ` ORDER BY s.sale_date DESC`;
+
+    const results = await postgresClient.query(query, params);
+    return (results.rows || []).map((r: any) => ({
+      quantity: r.quantity,
+      date: r.sale_date,
+    }));
   }
 
   private calculateAverageDailySales(sales: any[]): number {
@@ -784,8 +804,8 @@ export class PredictiveInsightsService {
   }
 
   private detectSeasonality(sales: any[]): number {
-    // Détection saisonnalité simplifiée
-    // Retourne entre -1 (forte baisse saisonnière) et 1 (forte hausse saisonnière)
+    // Detection saisonnalite simplifiee
+    // Retourne entre -1 (forte baisse saisonniere) et 1 (forte hausse saisonniere)
     return 0;
   }
 
@@ -811,12 +831,12 @@ export class PredictiveInsightsService {
   ): number {
     let score = 50;
 
-    // Plus de données = plus de confiance
+    // Plus de donnees = plus de confiance
     if (dataPoints > 90) score += 30;
     else if (dataPoints > 30) score += 20;
     else if (dataPoints > 7) score += 10;
 
-    // Moins de volatilité = plus de confiance
+    // Moins de volatilite = plus de confiance
     if (volatility < 20) score += 20;
     else if (volatility < 40) score += 10;
     else if (volatility > 60) score -= 10;
@@ -870,18 +890,39 @@ export class PredictiveInsightsService {
   }
 
   private async getTopSellingProducts(workspaceId: string, limit: number): Promise<any[]> {
-    // TODO: Implémenter récupération depuis Airtable
-    return [];
+    const results = await postgresClient.query(
+      `SELECT p.product_id as "ProductId", p.name as "Name", p.unit_price as "SalePrice",
+              COALESCE(SUM(si.quantity), 0) as total_sold
+       FROM products p
+       LEFT JOIN sale_items si ON p.product_id = si.product_id
+       LEFT JOIN sales s ON si.sale_id = s.sale_id
+       WHERE p.workspace_id = $1
+       GROUP BY p.product_id, p.name, p.unit_price
+       ORDER BY total_sold DESC
+       LIMIT $2`,
+      [workspaceId, limit]
+    );
+    return results.rows || [];
   }
 
   private async getManufacturedProducts(workspaceId: string): Promise<any[]> {
-    // TODO: Implémenter récupération depuis Airtable
-    return [];
+    const results = await postgresClient.query(
+      `SELECT product_id as "ProductId", name as "Name", unit_price as "SalePrice"
+       FROM products
+       WHERE workspace_id = $1 AND is_manufactured = true`,
+      [workspaceId]
+    );
+    return results.rows || [];
   }
 
   private async getCurrentStock(workspaceId: string, productId: string): Promise<number> {
-    // TODO: Implémenter récupération depuis Airtable
-    return 0;
+    const results = await postgresClient.query(
+      `SELECT COALESCE(SUM(quantity), 0) as total
+       FROM stock_items
+       WHERE workspace_id = $1 AND product_id = $2`,
+      [workspaceId, productId]
+    );
+    return results.rows?.[0]?.total || 0;
   }
 
   private async getCurrentStockByLocation(
@@ -889,13 +930,21 @@ export class PredictiveInsightsService {
     productId: string,
     locationId: string
   ): Promise<number> {
-    // TODO: Implémenter récupération depuis Airtable
-    return 0;
+    const results = await postgresClient.query(
+      `SELECT COALESCE(quantity, 0) as quantity
+       FROM stock_items
+       WHERE workspace_id = $1 AND product_id = $2 AND warehouse_id = $3`,
+      [workspaceId, productId, locationId]
+    );
+    return results.rows?.[0]?.quantity || 0;
   }
 
   private async getAveragePrice(workspaceId: string, productId: string): Promise<number> {
-    // TODO: Implémenter récupération depuis Airtable
-    return 1000;
+    const results = await postgresClient.query(
+      `SELECT unit_price FROM products WHERE workspace_id = $1 AND product_id = $2`,
+      [workspaceId, productId]
+    );
+    return results.rows?.[0]?.unit_price || 1000;
   }
 
   private calculateProductionPriority(
@@ -909,8 +958,16 @@ export class PredictiveInsightsService {
   }
 
   private async getProductIngredients(workspaceId: string, productId: string): Promise<any[]> {
-    // TODO: Implémenter récupération BOM depuis Airtable
-    return [];
+    const results = await postgresClient.query(
+      `SELECT ri.ingredient_id as "ingredientId", i.name as "ingredientName",
+              ri.quantity as "quantityPerUnit", i.unit_cost as "unitCost"
+       FROM recipe_ingredients ri
+       JOIN ingredients i ON ri.ingredient_id = i.ingredient_id
+       JOIN recipes r ON ri.recipe_id = r.recipe_id
+       WHERE r.product_id = $1 AND r.workspace_id = $2`,
+      [productId, workspaceId]
+    );
+    return results.rows || [];
   }
 
   private calculateProductionCost(ingredients: any[], quantity: number): number {
@@ -926,29 +983,39 @@ export class PredictiveInsightsService {
     forecastedDemand: number,
     priority: string
   ): string {
-    let reasoning = `Stock actuel: ${currentStock} unités (${daysOfStock.toFixed(1)} jours). `;
-    reasoning += `Ventes moyennes: ${avgDailySales.toFixed(1)} unités/jour. `;
-    reasoning += `Demande prévue (30j): ${forecastedDemand} unités. `;
+    let reasoning = `Stock actuel: ${currentStock} unites (${daysOfStock.toFixed(1)} jours). `;
+    reasoning += `Ventes moyennes: ${avgDailySales.toFixed(1)} unites/jour. `;
+    reasoning += `Demande prevue (30j): ${forecastedDemand} unites. `;
 
     if (priority === 'urgent') {
-      reasoning += '⚠️ URGENT: Risque de rupture imminente.';
+      reasoning += 'URGENT: Risque de rupture imminente.';
     } else if (priority === 'high') {
-      reasoning += '⚡ Priorité haute: Stock faible.';
+      reasoning += 'Priorite haute: Stock faible.';
     } else {
-      reasoning += 'Réapprovisionnement recommandé.';
+      reasoning += 'Reapprovisionnement recommande.';
     }
 
     return reasoning;
   }
 
   private async getLocations(workspaceId: string): Promise<any[]> {
-    // TODO: Implémenter récupération depuis Airtable
-    return [];
+    const results = await postgresClient.query(
+      `SELECT warehouse_id as "LocationId", name as "Name"
+       FROM warehouses
+       WHERE workspace_id = $1`,
+      [workspaceId]
+    );
+    return results.rows || [];
   }
 
   private async getActiveProducts(workspaceId: string): Promise<any[]> {
-    // TODO: Implémenter récupération depuis Airtable
-    return [];
+    const results = await postgresClient.query(
+      `SELECT product_id as "ProductId", name as "Name", unit_price as "SalePrice"
+       FROM products
+       WHERE workspace_id = $1 AND is_active = true`,
+      [workspaceId]
+    );
+    return results.rows || [];
   }
 }
 

@@ -3,7 +3,7 @@
  * Module Rapports & Analytics
  */
 
-import { AirtableClient } from '@/lib/airtable/client';
+import { getPostgresClient } from '@/lib/database/postgres-client';
 import {
   GlobalDashboard,
   DashboardKPI,
@@ -15,7 +15,7 @@ import {
   Employee
 } from '@/types/modules';
 
-const airtableClient = new AirtableClient();
+const postgresClient = getPostgresClient();
 
 export class DashboardService {
   /**
@@ -61,13 +61,13 @@ export class DashboardService {
 
     const kpis = {
       revenue: this.createKPI('Chiffre d\'affaires', revenue, previousRevenue, 'currency'),
-      expenses: this.createKPI('Dépenses', totalExpenses, previousTotalExpenses, 'currency'),
-      profit: this.createKPI('Bénéfice net', profit, previousProfit, 'currency'),
-      cashBalance: this.createKPI('Trésorerie', cashBalance, undefined, 'currency'),
+      expenses: this.createKPI('Depenses', totalExpenses, previousTotalExpenses, 'currency'),
+      profit: this.createKPI('Benefice net', profit, previousProfit, 'currency'),
+      cashBalance: this.createKPI('Tresorerie', cashBalance, undefined, 'currency'),
       sales: this.createKPI('Ventes', sales.length, previousSales.length, 'number'),
       customers: this.createKPI('Clients actifs', new Set(sales.map(s => s.ClientId)).size, undefined, 'number'),
       inventory: this.createKPI('Produits actifs', products.length, undefined, 'number'),
-      employees: this.createKPI('Employés', employees.length, undefined, 'number'),
+      employees: this.createKPI('Employes', employees.length, undefined, 'number'),
     };
 
     // Generate charts
@@ -115,32 +115,32 @@ export class DashboardService {
   }
 
   private async getSalesData(workspaceId: string, startDate: string, endDate: string): Promise<Sale[]> {
-    return await airtableClient.list<Sale>('Sale', {
-      filterByFormula: `AND({WorkspaceId} = '${workspaceId}', {SaleDate} >= '${startDate}', {SaleDate} <= '${endDate}', {Status} != 'cancelled')`,
+    return await postgresClient.list<Sale>('sales', {
+      filterByFormula: `workspace_id = '${workspaceId}' AND sale_date >= '${startDate}' AND sale_date <= '${endDate}' AND status != 'cancelled'`,
     });
   }
 
   private async getExpensesData(workspaceId: string, startDate: string, endDate: string): Promise<Expense[]> {
-    return await airtableClient.list<Expense>('Expense', {
-      filterByFormula: `AND({WorkspaceId} = '${workspaceId}', {CreatedAt} >= '${startDate}', {CreatedAt} <= '${endDate}', {Status} = 'paid')`,
+    return await postgresClient.list<Expense>('expenses', {
+      filterByFormula: `workspace_id = '${workspaceId}' AND created_at >= '${startDate}' AND created_at <= '${endDate}' AND status = 'paid'`,
     });
   }
 
   private async getTransactionsData(workspaceId: string, startDate: string, endDate: string): Promise<Transaction[]> {
-    return await airtableClient.list<Transaction>('Transaction', {
-      filterByFormula: `AND({WorkspaceId} = '${workspaceId}', {ProcessedAt} >= '${startDate}', {ProcessedAt} <= '${endDate}')`,
+    return await postgresClient.list<Transaction>('transactions', {
+      filterByFormula: `workspace_id = '${workspaceId}' AND processed_at >= '${startDate}' AND processed_at <= '${endDate}'`,
     });
   }
 
   private async getProductsData(workspaceId: string): Promise<Product[]> {
-    return await airtableClient.list<Product>('Product', {
-      filterByFormula: `AND({WorkspaceId} = '${workspaceId}', {IsActive} = 1)`,
+    return await postgresClient.list<Product>('products', {
+      filterByFormula: `workspace_id = '${workspaceId}' AND is_active = true`,
     });
   }
 
   private async getEmployeesData(workspaceId: string): Promise<Employee[]> {
-    return await airtableClient.list<Employee>('Employee', {
-      filterByFormula: `AND({WorkspaceId} = '${workspaceId}', {Status} = 'active')`,
+    return await postgresClient.list<Employee>('employees', {
+      filterByFormula: `workspace_id = '${workspaceId}' AND status = 'active'`,
     });
   }
 
@@ -179,7 +179,7 @@ export class DashboardService {
           borderColor: '#10b981',
         },
         {
-          label: 'Dépenses',
+          label: 'Depenses',
           data: sortedMonths.map(month => monthlyData.get(month)!.expenses),
           backgroundColor: '#ef4444',
           borderColor: '#ef4444',
@@ -205,7 +205,7 @@ export class DashboardService {
       labels: sortedDays,
       datasets: [
         {
-          label: 'Ventes journalières',
+          label: 'Ventes journalieres',
           data: sortedDays.map(day => dailyData.get(day)!),
           backgroundColor: '#3b82f6',
           borderColor: '#3b82f6',
@@ -244,7 +244,7 @@ export class DashboardService {
           borderColor: '#10b981',
         },
         {
-          label: 'Décaissements',
+          label: 'Decaissements',
           data: sortedMonths.map(month => monthlyData.get(month)!.expense),
           backgroundColor: '#ef4444',
           borderColor: '#ef4444',
@@ -261,13 +261,13 @@ export class DashboardService {
 
     for (const sale of sales) {
       // Get sale lines
-      const lines = await airtableClient.list<any>('SaleLine', {
-        filterByFormula: `{SaleId} = '${sale.SaleId}'`,
+      const lines = await postgresClient.list<any>('sale_lines', {
+        filterByFormula: `sale_id = '${sale.SaleId}'`,
       });
 
       for (const line of lines) {
-        const products = await airtableClient.list<Product>('Product', {
-          filterByFormula: `{ProductId} = '${line.ProductId}'`,
+        const products = await postgresClient.list<Product>('products', {
+          filterByFormula: `product_id = '${line.product_id}'`,
         });
 
         if (products.length > 0) {
@@ -276,7 +276,7 @@ export class DashboardService {
           if (!productSales.has(key)) {
             productSales.set(key, { label: product.Name, total: 0 });
           }
-          productSales.get(key)!.total += line.TotalPrice;
+          productSales.get(key)!.total += line.total_price;
         }
       }
     }
@@ -308,15 +308,15 @@ export class DashboardService {
     const categoryExpenses = new Map<string, { label: string; total: number }>();
 
     for (const expense of expenses) {
-      const categories = await airtableClient.list<any>('ExpenseCategory', {
-        filterByFormula: `{ExpenseCategoryId} = '${expense.CategoryId}'`,
+      const categories = await postgresClient.list<any>('expense_categories', {
+        filterByFormula: `expense_category_id = '${expense.CategoryId}'`,
       });
 
       if (categories.length > 0) {
         const category = categories[0];
-        const key = category.ExpenseCategoryId;
+        const key = category.expense_category_id;
         if (!categoryExpenses.has(key)) {
-          categoryExpenses.set(key, { label: category.Label, total: 0 });
+          categoryExpenses.set(key, { label: category.label, total: 0 });
         }
         categoryExpenses.get(key)!.total += expense.Amount;
       }
@@ -329,7 +329,7 @@ export class DashboardService {
       labels: sorted.map(c => c.label),
       datasets: [
         {
-          label: 'Dépenses par catégorie',
+          label: 'Depenses par categorie',
           data: sorted.map(c => c.total),
           backgroundColor: [
             '#ef4444', '#f97316', '#f59e0b', '#eab308', '#84cc16',

@@ -3,11 +3,11 @@
  * Module Dépenses
  */
 
-import { AirtableClient } from '@/lib/airtable/client';
-import { ExpenseRequest, ExpenseApprovalStep } from '@/types/modules';
+import { getPostgresClient } from '@/lib/database/postgres-client';
+import { ExpenseRequest, ExpenseApprovalStep, ExpenseRequestStatus } from '@/types/modules';
 import { v4 as uuidv4 } from 'uuid';
 
-const airtableClient = new AirtableClient();
+const postgresClient = getPostgresClient();
 
 export interface CreateExpenseRequestInput {
   title: string;
@@ -28,8 +28,8 @@ export interface ApproveRejectInput {
 export class ExpenseRequestService {
   async generateRequestNumber(workspaceId: string): Promise<string> {
     const year = new Date().getFullYear();
-    const requests = await airtableClient.list<ExpenseRequest>('ExpenseRequest', {
-      filterByFormula: `AND({WorkspaceId} = '${workspaceId}', YEAR({CreatedAt}) = ${year})`,
+    const requests = await postgresClient.list<ExpenseRequest>('expense_requests', {
+      filterByFormula: `AND({workspace_id} = '${workspaceId}', YEAR({created_at}) = ${year})`,
     });
     return `EXP-${year}-${String(requests.length + 1).padStart(4, '0')}`;
   }
@@ -45,22 +45,19 @@ export class ExpenseRequestService {
       Amount: input.amount,
       CategoryId: input.categoryId,
       RequesterId: input.requesterId,
-      Status: 'draft',
+      Status: 'draft' as ExpenseRequestStatus,
       WorkspaceId: input.workspaceId,
       CreatedAt: new Date().toISOString(),
       UpdatedAt: new Date().toISOString(),
     };
 
-    const created = await airtableClient.create<ExpenseRequest>('ExpenseRequest', request);
-    if (!created) {
-      throw new Error('Failed to create expense request - Airtable not configured');
-    }
+    const created = await postgresClient.create<ExpenseRequest>('expense_requests', request);
     return created;
   }
 
   async getById(requestId: string): Promise<ExpenseRequest | null> {
-    const requests = await airtableClient.list<ExpenseRequest>('ExpenseRequest', {
-      filterByFormula: `{ExpenseRequestId} = '${requestId}'`,
+    const requests = await postgresClient.list<ExpenseRequest>('expense_requests', {
+      filterByFormula: `{expense_request_id} = '${requestId}'`,
     });
     return requests.length > 0 ? requests[0] : null;
   }
@@ -69,16 +66,16 @@ export class ExpenseRequestService {
     workspaceId: string,
     filters: { status?: string; requesterId?: string; categoryId?: string } = {}
   ): Promise<ExpenseRequest[]> {
-    const filterFormulas: string[] = [`{WorkspaceId} = '${workspaceId}'`];
+    const filterFormulas: string[] = [`{workspace_id} = '${workspaceId}'`];
 
     if (filters.status) {
-      filterFormulas.push(`{Status} = '${filters.status}'`);
+      filterFormulas.push(`{status} = '${filters.status}'`);
     }
     if (filters.requesterId) {
-      filterFormulas.push(`{RequesterId} = '${filters.requesterId}'`);
+      filterFormulas.push(`{requester_id} = '${filters.requesterId}'`);
     }
     if (filters.categoryId) {
-      filterFormulas.push(`{CategoryId} = '${filters.categoryId}'`);
+      filterFormulas.push(`{category_id} = '${filters.categoryId}'`);
     }
 
     const filterByFormula =
@@ -86,15 +83,15 @@ export class ExpenseRequestService {
         ? `AND(${filterFormulas.join(', ')})`
         : filterFormulas[0];
 
-    return await airtableClient.list<ExpenseRequest>('ExpenseRequest', {
+    return await postgresClient.list<ExpenseRequest>('expense_requests', {
       filterByFormula,
       sort: [{ field: 'CreatedAt', direction: 'desc' }],
     });
   }
 
   async submit(requestId: string): Promise<ExpenseRequest> {
-    const requests = await airtableClient.list<ExpenseRequest>('ExpenseRequest', {
-      filterByFormula: `{ExpenseRequestId} = '${requestId}'`,
+    const requests = await postgresClient.list<ExpenseRequest>('expense_requests', {
+      filterByFormula: `{expense_request_id} = '${requestId}'`,
     });
 
     if (requests.length === 0) {
@@ -105,23 +102,25 @@ export class ExpenseRequestService {
       throw new Error('Seules les demandes en brouillon peuvent être soumises');
     }
 
-    const updated = await airtableClient.update<ExpenseRequest>(
-      'ExpenseRequest',
-      (requests[0] as any)._recordId,
+    const recordId = requests[0].id;
+    if (!recordId) {
+      throw new Error('ID not found');
+    }
+
+    const updated = await postgresClient.update<ExpenseRequest>(
+      'expense_requests',
+      recordId,
       {
         Status: 'submitted',
         UpdatedAt: new Date().toISOString(),
-      } as any
+      }
     );
-    if (!updated) {
-      throw new Error('Failed to update expense request - Airtable not configured');
-    }
     return updated;
   }
 
   async approve(input: ApproveRejectInput): Promise<ExpenseRequest> {
-    const requests = await airtableClient.list<ExpenseRequest>('ExpenseRequest', {
-      filterByFormula: `{ExpenseRequestId} = '${input.requestId}'`,
+    const requests = await postgresClient.list<ExpenseRequest>('expense_requests', {
+      filterByFormula: `{expense_request_id} = '${input.requestId}'`,
     });
 
     if (requests.length === 0) {
@@ -132,8 +131,13 @@ export class ExpenseRequestService {
       throw new Error('Seules les demandes soumises peuvent être approuvées');
     }
 
+    const recordId = requests[0].id;
+    if (!recordId) {
+      throw new Error('ID not found');
+    }
+
     // Create approval step record
-    const approvalStep: Partial<ExpenseApprovalStep> = {
+    const approvalStep = {
       ApprovalStepId: uuidv4(),
       ExpenseRequestId: input.requestId,
       ApproverId: input.approverId,
@@ -145,28 +149,22 @@ export class ExpenseRequestService {
       UpdatedAt: new Date().toISOString(),
     };
 
-    const createdStep = await airtableClient.create<ExpenseApprovalStep>('ExpenseApprovalStep', approvalStep);
-    if (!createdStep) {
-      throw new Error('Failed to create expense approval step - Airtable not configured');
-    }
+    await postgresClient.create<ExpenseApprovalStep>('expense_approval_steps', approvalStep);
 
-    const updated = await airtableClient.update<ExpenseRequest>(
-      'ExpenseRequest',
-      (requests[0] as any)._recordId,
+    const updated = await postgresClient.update<ExpenseRequest>(
+      'expense_requests',
+      recordId,
       {
         Status: input.status,
         UpdatedAt: new Date().toISOString(),
       }
     );
-    if (!updated) {
-      throw new Error('Failed to update expense request - Airtable not configured');
-    }
     return updated;
   }
 
   async cancel(requestId: string): Promise<ExpenseRequest> {
-    const requests = await airtableClient.list<ExpenseRequest>('ExpenseRequest', {
-      filterByFormula: `{ExpenseRequestId} = '${requestId}'`,
+    const requests = await postgresClient.list<ExpenseRequest>('expense_requests', {
+      filterByFormula: `{expense_request_id} = '${requestId}'`,
     });
 
     if (requests.length === 0) {
@@ -177,17 +175,19 @@ export class ExpenseRequestService {
       throw new Error('Impossible d\'annuler une demande déjà traitée');
     }
 
-    const updated = await airtableClient.update<ExpenseRequest>(
-      'ExpenseRequest',
-      (requests[0] as any)._recordId,
+    const recordId = requests[0].id;
+    if (!recordId) {
+      throw new Error('ID not found');
+    }
+
+    const updated = await postgresClient.update<ExpenseRequest>(
+      'expense_requests',
+      recordId,
       {
         Status: 'cancelled',
         UpdatedAt: new Date().toISOString(),
       }
     );
-    if (!updated) {
-      throw new Error('Failed to update expense request - Airtable not configured');
-    }
     return updated;
   }
 
@@ -200,8 +200,8 @@ export class ExpenseRequestService {
       categoryId?: string;
     }
   ): Promise<ExpenseRequest> {
-    const requests = await airtableClient.list<ExpenseRequest>('ExpenseRequest', {
-      filterByFormula: `{ExpenseRequestId} = '${requestId}'`,
+    const requests = await postgresClient.list<ExpenseRequest>('expense_requests', {
+      filterByFormula: `{expense_request_id} = '${requestId}'`,
     });
 
     if (requests.length === 0) {
@@ -210,6 +210,11 @@ export class ExpenseRequestService {
 
     if (requests[0].Status !== 'draft') {
       throw new Error('Seules les demandes en brouillon peuvent être modifiées');
+    }
+
+    const recordId = requests[0].id;
+    if (!recordId) {
+      throw new Error('ID not found');
     }
 
     const updateData: any = {
@@ -221,14 +226,11 @@ export class ExpenseRequestService {
     if (updates.amount !== undefined) updateData.Amount = updates.amount;
     if (updates.categoryId !== undefined) updateData.CategoryId = updates.categoryId;
 
-    const updated = await airtableClient.update<ExpenseRequest>(
-      'ExpenseRequest',
-      (requests[0] as any)._recordId,
+    const updated = await postgresClient.update<ExpenseRequest>(
+      'expense_requests',
+      recordId,
       updateData
     );
-    if (!updated) {
-      throw new Error('Failed to update expense request - Airtable not configured');
-    }
     return updated;
   }
 

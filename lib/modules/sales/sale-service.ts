@@ -3,11 +3,11 @@
  * Module Ventes & Encaissements
  */
 
-import { AirtableClient } from '@/lib/airtable/client';
+import { getPostgresClient } from '@/lib/database/postgres-client';
 import { Sale, SaleItem, SalePayment, SalesStatistics } from '@/types/modules';
 import { v4 as uuidv4 } from 'uuid';
 
-const airtableClient = new AirtableClient();
+const postgresClient = getPostgresClient();
 
 export interface CreateSaleInput {
   clientId?: string;
@@ -64,11 +64,17 @@ export class SaleService {
    */
   async generateSaleNumber(workspaceId: string): Promise<string> {
     const year = new Date().getFullYear();
-    const sales = await airtableClient.list<Sale>('Sale', {
-      filterByFormula: `AND({WorkspaceId} = '${workspaceId}', YEAR({SaleDate}) = ${year})`,
+    const sales = await postgresClient.list<Sale>('sales', {
+      where: { workspace_id: workspaceId },
     });
 
-    const count = sales.length + 1;
+    // Filter by year in application code
+    const yearSales = sales.filter(s => {
+      const saleYear = new Date(s.SaleDate).getFullYear();
+      return saleYear === year;
+    });
+
+    const count = yearSales.length + 1;
     return `SAL-${year}-${String(count).padStart(4, '0')}`;
   }
 
@@ -77,11 +83,17 @@ export class SaleService {
    */
   async generatePaymentNumber(workspaceId: string): Promise<string> {
     const year = new Date().getFullYear();
-    const payments = await airtableClient.list<SalePayment>('SalePayment', {
-      filterByFormula: `AND({WorkspaceId} = '${workspaceId}', YEAR({PaymentDate}) = ${year})`,
+    const payments = await postgresClient.list<SalePayment>('sale_payments', {
+      where: { workspace_id: workspaceId },
     });
 
-    const count = payments.length + 1;
+    // Filter by year in application code
+    const yearPayments = payments.filter(p => {
+      const paymentYear = new Date(p.PaymentDate).getFullYear();
+      return paymentYear === year;
+    });
+
+    const count = yearPayments.length + 1;
     return `PAY-${year}-${String(count).padStart(4, '0')}`;
   }
 
@@ -100,7 +112,7 @@ export class SaleService {
     const saleId = uuidv4();
 
     // Create sale
-    const sale: Partial<Sale> = {
+    const sale = {
       SaleId: saleId,
       SaleNumber: saleNumber,
       ClientId: input.clientId,
@@ -109,8 +121,8 @@ export class SaleService {
       AmountPaid: 0,
       Balance: totalAmount,
       Currency: input.currency || 'XOF',
-      Status: 'draft',
-      PaymentStatus: 'unpaid',
+      Status: 'draft' as const,
+      PaymentStatus: 'unpaid' as const,
       SaleDate: input.saleDate,
       DueDate: input.dueDate,
       Notes: input.notes,
@@ -120,14 +132,11 @@ export class SaleService {
       UpdatedAt: new Date().toISOString(),
     };
 
-    const createdSale = await airtableClient.create<Sale>('Sale', sale);
-    if (!createdSale) {
-      throw new Error('Failed to create sale - Airtable not configured');
-    }
+    const createdSale = await postgresClient.create<Sale>('sales', sale);
 
     // Create sale items
     for (const item of input.items) {
-      const saleItem: Partial<SaleItem> = {
+      const saleItem = {
         SaleItemId: uuidv4(),
         SaleId: saleId,
         ProductId: item.productId,
@@ -141,10 +150,7 @@ export class SaleService {
         UpdatedAt: new Date().toISOString(),
       };
 
-      const createdItem = await airtableClient.create<SaleItem>('SaleItem', saleItem);
-      if (!createdItem) {
-        throw new Error('Failed to create sale item - Airtable not configured');
-      }
+      await postgresClient.create<SaleItem>('sale_items', saleItem);
     }
 
     return createdSale;
@@ -154,8 +160,8 @@ export class SaleService {
    * Récupère une vente par ID avec ses items
    */
   async getById(saleId: string): Promise<(Sale & { items: SaleItem[] }) | null> {
-    const sales = await airtableClient.list<Sale>('Sale', {
-      filterByFormula: `{SaleId} = '${saleId}'`,
+    const sales = await postgresClient.list<Sale>('sales', {
+      where: { sale_id: saleId },
     });
 
     if (sales.length === 0) {
@@ -165,8 +171,8 @@ export class SaleService {
     const sale = sales[0];
 
     // Get items
-    const items = await airtableClient.list<SaleItem>('SaleItem', {
-      filterByFormula: `{SaleId} = '${saleId}'`,
+    const items = await postgresClient.list<SaleItem>('sale_items', {
+      where: { sale_id: saleId },
     });
 
     return { ...sale, items };
@@ -176,64 +182,68 @@ export class SaleService {
    * Liste toutes les ventes d'un workspace avec filtres
    */
   async list(workspaceId: string, filters: SaleFilters = {}): Promise<Sale[]> {
-    const filterFormulas: string[] = [`{WorkspaceId} = '${workspaceId}'`];
+    const where: Record<string, any> = { workspace_id: workspaceId };
 
     if (filters.status) {
-      filterFormulas.push(`{Status} = '${filters.status}'`);
+      where.status = filters.status;
     }
 
     if (filters.paymentStatus) {
-      filterFormulas.push(`{PaymentStatus} = '${filters.paymentStatus}'`);
+      where.payment_status = filters.paymentStatus;
     }
 
     if (filters.clientId) {
-      filterFormulas.push(`{ClientId} = '${filters.clientId}'`);
+      where.client_id = filters.clientId;
     }
 
+    let sales = await postgresClient.list<Sale>('sales', {
+      where,
+      orderBy: { field: 'sale_date', direction: 'desc' },
+    });
+
+    // Apply date filters in application code
     if (filters.dateFrom) {
-      filterFormulas.push(`{SaleDate} >= '${filters.dateFrom}'`);
+      sales = sales.filter(s => s.SaleDate >= filters.dateFrom!);
     }
 
     if (filters.dateTo) {
-      filterFormulas.push(`{SaleDate} <= '${filters.dateTo}'`);
+      sales = sales.filter(s => s.SaleDate <= filters.dateTo!);
     }
 
-    const filterByFormula =
-      filterFormulas.length > 1
-        ? `AND(${filterFormulas.join(', ')})`
-        : filterFormulas[0];
-
-    return await airtableClient.list<Sale>('Sale', {
-      filterByFormula,
-      sort: [{ field: 'SaleDate', direction: 'desc' }],
-    });
+    return sales;
   }
 
   /**
    * Met à jour une vente
    */
   async update(saleId: string, input: UpdateSaleInput): Promise<Sale> {
-    const sales = await airtableClient.list<Sale>('Sale', {
-      filterByFormula: `{SaleId} = '${saleId}'`,
+    const sales = await postgresClient.list<Sale>('sales', {
+      where: { sale_id: saleId },
     });
 
     if (sales.length === 0) {
       throw new Error('Vente non trouvée');
     }
 
-    const updates: Partial<Sale> = {
-      ...input,
+    if (!sales[0].id) {
+      throw new Error('Vente ID manquant');
+    }
+
+    const updates: Record<string, any> = {
       UpdatedAt: new Date().toISOString(),
     };
 
-    const updated = await airtableClient.update<Sale>(
-      'Sale',
-      (sales[0] as any)._recordId,
+    if (input.clientId !== undefined) updates.ClientId = input.clientId;
+    if (input.clientName !== undefined) updates.ClientName = input.clientName;
+    if (input.dueDate !== undefined) updates.DueDate = input.dueDate;
+    if (input.notes !== undefined) updates.Notes = input.notes;
+    if (input.status !== undefined) updates.Status = input.status;
+
+    const updated = await postgresClient.update<Sale>(
+      'sales',
+      sales[0].id,
       updates
     );
-    if (!updated) {
-      throw new Error('Failed to update sale - Airtable not configured');
-    }
     return updated;
   }
 
@@ -277,7 +287,7 @@ export class SaleService {
     const paymentNumber = await this.generatePaymentNumber(input.workspaceId);
 
     // Create payment
-    const payment: Partial<SalePayment> = {
+    const payment = {
       PaymentId: uuidv4(),
       SaleId: input.saleId,
       PaymentNumber: paymentNumber,
@@ -293,13 +303,10 @@ export class SaleService {
       UpdatedAt: new Date().toISOString(),
     };
 
-    const createdPayment = await airtableClient.create<SalePayment>(
-      'SalePayment',
+    const createdPayment = await postgresClient.create<SalePayment>(
+      'sale_payments',
       payment
     );
-    if (!createdPayment) {
-      throw new Error('Failed to create sale payment - Airtable not configured');
-    }
 
     // Update sale amounts
     const newAmountPaid = sale.AmountPaid + input.amount;
@@ -312,19 +319,20 @@ export class SaleService {
     });
 
     // Update amounts in database
-    const sales = await airtableClient.list<Sale>('Sale', {
-      filterByFormula: `{SaleId} = '${input.saleId}'`,
+    const sales = await postgresClient.list<Sale>('sales', {
+      where: { sale_id: input.saleId },
     });
 
-    const updatedSale = await airtableClient.update<Sale>('Sale', (sales[0] as any)._recordId, {
+    if (!sales[0].id) {
+      throw new Error('Vente ID manquant');
+    }
+
+    await postgresClient.update<Sale>('sales', sales[0].id, {
       AmountPaid: newAmountPaid,
       Balance: newBalance,
       PaymentStatus: newPaymentStatus,
       UpdatedAt: new Date().toISOString(),
     });
-    if (!updatedSale) {
-      throw new Error('Failed to update sale - Airtable not configured');
-    }
 
     return createdPayment;
   }
@@ -333,9 +341,9 @@ export class SaleService {
    * Récupère tous les paiements d'une vente
    */
   async getPayments(saleId: string): Promise<SalePayment[]> {
-    return await airtableClient.list<SalePayment>('SalePayment', {
-      filterByFormula: `{SaleId} = '${saleId}'`,
-      sort: [{ field: 'PaymentDate', direction: 'desc' }],
+    return await postgresClient.list<SalePayment>('sale_payments', {
+      where: { sale_id: saleId },
+      orderBy: { field: 'payment_date', direction: 'desc' },
     });
   }
 
@@ -370,8 +378,8 @@ export class SaleService {
     const averageSaleAmount = activeSales.length > 0 ? totalRevenue / activeSales.length : 0;
 
     // Get all sale items for top products
-    const allItems = await airtableClient.list<SaleItem>('SaleItem', {
-      filterByFormula: `{WorkspaceId} = '${workspaceId}'`,
+    const allItems = await postgresClient.list<SaleItem>('sale_items', {
+      where: { workspace_id: workspaceId },
     });
 
     // Calculate top products

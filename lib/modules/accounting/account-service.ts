@@ -3,11 +3,11 @@
  * Module Comptabilité
  */
 
-import { AirtableClient } from '@/lib/airtable/client';
+import { getPostgresClient } from '@/lib/database/postgres-client';
 import { ChartAccount } from '@/types/modules';
 import { v4 as uuidv4 } from 'uuid';
 
-const airtableClient = new AirtableClient();
+const postgresClient = getPostgresClient();
 
 export interface CreateAccountInput {
   accountNumber: string;
@@ -21,8 +21,8 @@ export interface CreateAccountInput {
 }
 
 export class AccountService {
-  async create(input: CreateAccountInput): Promise<ChartAccount | null> {
-    const account: Partial<ChartAccount> = {
+  async create(input: CreateAccountInput): Promise<ChartAccount> {
+    const account = {
       AccountId: uuidv4(),
       AccountNumber: input.accountNumber,
       Label: input.label,
@@ -37,18 +37,18 @@ export class AccountService {
       UpdatedAt: new Date().toISOString(),
     };
 
-    return await airtableClient.create<ChartAccount>('ChartAccount', account);
+    return await postgresClient.create<ChartAccount>('chart_accounts', account);
   }
 
   async getById(accountId: string): Promise<ChartAccount | null> {
-    const accounts = await airtableClient.list<ChartAccount>('ChartAccount', {
+    const accounts = await postgresClient.list<ChartAccount>('chart_accounts', {
       filterByFormula: `{AccountId} = '${accountId}'`,
     });
     return accounts.length > 0 ? accounts[0] : null;
   }
 
   async getByNumber(accountNumber: string, workspaceId: string): Promise<ChartAccount | null> {
-    const accounts = await airtableClient.list<ChartAccount>('ChartAccount', {
+    const accounts = await postgresClient.list<ChartAccount>('chart_accounts', {
       filterByFormula: `AND({AccountNumber} = '${accountNumber}', {WorkspaceId} = '${workspaceId}')`,
     });
     return accounts.length > 0 ? accounts[0] : null;
@@ -66,14 +66,14 @@ export class AccountService {
 
     const filterByFormula = filterFormulas.length > 1 ? `AND(${filterFormulas.join(', ')})` : filterFormulas[0];
 
-    return await airtableClient.list<ChartAccount>('ChartAccount', {
+    return await postgresClient.list<ChartAccount>('chart_accounts', {
       filterByFormula,
       sort: [{ field: 'AccountNumber', direction: 'asc' }],
     });
   }
 
-  async update(accountId: string, updates: Partial<CreateAccountInput>): Promise<ChartAccount | null> {
-    const accounts = await airtableClient.list<ChartAccount>('ChartAccount', {
+  async update(accountId: string, updates: Partial<CreateAccountInput>): Promise<ChartAccount> {
+    const accounts = await postgresClient.list<ChartAccount>('chart_accounts', {
       filterByFormula: `{AccountId} = '${accountId}'`,
     });
 
@@ -81,12 +81,16 @@ export class AccountService {
       throw new Error('Compte non trouvé');
     }
 
+    if (!accounts[0].id) {
+      throw new Error('ID du compte manquant');
+    }
+
     const updateData: any = { UpdatedAt: new Date().toISOString() };
     if (updates.label) updateData.Label = updates.label;
     if (updates.description !== undefined) updateData.Description = updates.description;
     if (updates.allowDirectPosting !== undefined) updateData.AllowDirectPosting = updates.allowDirectPosting;
 
-    return await airtableClient.update<ChartAccount>('ChartAccount', (accounts[0] as any)._recordId, updateData);
+    return await postgresClient.update<ChartAccount>('chart_accounts', accounts[0].id, updateData);
   }
 
   async initializeChartOfAccounts(workspaceId: string): Promise<ChartAccount[]> {
@@ -124,9 +128,7 @@ export class AccountService {
           allowDirectPosting: true,
           workspaceId,
         });
-        if (account) {
-          created.push(account);
-        }
+        created.push(account);
       } catch (error) {
         console.error(`Error creating account ${acc.number}:`, error);
       }

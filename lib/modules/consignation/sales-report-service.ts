@@ -3,13 +3,13 @@
  * Module Consignation & Partenaires
  */
 
-import { AirtableClient } from '@/lib/airtable/client';
+import { getPostgresClient } from '@/lib/database/postgres-client';
 import { SalesReport, SalesReportLine, SalesReportStatus } from '@/types/modules';
 import { v4 as uuidv4 } from 'uuid';
 import { PartnerService } from './partner-service';
 import { DepositService } from './deposit-service';
 
-const airtableClient = new AirtableClient();
+const postgresClient = getPostgresClient();
 const partnerService = new PartnerService();
 const depositService = new DepositService();
 
@@ -52,41 +52,41 @@ export interface SalesReportFilters {
 
 export class SalesReportService {
   /**
-   * Générer le numéro de rapport (RAP-202511-0001)
+   * Generer le numero de rapport (RAP-202511-0001)
    */
   async generateReportNumber(workspaceId: string): Promise<string> {
     const year = new Date().getFullYear();
     const month = String(new Date().getMonth() + 1).padStart(2, '0');
-    const reports = await airtableClient.list<SalesReport>('SalesReport', {
-      filterByFormula: `AND({WorkspaceId} = '${workspaceId}', YEAR({CreatedAt}) = ${year}, MONTH({CreatedAt}) = ${parseInt(month)})`,
+    const reports = await postgresClient.list<any>('sales_reports', {
+      filterByFormula: `AND({workspace_id} = '${workspaceId}', YEAR({created_at}) = ${year}, MONTH({created_at}) = ${parseInt(month)})`,
     });
     return `RAP-${year}${month}-${String(reports.length + 1).padStart(4, '0')}`;
   }
 
   /**
-   * Créer un nouveau rapport de ventes
+   * Creer un nouveau rapport de ventes
    */
   async create(input: CreateSalesReportInput): Promise<SalesReport> {
-    // Validation: vérifier que le partenaire existe
+    // Validation: verifier que le partenaire existe
     const partner = await partnerService.getById(input.partnerId);
     if (!partner) {
-      throw new Error('Partenaire non trouvé');
+      throw new Error('Partenaire non trouve');
     }
 
-    // Validation: partenaire doit être actif
+    // Validation: partenaire doit etre actif
     if (partner.Status !== 'active') {
-      throw new Error('Le partenaire doit être actif');
+      throw new Error('Le partenaire doit etre actif');
     }
 
-    // Validation: si depositId fourni, vérifier qu'il existe
+    // Validation: si depositId fourni, verifier qu'il existe
     let depositNumber: string | undefined;
     if (input.depositId) {
       const deposit = await depositService.getById(input.depositId);
       if (!deposit) {
-        throw new Error('Dépôt non trouvé');
+        throw new Error('Depot non trouve');
       }
       if (deposit.PartnerId !== input.partnerId) {
-        throw new Error('Le dépôt n\'appartient pas à ce partenaire');
+        throw new Error('Le depot n\'appartient pas a ce partenaire');
       }
       depositNumber = deposit.DepositNumber;
     }
@@ -96,19 +96,19 @@ export class SalesReportService {
       throw new Error('Le rapport doit contenir au moins un produit vendu');
     }
 
-    // Validation: quantités positives
+    // Validation: quantites positives
     for (const line of input.lines) {
       if (line.quantitySold <= 0) {
-        throw new Error('Les quantités vendues doivent être positives');
+        throw new Error('Les quantites vendues doivent etre positives');
       }
       if (line.unitPrice < 0) {
-        throw new Error('Les prix unitaires doivent être positifs');
+        throw new Error('Les prix unitaires doivent etre positifs');
       }
     }
 
     const reportNumber = await this.generateReportNumber(input.workspaceId);
 
-    // Créer les lignes de rapport
+    // Creer les lignes de rapport
     const lines: SalesReportLine[] = input.lines.map((line) => ({
       ReportLineId: uuidv4(),
       SalesReportId: '', // Will be set after report creation
@@ -157,128 +157,148 @@ export class SalesReportService {
       line.SalesReportId = report.SalesReportId!;
     });
 
-    const created = await airtableClient.create<SalesReport>('SalesReport', report);
-    if (!created) {
-      throw new Error('Failed to create sales report - Airtable not configured');
-    }
-    return created;
+    const created = await postgresClient.create<any>('sales_reports', {
+      SalesReportId: report.SalesReportId,
+      ReportNumber: report.ReportNumber,
+      PartnerId: report.PartnerId,
+      PartnerName: report.PartnerName,
+      DepositId: report.DepositId,
+      DepositNumber: report.DepositNumber,
+      Status: report.Status,
+      ReportDate: report.ReportDate,
+      PeriodStart: report.PeriodStart,
+      PeriodEnd: report.PeriodEnd,
+      Lines: report.Lines,
+      TotalSales: report.TotalSales,
+      PartnerCommission: report.PartnerCommission,
+      NetAmount: report.NetAmount,
+      Currency: report.Currency,
+      SubmittedById: report.SubmittedById,
+      SubmittedByName: report.SubmittedByName,
+      SubmittedAt: report.SubmittedAt,
+      SalesGenerated: report.SalesGenerated,
+      Notes: report.Notes,
+      Attachments: report.Attachments,
+      WorkspaceId: report.WorkspaceId,
+      CreatedAt: report.CreatedAt,
+      UpdatedAt: report.UpdatedAt,
+    });
+    return this.mapToSalesReport(created);
   }
 
   /**
-   * Récupérer un rapport par son ID
+   * Recuperer un rapport par son ID
    */
   async getById(reportId: string): Promise<SalesReport | null> {
-    const reports = await airtableClient.list<SalesReport>('SalesReport', {
-      filterByFormula: `{SalesReportId} = '${reportId}'`,
+    const reports = await postgresClient.list<any>('sales_reports', {
+      filterByFormula: `{sales_report_id} = '${reportId}'`,
     });
-    return reports.length > 0 ? reports[0] : null;
+    return reports.length > 0 ? this.mapToSalesReport(reports[0]) : null;
   }
 
   /**
-   * Récupérer un rapport par son numéro
+   * Recuperer un rapport par son numero
    */
   async getByNumber(reportNumber: string, workspaceId: string): Promise<SalesReport | null> {
-    const reports = await airtableClient.list<SalesReport>('SalesReport', {
-      filterByFormula: `AND({WorkspaceId} = '${workspaceId}', {ReportNumber} = '${reportNumber}')`,
+    const reports = await postgresClient.list<any>('sales_reports', {
+      filterByFormula: `AND({workspace_id} = '${workspaceId}', {report_number} = '${reportNumber}')`,
     });
-    return reports.length > 0 ? reports[0] : null;
+    return reports.length > 0 ? this.mapToSalesReport(reports[0]) : null;
   }
 
   /**
    * Lister les rapports avec filtres
    */
   async list(workspaceId: string, filters: SalesReportFilters = {}): Promise<SalesReport[]> {
-    const filterFormulas: string[] = [`{WorkspaceId} = '${workspaceId}'`];
+    const filterFormulas: string[] = [`{workspace_id} = '${workspaceId}'`];
 
     if (filters.partnerId) {
-      filterFormulas.push(`{PartnerId} = '${filters.partnerId}'`);
+      filterFormulas.push(`{partner_id} = '${filters.partnerId}'`);
     }
     if (filters.depositId) {
-      filterFormulas.push(`{DepositId} = '${filters.depositId}'`);
+      filterFormulas.push(`{deposit_id} = '${filters.depositId}'`);
     }
     if (filters.status) {
-      filterFormulas.push(`{Status} = '${filters.status}'`);
+      filterFormulas.push(`{status} = '${filters.status}'`);
     }
     if (filters.startDate) {
-      filterFormulas.push(`{ReportDate} >= '${filters.startDate}'`);
+      filterFormulas.push(`{report_date} >= '${filters.startDate}'`);
     }
     if (filters.endDate) {
-      filterFormulas.push(`{ReportDate} <= '${filters.endDate}'`);
+      filterFormulas.push(`{report_date} <= '${filters.endDate}'`);
     }
     if (filters.salesGenerated !== undefined) {
-      filterFormulas.push(`{SalesGenerated} = ${filters.salesGenerated ? '1' : '0'}`);
+      filterFormulas.push(`{sales_generated} = ${filters.salesGenerated ? '1' : '0'}`);
     }
 
     const filterByFormula =
       filterFormulas.length > 1 ? `AND(${filterFormulas.join(', ')})` : filterFormulas[0];
 
-    return await airtableClient.list<SalesReport>('SalesReport', {
+    const results = await postgresClient.list<any>('sales_reports', {
       filterByFormula,
       sort: [{ field: 'ReportDate', direction: 'desc' }],
     });
+    return results.map((record: any) => this.mapToSalesReport(record));
   }
 
   /**
-   * Soumettre un rapport (passer de draft à submitted)
+   * Soumettre un rapport (passer de draft a submitted)
    */
   async submit(
     reportId: string,
     submittedById: string,
     submittedByName: string
   ): Promise<SalesReport> {
-    const reports = await airtableClient.list<SalesReport>('SalesReport', {
-      filterByFormula: `{SalesReportId} = '${reportId}'`,
+    const reports = await postgresClient.list<any>('sales_reports', {
+      filterByFormula: `{sales_report_id} = '${reportId}'`,
     });
 
     if (reports.length === 0) {
-      throw new Error('Rapport non trouvé');
+      throw new Error('Rapport non trouve');
     }
 
-    const report = reports[0];
+    const report = this.mapToSalesReport(reports[0]);
 
     if (report.Status !== 'draft') {
-      throw new Error('Seuls les rapports en brouillon peuvent être soumis');
+      throw new Error('Seuls les rapports en brouillon peuvent etre soumis');
     }
 
-    const updated = await airtableClient.update<SalesReport>('SalesReport', (report as any)._recordId, {
+    const updated = await postgresClient.update<any>('sales_reports', reports[0].id, {
       Status: 'submitted',
       SubmittedById: submittedById,
       SubmittedByName: submittedByName,
       SubmittedAt: new Date().toISOString(),
       UpdatedAt: new Date().toISOString(),
     });
-    if (!updated) {
-      throw new Error('Failed to update sales report - Airtable not configured');
-    }
-    return updated;
+    return this.mapToSalesReport(updated);
   }
 
   /**
-   * Valider un rapport (passer de submitted à validated)
+   * Valider un rapport (passer de submitted a validated)
    */
   async validate(
     reportId: string,
     validatedById: string,
     validatedByName: string
   ): Promise<SalesReport> {
-    const reports = await airtableClient.list<SalesReport>('SalesReport', {
-      filterByFormula: `{SalesReportId} = '${reportId}'`,
+    const reports = await postgresClient.list<any>('sales_reports', {
+      filterByFormula: `{sales_report_id} = '${reportId}'`,
     });
 
     if (reports.length === 0) {
-      throw new Error('Rapport non trouvé');
+      throw new Error('Rapport non trouve');
     }
 
-    const report = reports[0];
+    const report = this.mapToSalesReport(reports[0]);
 
     if (report.Status !== 'submitted') {
-      throw new Error('Seuls les rapports soumis peuvent être validés');
+      throw new Error('Seuls les rapports soumis peuvent etre valides');
     }
 
-    // Mettre à jour les statistiques du partenaire
+    // Mettre a jour les statistiques du partenaire
     await partnerService.incrementSold(report.PartnerId, report.TotalSales);
 
-    // Si lié à un dépôt, mettre à jour les quantités vendues
+    // Si lie a un depot, mettre a jour les quantites vendues
     if (report.DepositId) {
       for (const line of report.Lines) {
         const deposit = await depositService.getById(report.DepositId);
@@ -296,95 +316,86 @@ export class SalesReportService {
       }
     }
 
-    const updated = await airtableClient.update<SalesReport>('SalesReport', (report as any)._recordId, {
+    const updated = await postgresClient.update<any>('sales_reports', reports[0].id, {
       Status: 'validated',
       ValidatedById: validatedById,
       ValidatedByName: validatedByName,
       ValidatedAt: new Date().toISOString(),
       UpdatedAt: new Date().toISOString(),
     });
-    if (!updated) {
-      throw new Error('Failed to update sales report - Airtable not configured');
-    }
-    return updated;
+    return this.mapToSalesReport(updated);
   }
 
   /**
    * Rejeter un rapport
    */
   async reject(reportId: string, reason: string): Promise<SalesReport> {
-    const reports = await airtableClient.list<SalesReport>('SalesReport', {
-      filterByFormula: `{SalesReportId} = '${reportId}'`,
+    const reports = await postgresClient.list<any>('sales_reports', {
+      filterByFormula: `{sales_report_id} = '${reportId}'`,
     });
 
     if (reports.length === 0) {
-      throw new Error('Rapport non trouvé');
+      throw new Error('Rapport non trouve');
     }
 
-    const report = reports[0];
+    const report = this.mapToSalesReport(reports[0]);
 
     if (report.Status !== 'submitted') {
-      throw new Error('Seuls les rapports soumis peuvent être rejetés');
+      throw new Error('Seuls les rapports soumis peuvent etre rejetes');
     }
 
-    const updated = await airtableClient.update<SalesReport>('SalesReport', (report as any)._recordId, {
+    const updated = await postgresClient.update<any>('sales_reports', reports[0].id, {
       Status: 'rejected',
       RejectionReason: reason,
       UpdatedAt: new Date().toISOString(),
     });
-    if (!updated) {
-      throw new Error('Failed to update sales report - Airtable not configured');
-    }
-    return updated;
+    return this.mapToSalesReport(updated);
   }
 
   /**
-   * Marquer comme traité (après génération des ventes)
+   * Marquer comme traite (apres generation des ventes)
    */
   async markAsProcessed(reportId: string, generatedSaleIds: string[]): Promise<SalesReport> {
-    const reports = await airtableClient.list<SalesReport>('SalesReport', {
-      filterByFormula: `{SalesReportId} = '${reportId}'`,
+    const reports = await postgresClient.list<any>('sales_reports', {
+      filterByFormula: `{sales_report_id} = '${reportId}'`,
     });
 
     if (reports.length === 0) {
-      throw new Error('Rapport non trouvé');
+      throw new Error('Rapport non trouve');
     }
 
-    const report = reports[0];
+    const report = this.mapToSalesReport(reports[0]);
 
     if (report.Status !== 'validated') {
-      throw new Error('Seuls les rapports validés peuvent être marqués comme traités');
+      throw new Error('Seuls les rapports valides peuvent etre marques comme traites');
     }
 
-    const updated = await airtableClient.update<SalesReport>('SalesReport', (report as any)._recordId, {
+    const updated = await postgresClient.update<any>('sales_reports', reports[0].id, {
       Status: 'processed',
       SalesGenerated: true,
       GeneratedSaleIds: generatedSaleIds,
       UpdatedAt: new Date().toISOString(),
     });
-    if (!updated) {
-      throw new Error('Failed to update sales report - Airtable not configured');
-    }
-    return updated;
+    return this.mapToSalesReport(updated);
   }
 
   /**
-   * Mettre à jour un rapport
+   * Mettre a jour un rapport
    */
   async update(reportId: string, updates: UpdateSalesReportInput): Promise<SalesReport> {
-    const reports = await airtableClient.list<SalesReport>('SalesReport', {
-      filterByFormula: `{SalesReportId} = '${reportId}'`,
+    const reports = await postgresClient.list<any>('sales_reports', {
+      filterByFormula: `{sales_report_id} = '${reportId}'`,
     });
 
     if (reports.length === 0) {
-      throw new Error('Rapport non trouvé');
+      throw new Error('Rapport non trouve');
     }
 
-    const report = reports[0];
+    const report = this.mapToSalesReport(reports[0]);
 
     // Validation: ne peut modifier que les rapports draft ou rejected
     if (!['draft', 'rejected'].includes(report.Status)) {
-      throw new Error('Seuls les rapports en brouillon ou rejetés peuvent être modifiés');
+      throw new Error('Seuls les rapports en brouillon ou rejetes peuvent etre modifies');
     }
 
     const updateData: any = {
@@ -397,15 +408,12 @@ export class SalesReportService {
     if (updates.rejectionReason !== undefined)
       updateData.RejectionReason = updates.rejectionReason;
 
-    const updated = await airtableClient.update<SalesReport>(
-      'SalesReport',
-      (report as any)._recordId,
+    const updated = await postgresClient.update<any>(
+      'sales_reports',
+      reports[0].id,
       updateData
     );
-    if (!updated) {
-      throw new Error('Failed to update sales report - Airtable not configured');
-    }
-    return updated;
+    return this.mapToSalesReport(updated);
   }
 
   /**
@@ -416,15 +424,15 @@ export class SalesReportService {
   }
 
   /**
-   * Obtenir les rapports validés non encore payés
+   * Obtenir les rapports valides non encore payes
    */
   async getUnpaidReports(partnerId: string): Promise<SalesReport[]> {
-    const reports = await airtableClient.list<SalesReport>('SalesReport', {
-      filterByFormula: `AND({PartnerId} = '${partnerId}', OR({Status} = 'validated', {Status} = 'processed'))`,
+    const reports = await postgresClient.list<any>('sales_reports', {
+      filterByFormula: `AND({partner_id} = '${partnerId}', OR({status} = 'validated', {status} = 'processed'))`,
       sort: [{ field: 'ReportDate', direction: 'asc' }],
     });
 
-    return reports;
+    return reports.map((record: any) => this.mapToSalesReport(record));
   }
 
   /**
@@ -482,10 +490,47 @@ export class SalesReportService {
   }
 
   /**
-   * Calculer le solde dû à un partenaire
+   * Calculer le solde du a un partenaire
    */
   async calculatePartnerBalance(partnerId: string): Promise<number> {
     const unpaidReports = await this.getUnpaidReports(partnerId);
     return unpaidReports.reduce((sum, r) => sum + r.NetAmount, 0);
+  }
+
+  /**
+   * Map database record to SalesReport type
+   */
+  private mapToSalesReport(record: any): SalesReport {
+    return {
+      SalesReportId: record.sales_report_id,
+      ReportNumber: record.report_number,
+      PartnerId: record.partner_id,
+      PartnerName: record.partner_name,
+      DepositId: record.deposit_id,
+      DepositNumber: record.deposit_number,
+      Status: record.status,
+      ReportDate: record.report_date,
+      PeriodStart: record.period_start,
+      PeriodEnd: record.period_end,
+      Lines: record.lines,
+      TotalSales: record.total_sales,
+      PartnerCommission: record.partner_commission,
+      NetAmount: record.net_amount,
+      Currency: record.currency,
+      SubmittedById: record.submitted_by_id,
+      SubmittedByName: record.submitted_by_name,
+      SubmittedAt: record.submitted_at,
+      ValidatedById: record.validated_by_id,
+      ValidatedByName: record.validated_by_name,
+      ValidatedAt: record.validated_at,
+      SalesGenerated: record.sales_generated,
+      GeneratedSaleIds: record.generated_sale_ids,
+      RejectionReason: record.rejection_reason,
+      Notes: record.notes,
+      Attachments: record.attachments,
+      WorkspaceId: record.workspace_id,
+      CreatedAt: record.created_at,
+      UpdatedAt: record.updated_at,
+    };
   }
 }

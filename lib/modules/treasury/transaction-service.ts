@@ -3,12 +3,12 @@
  * Module 7.3 - Trésorerie Multi-wallet
  */
 
-import { AirtableClient } from '@/lib/airtable/client';
+import { getPostgresClient } from '@/lib/database/postgres-client';
 import { Transaction, TransactionType, TransactionCategory, TransactionStatus, TreasuryStatistics } from '@/types/modules';
 import { WalletService } from './wallet-service';
 import { v4 as uuidv4 } from 'uuid';
 
-const airtableClient = new AirtableClient();
+const postgresClient = getPostgresClient();
 const walletService = new WalletService();
 
 export interface CreateTransactionInput {
@@ -42,24 +42,24 @@ export class TransactionService {
       endDate?: string;
     }
   ): Promise<Transaction[]> {
-    let formula = `{WorkspaceId} = '${workspaceId}'`;
+    const conditions: string[] = [`workspace_id = '${workspaceId}'`];
 
     if (filters?.type) {
-      formula += `, {Type} = '${filters.type}'`;
+      conditions.push(`type = '${filters.type}'`);
     }
     if (filters?.category) {
-      formula += `, {Category} = '${filters.category}'`;
+      conditions.push(`category = '${filters.category}'`);
     }
     if (filters?.status) {
-      formula += `, {Status} = '${filters.status}'`;
+      conditions.push(`status = '${filters.status}'`);
     }
     if (filters?.walletId) {
-      formula += `, OR({SourceWalletId} = '${filters.walletId}', {DestinationWalletId} = '${filters.walletId}')`;
+      conditions.push(`(source_wallet_id = '${filters.walletId}' OR destination_wallet_id = '${filters.walletId}')`);
     }
 
-    return await airtableClient.list<Transaction>('Transaction', {
-      filterByFormula: `AND(${formula})`,
-      sort: [{ field: 'ProcessedAt', direction: 'desc' }],
+    return await postgresClient.list<Transaction>('transactions', {
+      filterByFormula: conditions.join(' AND '),
+      orderBy: { field: 'processed_at', direction: 'desc' },
     });
   }
 
@@ -67,8 +67,8 @@ export class TransactionService {
    * Récupère une transaction par ID
    */
   async getById(transactionId: string): Promise<Transaction | null> {
-    const results = await airtableClient.list<Transaction>('Transaction', {
-      filterByFormula: `{TransactionId} = '${transactionId}'`,
+    const results = await postgresClient.list<Transaction>('transactions', {
+      filterByFormula: `transaction_id = '${transactionId}'`,
     });
     return results[0] || null;
   }
@@ -194,24 +194,29 @@ export class TransactionService {
    * Met à jour une transaction
    */
   async update(transactionId: string, updates: Partial<Transaction>): Promise<Transaction> {
-    const records = await airtableClient.list<Transaction>('Transaction', {
-      filterByFormula: `{TransactionId} = '${transactionId}'`,
+    const records = await postgresClient.list<Transaction>('transactions', {
+      filterByFormula: `transaction_id = '${transactionId}'`,
     });
 
     if (records.length === 0) {
       throw new Error('Transaction non trouvée');
     }
 
-    const recordId = (records[0] as any)._recordId;
-
-    const updated = await airtableClient.update<Transaction>('Transaction', recordId, {
-      ...updates,
-      UpdatedAt: new Date().toISOString(),
-    });
-
-    if (!updated) {
-      throw new Error('Failed to update transaction - Airtable not configured');
+    const recordId = records[0].id;
+    if (!recordId) {
+      throw new Error('Transaction ID non trouvé');
     }
+
+    const updateData: Record<string, any> = {
+      UpdatedAt: new Date().toISOString(),
+    };
+
+    // Map updates to PascalCase
+    if (updates.Status !== undefined) updateData.Status = updates.Status;
+    if (updates.Description !== undefined) updateData.Description = updates.Description;
+    if (updates.Reference !== undefined) updateData.Reference = updates.Reference;
+
+    const updated = await postgresClient.update<Transaction>('transactions', recordId, updateData);
 
     return updated;
   }
@@ -283,10 +288,7 @@ export class TransactionService {
       UpdatedAt: new Date().toISOString(),
     };
 
-    const created = await airtableClient.create<Transaction>('Transaction', transaction);
-    if (!created) {
-      throw new Error('Failed to create transaction - Airtable not configured');
-    }
+    const created = await postgresClient.create<Transaction>('transactions', transaction);
     return created;
   }
 
@@ -305,8 +307,8 @@ export class TransactionService {
     const year = date.getFullYear();
     const month = String(date.getMonth() + 1).padStart(2, '0');
 
-    const existingTransactions = await airtableClient.list<Transaction>('Transaction', {
-      filterByFormula: `AND({WorkspaceId} = '${workspaceId}', {Type} = '${type}')`,
+    const existingTransactions = await postgresClient.list<Transaction>('transactions', {
+      filterByFormula: `workspace_id = '${workspaceId}' AND type = '${type}'`,
     });
 
     const sequence = String(existingTransactions.length + 1).padStart(4, '0');

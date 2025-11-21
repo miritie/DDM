@@ -1,14 +1,14 @@
 /**
- * Service - Gestion des Dépôts de Consignation
+ * Service - Gestion des Depots de Consignation
  * Module Consignation & Partenaires
  */
 
-import { AirtableClient } from '@/lib/airtable/client';
+import { getPostgresClient } from '@/lib/database/postgres-client';
 import { Deposit, DepositLine, DepositStatus } from '@/types/modules';
 import { v4 as uuidv4 } from 'uuid';
 import { PartnerService } from './partner-service';
 
-const airtableClient = new AirtableClient();
+const postgresClient = getPostgresClient();
 const partnerService = new PartnerService();
 
 export interface CreateDepositLineInput {
@@ -51,50 +51,50 @@ export interface DepositFilters {
 
 export class DepositService {
   /**
-   * Générer le numéro de dépôt (DEP-202511-0001)
+   * Generer le numero de depot (DEP-202511-0001)
    */
   async generateDepositNumber(workspaceId: string): Promise<string> {
     const year = new Date().getFullYear();
     const month = String(new Date().getMonth() + 1).padStart(2, '0');
-    const deposits = await airtableClient.list<Deposit>('Deposit', {
-      filterByFormula: `AND({WorkspaceId} = '${workspaceId}', YEAR({CreatedAt}) = ${year}, MONTH({CreatedAt}) = ${parseInt(month)})`,
+    const deposits = await postgresClient.list<Deposit>('deposits', {
+      filterByFormula: `AND({workspace_id} = '${workspaceId}', YEAR({created_at}) = ${year}, MONTH({created_at}) = ${parseInt(month)})`,
     });
     return `DEP-${year}${month}-${String(deposits.length + 1).padStart(4, '0')}`;
   }
 
   /**
-   * Créer un nouveau dépôt
+   * Creer un nouveau depot
    */
   async create(input: CreateDepositInput): Promise<Deposit> {
-    // Validation: vérifier que le partenaire existe
+    // Validation: verifier que le partenaire existe
     const partner = await partnerService.getById(input.partnerId);
     if (!partner) {
-      throw new Error('Partenaire non trouvé');
+      throw new Error('Partenaire non trouve');
     }
 
-    // Validation: partenaire doit être actif
+    // Validation: partenaire doit etre actif
     if (partner.Status !== 'active') {
-      throw new Error('Le partenaire doit être actif pour effectuer un dépôt');
+      throw new Error('Le partenaire doit etre actif pour effectuer un depot');
     }
 
     // Validation: au moins une ligne
     if (!input.lines || input.lines.length === 0) {
-      throw new Error('Le dépôt doit contenir au moins un produit');
+      throw new Error('Le depot doit contenir au moins un produit');
     }
 
-    // Validation: quantités positives
+    // Validation: quantites positives
     for (const line of input.lines) {
       if (line.quantityDeposited <= 0) {
-        throw new Error('Les quantités doivent être positives');
+        throw new Error('Les quantites doivent etre positives');
       }
       if (line.unitPrice < 0) {
-        throw new Error('Les prix unitaires doivent être positifs');
+        throw new Error('Les prix unitaires doivent etre positifs');
       }
     }
 
     const depositNumber = await this.generateDepositNumber(input.workspaceId);
 
-    // Créer les lignes de dépôt
+    // Creer les lignes de depot
     const lines: DepositLine[] = input.lines.map((line) => ({
       DepositLineId: uuidv4(),
       DepositId: '', // Will be set after deposit creation
@@ -141,81 +141,100 @@ export class DepositService {
       line.DepositId = deposit.DepositId!;
     });
 
-    const created = await airtableClient.create<Deposit>('Deposit', deposit);
-    if (!created) {
-      throw new Error('Failed to create deposit - Airtable not configured');
-    }
-    return created;
+    const created = await postgresClient.create<Deposit>('deposits', {
+      DepositId: deposit.DepositId,
+      DepositNumber: deposit.DepositNumber,
+      PartnerId: deposit.PartnerId,
+      PartnerName: deposit.PartnerName,
+      PartnerType: deposit.PartnerType,
+      Status: deposit.Status,
+      Lines: deposit.Lines,
+      TotalItems: deposit.TotalItems,
+      TotalValue: deposit.TotalValue,
+      DepositDate: deposit.DepositDate,
+      ExpectedReturnDate: deposit.ExpectedReturnDate,
+      PreparedById: deposit.PreparedById,
+      PreparedByName: deposit.PreparedByName,
+      WarehouseId: deposit.WarehouseId,
+      WarehouseName: deposit.WarehouseName,
+      Notes: deposit.Notes,
+      DeliveryProof: deposit.DeliveryProof,
+      WorkspaceId: deposit.WorkspaceId,
+      CreatedAt: deposit.CreatedAt,
+      UpdatedAt: deposit.UpdatedAt,
+    });
+    return this.mapToDeposit(created);
   }
 
   /**
-   * Récupérer un dépôt par son ID
+   * Recuperer un depot par son ID
    */
   async getById(depositId: string): Promise<Deposit | null> {
-    const deposits = await airtableClient.list<Deposit>('Deposit', {
-      filterByFormula: `{DepositId} = '${depositId}'`,
+    const deposits = await postgresClient.list<any>('deposits', {
+      filterByFormula: `{deposit_id} = '${depositId}'`,
     });
-    return deposits.length > 0 ? deposits[0] : null;
+    return deposits.length > 0 ? this.mapToDeposit(deposits[0]) : null;
   }
 
   /**
-   * Récupérer un dépôt par son numéro
+   * Recuperer un depot par son numero
    */
   async getByNumber(depositNumber: string, workspaceId: string): Promise<Deposit | null> {
-    const deposits = await airtableClient.list<Deposit>('Deposit', {
-      filterByFormula: `AND({WorkspaceId} = '${workspaceId}', {DepositNumber} = '${depositNumber}')`,
+    const deposits = await postgresClient.list<any>('deposits', {
+      filterByFormula: `AND({workspace_id} = '${workspaceId}', {deposit_number} = '${depositNumber}')`,
     });
-    return deposits.length > 0 ? deposits[0] : null;
+    return deposits.length > 0 ? this.mapToDeposit(deposits[0]) : null;
   }
 
   /**
-   * Lister les dépôts avec filtres
+   * Lister les depots avec filtres
    */
   async list(workspaceId: string, filters: DepositFilters = {}): Promise<Deposit[]> {
-    const filterFormulas: string[] = [`{WorkspaceId} = '${workspaceId}'`];
+    const filterFormulas: string[] = [`{workspace_id} = '${workspaceId}'`];
 
     if (filters.partnerId) {
-      filterFormulas.push(`{PartnerId} = '${filters.partnerId}'`);
+      filterFormulas.push(`{partner_id} = '${filters.partnerId}'`);
     }
     if (filters.status) {
-      filterFormulas.push(`{Status} = '${filters.status}'`);
+      filterFormulas.push(`{status} = '${filters.status}'`);
     }
     if (filters.warehouseId) {
-      filterFormulas.push(`{WarehouseId} = '${filters.warehouseId}'`);
+      filterFormulas.push(`{warehouse_id} = '${filters.warehouseId}'`);
     }
     if (filters.startDate) {
-      filterFormulas.push(`{DepositDate} >= '${filters.startDate}'`);
+      filterFormulas.push(`{deposit_date} >= '${filters.startDate}'`);
     }
     if (filters.endDate) {
-      filterFormulas.push(`{DepositDate} <= '${filters.endDate}'`);
+      filterFormulas.push(`{deposit_date} <= '${filters.endDate}'`);
     }
 
     const filterByFormula =
       filterFormulas.length > 1 ? `AND(${filterFormulas.join(', ')})` : filterFormulas[0];
 
-    return await airtableClient.list<Deposit>('Deposit', {
+    const results = await postgresClient.list<any>('deposits', {
       filterByFormula,
       sort: [{ field: 'DepositDate', direction: 'desc' }],
     });
+    return results.map((record: any) => this.mapToDeposit(record));
   }
 
   /**
-   * Mettre à jour un dépôt
+   * Mettre a jour un depot
    */
   async update(depositId: string, updates: UpdateDepositInput): Promise<Deposit> {
-    const deposits = await airtableClient.list<Deposit>('Deposit', {
-      filterByFormula: `{DepositId} = '${depositId}'`,
+    const deposits = await postgresClient.list<any>('deposits', {
+      filterByFormula: `{deposit_id} = '${depositId}'`,
     });
 
     if (deposits.length === 0) {
-      throw new Error('Dépôt non trouvé');
+      throw new Error('Depot non trouve');
     }
 
-    const deposit = deposits[0];
+    const deposit = this.mapToDeposit(deposits[0]);
 
-    // Validation: ne peut pas modifier un dépôt complété ou annulé
+    // Validation: ne peut pas modifier un depot complete ou annule
     if (['completed', 'cancelled'].includes(deposit.Status)) {
-      throw new Error('Impossible de modifier un dépôt complété ou annulé');
+      throw new Error('Impossible de modifier un depot complete ou annule');
     }
 
     const updateData: any = {
@@ -230,74 +249,68 @@ export class DepositService {
     if (updates.notes !== undefined) updateData.Notes = updates.notes;
     if (updates.deliveryProof !== undefined) updateData.DeliveryProof = updates.deliveryProof;
 
-    const updated = await airtableClient.update<Deposit>(
-      'Deposit',
-      (deposit as any)._recordId,
+    const updated = await postgresClient.update<any>(
+      'deposits',
+      deposits[0].id,
       updateData
     );
-    if (!updated) {
-      throw new Error('Failed to update deposit - Airtable not configured');
-    }
-    return updated;
+    return this.mapToDeposit(updated);
   }
 
   /**
-   * Valider un dépôt (passer de pending à validated)
+   * Valider un depot (passer de pending a validated)
    */
   async validate(
     depositId: string,
     validatedById: string,
     validatedByName: string
   ): Promise<Deposit> {
-    const deposits = await airtableClient.list<Deposit>('Deposit', {
-      filterByFormula: `{DepositId} = '${depositId}'`,
+    const deposits = await postgresClient.list<any>('deposits', {
+      filterByFormula: `{deposit_id} = '${depositId}'`,
     });
 
     if (deposits.length === 0) {
-      throw new Error('Dépôt non trouvé');
+      throw new Error('Depot non trouve');
     }
 
-    const deposit = deposits[0];
+    const deposit = this.mapToDeposit(deposits[0]);
 
     if (deposit.Status !== 'pending') {
-      throw new Error('Seuls les dépôts en attente peuvent être validés');
+      throw new Error('Seuls les depots en attente peuvent etre valides');
     }
 
-    // Mettre à jour les statistiques du partenaire
+    // Mettre a jour les statistiques du partenaire
     await partnerService.incrementDeposited(deposit.PartnerId, deposit.TotalValue);
 
-    const updated = await airtableClient.update<Deposit>('Deposit', (deposit as any)._recordId, {
+    const updated = await postgresClient.update<any>('deposits', deposits[0].id, {
       Status: 'validated',
       ValidatedById: validatedById,
       ValidatedByName: validatedByName,
       ValidatedAt: new Date().toISOString(),
       UpdatedAt: new Date().toISOString(),
     });
-    if (!updated) {
-      throw new Error('Failed to update deposit - Airtable not configured');
-    }
-    return updated;
+    return this.mapToDeposit(updated);
   }
 
   /**
-   * Annuler un dépôt
+   * Annuler un depot
    */
   async cancel(depositId: string, reason?: string): Promise<Deposit> {
-    const deposits = await airtableClient.list<Deposit>('Deposit', {
-      filterByFormula: `{DepositId} = '${depositId}'`,
+    const deposits = await postgresClient.list<any>('deposits', {
+      filterByFormula: `{deposit_id} = '${depositId}'`,
     });
 
     if (deposits.length === 0) {
-      throw new Error('Dépôt non trouvé');
+      throw new Error('Depot non trouve');
     }
 
-    const deposit = deposits[0];
+    const deposit = this.mapToDeposit(deposits[0]);
 
     if (deposit.Status === 'completed') {
-      throw new Error('Impossible d\'annuler un dépôt complété');
+      throw new Error('Impossible d\'annuler un depot complete');
     }
 
-    // Si le dépôt était validé, ajuster les statistiques du partenaire
+    // Si le depot etait valide, ajuster les statistiques du partenaire
     if (deposit.Status === 'validated' || deposit.Status === 'partial') {
       await partnerService.incrementDeposited(deposit.PartnerId, -deposit.TotalValue);
     }
@@ -313,19 +326,16 @@ export class DepositService {
         : `Annulation: ${reason}`;
     }
 
-    const updated = await airtableClient.update<Deposit>(
-      'Deposit',
-      (deposit as any)._recordId,
+    const updated = await postgresClient.update<any>(
+      'deposits',
+      deposits[0].id,
       updateData
     );
-    if (!updated) {
-      throw new Error('Failed to update deposit - Airtable not configured');
-    }
-    return updated;
+    return this.mapToDeposit(updated);
   }
 
   /**
-   * Mettre à jour les quantités d'une ligne de dépôt (après vente ou retour)
+   * Mettre a jour les quantites d'une ligne de depot (apres vente ou retour)
    */
   async updateLineQuantities(
     depositId: string,
@@ -335,23 +345,23 @@ export class DepositService {
   ): Promise<Deposit> {
     const deposit = await this.getById(depositId);
     if (!deposit) {
-      throw new Error('Dépôt non trouvé');
+      throw new Error('Depot non trouve');
     }
 
     const lineIndex = deposit.Lines.findIndex((l) => l.ProductId === productId);
     if (lineIndex === -1) {
-      throw new Error('Produit non trouvé dans le dépôt');
+      throw new Error('Produit non trouve dans le depot');
     }
 
     const line = deposit.Lines[lineIndex];
 
-    // Validation: quantités cohérentes
+    // Validation: quantites coherentes
     const totalProcessed = quantitySold + quantityReturned;
     if (totalProcessed > line.QuantityDeposited) {
-      throw new Error('Les quantités vendues + retournées dépassent la quantité déposée');
+      throw new Error('Les quantites vendues + retournees depassent la quantite deposee');
     }
 
-    // Mettre à jour la ligne
+    // Mettre a jour la ligne
     deposit.Lines[lineIndex] = {
       ...line,
       QuantitySold: quantitySold,
@@ -359,7 +369,7 @@ export class DepositService {
       QuantityRemaining: line.QuantityDeposited - totalProcessed,
     };
 
-    // Déterminer le nouveau statut du dépôt
+    // Determiner le nouveau statut du depot
     const allProcessed = deposit.Lines.every((l) => l.QuantityRemaining === 0);
     const someProcessed = deposit.Lines.some(
       (l) => l.QuantitySold > 0 || l.QuantityReturned > 0
@@ -372,35 +382,32 @@ export class DepositService {
       newStatus = 'partial';
     }
 
-    const deposits = await airtableClient.list<Deposit>('Deposit', {
-      filterByFormula: `{DepositId} = '${depositId}'`,
+    const deposits = await postgresClient.list<any>('deposits', {
+      filterByFormula: `{deposit_id} = '${depositId}'`,
     });
 
-    const updated = await airtableClient.update<Deposit>('Deposit', (deposits[0] as any)._recordId, {
+    const updated = await postgresClient.update<any>('deposits', deposits[0].id, {
       Lines: deposit.Lines,
       Status: newStatus,
       UpdatedAt: new Date().toISOString(),
     });
-    if (!updated) {
-      throw new Error('Failed to update deposit - Airtable not configured');
-    }
-    return updated;
+    return this.mapToDeposit(updated);
   }
 
   /**
-   * Obtenir les dépôts actifs d'un partenaire
+   * Obtenir les depots actifs d'un partenaire
    */
   async getActiveDeposits(partnerId: string): Promise<Deposit[]> {
-    const deposits = await airtableClient.list<Deposit>('Deposit', {
-      filterByFormula: `AND({PartnerId} = '${partnerId}', OR({Status} = 'validated', {Status} = 'partial'))`,
+    const deposits = await postgresClient.list<any>('deposits', {
+      filterByFormula: `AND({partner_id} = '${partnerId}', OR({status} = 'validated', {status} = 'partial'))`,
       sort: [{ field: 'DepositDate', direction: 'desc' }],
     });
 
-    return deposits;
+    return deposits.map((record: any) => this.mapToDeposit(record));
   }
 
   /**
-   * Obtenir les statistiques des dépôts
+   * Obtenir les statistiques des depots
    */
   async getStatistics(
     workspaceId: string,
@@ -461,7 +468,7 @@ export class DepositService {
   }
 
   /**
-   * Obtenir les dépôts avec retard de retour attendu
+   * Obtenir les depots avec retard de retour attendu
    */
   async getOverdueDeposits(workspaceId: string): Promise<Deposit[]> {
     const deposits = await this.list(workspaceId, {
@@ -475,5 +482,37 @@ export class DepositService {
       const expectedDate = new Date(d.ExpectedReturnDate);
       return expectedDate < now;
     });
+  }
+
+  /**
+   * Map database record to Deposit type
+   */
+  private mapToDeposit(record: any): Deposit {
+    return {
+      DepositId: record.deposit_id,
+      DepositNumber: record.deposit_number,
+      PartnerId: record.partner_id,
+      PartnerName: record.partner_name,
+      PartnerType: record.partner_type,
+      Status: record.status,
+      Lines: record.lines,
+      TotalItems: record.total_items,
+      TotalValue: record.total_value,
+      DepositDate: record.deposit_date,
+      ExpectedReturnDate: record.expected_return_date,
+      ActualReturnDate: record.actual_return_date,
+      PreparedById: record.prepared_by_id,
+      PreparedByName: record.prepared_by_name,
+      ValidatedById: record.validated_by_id,
+      ValidatedByName: record.validated_by_name,
+      ValidatedAt: record.validated_at,
+      WarehouseId: record.warehouse_id,
+      WarehouseName: record.warehouse_name,
+      Notes: record.notes,
+      DeliveryProof: record.delivery_proof,
+      WorkspaceId: record.workspace_id,
+      CreatedAt: record.created_at,
+      UpdatedAt: record.updated_at,
+    };
   }
 }

@@ -3,11 +3,11 @@
  * Module Dépenses
  */
 
-import { AirtableClient } from '@/lib/airtable/client';
+import { getPostgresClient } from '@/lib/database/postgres-client';
 import { ExpenseCategory } from '@/types/modules';
 import { v4 as uuidv4 } from 'uuid';
 
-const airtableClient = new AirtableClient();
+const postgresClient = getPostgresClient();
 
 export interface CreateExpenseCategoryInput {
   label: string;
@@ -21,7 +21,7 @@ export interface CreateExpenseCategoryInput {
 
 export class ExpenseCategoryService {
   async create(input: CreateExpenseCategoryInput): Promise<ExpenseCategory> {
-    const category: Partial<ExpenseCategory> = {
+    const category = {
       ExpenseCategoryId: uuidv4(),
       Label: input.label,
       Code: input.code,
@@ -35,16 +35,13 @@ export class ExpenseCategoryService {
       UpdatedAt: new Date().toISOString(),
     };
 
-    const created = await airtableClient.create<ExpenseCategory>('ExpenseCategory', category);
-    if (!created) {
-      throw new Error('Failed to create expense category - Airtable not configured');
-    }
+    const created = await postgresClient.create<ExpenseCategory>('expense_categories', category);
     return created;
   }
 
   async getById(categoryId: string): Promise<ExpenseCategory | null> {
-    const categories = await airtableClient.list<ExpenseCategory>('ExpenseCategory', {
-      filterByFormula: `{ExpenseCategoryId} = '${categoryId}'`,
+    const categories = await postgresClient.list<ExpenseCategory>('expense_categories', {
+      filterByFormula: `{expense_category_id} = '${categoryId}'`,
     });
     return categories.length > 0 ? categories[0] : null;
   }
@@ -53,10 +50,10 @@ export class ExpenseCategoryService {
     workspaceId: string,
     filters: { isActive?: boolean } = {}
   ): Promise<ExpenseCategory[]> {
-    const filterFormulas: string[] = [`{WorkspaceId} = '${workspaceId}'`];
+    const filterFormulas: string[] = [`{workspace_id} = '${workspaceId}'`];
 
     if (filters.isActive !== undefined) {
-      filterFormulas.push(`{IsActive} = ${filters.isActive ? '1' : '0'}`);
+      filterFormulas.push(`{is_active} = ${filters.isActive ? '1' : '0'}`);
     }
 
     const filterByFormula =
@@ -64,7 +61,7 @@ export class ExpenseCategoryService {
         ? `AND(${filterFormulas.join(', ')})`
         : filterFormulas[0];
 
-    return await airtableClient.list<ExpenseCategory>('ExpenseCategory', {
+    return await postgresClient.list<ExpenseCategory>('expense_categories', {
       filterByFormula,
       sort: [{ field: 'Label', direction: 'asc' }],
     });
@@ -82,12 +79,17 @@ export class ExpenseCategoryService {
       isActive?: boolean;
     }
   ): Promise<ExpenseCategory> {
-    const categories = await airtableClient.list<ExpenseCategory>('ExpenseCategory', {
-      filterByFormula: `{ExpenseCategoryId} = '${categoryId}'`,
+    const categories = await postgresClient.list<ExpenseCategory>('expense_categories', {
+      filterByFormula: `{expense_category_id} = '${categoryId}'`,
     });
 
     if (categories.length === 0) {
       throw new Error('Catégorie non trouvée');
+    }
+
+    const recordId = categories[0].id;
+    if (!recordId) {
+      throw new Error('ID not found');
     }
 
     const updateData: any = {
@@ -103,26 +105,28 @@ export class ExpenseCategoryService {
     if (updates.color !== undefined) updateData.Color = updates.color;
     if (updates.isActive !== undefined) updateData.IsActive = updates.isActive;
 
-    const updated = await airtableClient.update<ExpenseCategory>(
-      'ExpenseCategory',
-      (categories[0] as any)._recordId,
+    const updated = await postgresClient.update<ExpenseCategory>(
+      'expense_categories',
+      recordId,
       updateData
     );
-    if (!updated) {
-      throw new Error('Failed to update expense category - Airtable not configured');
-    }
     return updated;
   }
 
   async delete(categoryId: string): Promise<void> {
-    const categories = await airtableClient.list<ExpenseCategory>('ExpenseCategory', {
-      filterByFormula: `{ExpenseCategoryId} = '${categoryId}'`,
+    const categories = await postgresClient.list<ExpenseCategory>('expense_categories', {
+      filterByFormula: `{expense_category_id} = '${categoryId}'`,
     });
 
     if (categories.length === 0) {
       throw new Error('Catégorie non trouvée');
     }
 
-    await airtableClient.delete('ExpenseCategory', (categories[0] as any)._recordId);
+    const recordId = categories[0].id;
+    if (!recordId) {
+      throw new Error('ID not found');
+    }
+
+    await postgresClient.delete('expense_categories', recordId);
   }
 }

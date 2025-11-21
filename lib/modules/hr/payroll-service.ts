@@ -3,12 +3,12 @@
  * Module Ressources Humaines
  */
 
-import { AirtableClient } from '@/lib/airtable/client';
+import { getPostgresClient } from '@/lib/database/postgres-client';
 import { Payroll, Employee } from '@/types/modules';
 import { v4 as uuidv4 } from 'uuid';
 import { AdvanceDebtService } from '@/lib/modules/advances-debts/advance-debt-service';
 
-const airtableClient = new AirtableClient();
+const postgresClient = getPostgresClient();
 const advanceDebtService = new AdvanceDebtService();
 
 export interface CreatePayrollInput {
@@ -31,8 +31,8 @@ export interface ProcessPayrollInput {
 
 export class PayrollService {
   async generatePayrollNumber(workspaceId: string, period: string): Promise<string> {
-    const payrolls = await airtableClient.list<Payroll>('Payroll', {
-      filterByFormula: `AND({WorkspaceId} = '${workspaceId}', {Period} = '${period}')`,
+    const payrolls = await postgresClient.list<Payroll>('payrolls', {
+      filterByFormula: `AND(workspace_id = '${workspaceId}', period = '${period}')`,
     });
     return `PAY-${period}-${String(payrolls.length + 1).padStart(4, '0')}`;
   }
@@ -77,16 +77,13 @@ export class PayrollService {
       UpdatedAt: new Date().toISOString(),
     };
 
-    const created = await airtableClient.create<Payroll>('Payroll', payroll);
-    if (!created) {
-      throw new Error('Failed to create payroll - Airtable not configured');
-    }
+    const created = await postgresClient.create<Payroll>('payrolls', payroll);
     return created;
   }
 
   async getById(payrollId: string): Promise<Payroll | null> {
-    const payrolls = await airtableClient.list<Payroll>('Payroll', {
-      filterByFormula: `{PayrollId} = '${payrollId}'`,
+    const payrolls = await postgresClient.list<Payroll>('payrolls', {
+      filterByFormula: `payroll_id = '${payrollId}'`,
     });
     return payrolls.length > 0 ? payrolls[0] : null;
   }
@@ -95,16 +92,16 @@ export class PayrollService {
     workspaceId: string,
     filters: { employeeId?: string; period?: string; status?: string } = {}
   ): Promise<Payroll[]> {
-    const filterFormulas: string[] = [`{WorkspaceId} = '${workspaceId}'`];
+    const filterFormulas: string[] = [`workspace_id = '${workspaceId}'`];
 
     if (filters.employeeId) {
-      filterFormulas.push(`{EmployeeId} = '${filters.employeeId}'`);
+      filterFormulas.push(`employee_id = '${filters.employeeId}'`);
     }
     if (filters.period) {
-      filterFormulas.push(`{Period} = '${filters.period}'`);
+      filterFormulas.push(`period = '${filters.period}'`);
     }
     if (filters.status) {
-      filterFormulas.push(`{Status} = '${filters.status}'`);
+      filterFormulas.push(`status = '${filters.status}'`);
     }
 
     const filterByFormula =
@@ -112,15 +109,15 @@ export class PayrollService {
         ? `AND(${filterFormulas.join(', ')})`
         : filterFormulas[0];
 
-    return await airtableClient.list<Payroll>('Payroll', {
+    return await postgresClient.list<Payroll>('payrolls', {
       filterByFormula,
       sort: [{ field: 'Period', direction: 'desc' }],
     });
   }
 
   async validate(payrollId: string): Promise<Payroll> {
-    const payrolls = await airtableClient.list<Payroll>('Payroll', {
-      filterByFormula: `{PayrollId} = '${payrollId}'`,
+    const payrolls = await postgresClient.list<Payroll>('payrolls', {
+      filterByFormula: `payroll_id = '${payrollId}'`,
     });
 
     if (payrolls.length === 0) {
@@ -131,23 +128,24 @@ export class PayrollService {
       throw new Error('Seules les paies en brouillon peuvent être validées');
     }
 
-    const updated = await airtableClient.update<Payroll>(
-      'Payroll',
-      (payrolls[0] as any)._recordId,
+    if (!payrolls[0].id) {
+      throw new Error('Payroll ID is missing');
+    }
+
+    const updated = await postgresClient.update<Payroll>(
+      'payrolls',
+      payrolls[0].id,
       {
         Status: 'validated',
         UpdatedAt: new Date().toISOString(),
       }
     );
-    if (!updated) {
-      throw new Error('Failed to update payroll - Airtable not configured');
-    }
     return updated;
   }
 
   async process(input: ProcessPayrollInput): Promise<Payroll> {
-    const payrolls = await airtableClient.list<Payroll>('Payroll', {
-      filterByFormula: `{PayrollId} = '${input.payrollId}'`,
+    const payrolls = await postgresClient.list<Payroll>('payrolls', {
+      filterByFormula: `payroll_id = '${input.payrollId}'`,
     });
 
     if (payrolls.length === 0) {
@@ -158,27 +156,27 @@ export class PayrollService {
       throw new Error('La paie doit être validée avant d\'être payée');
     }
 
-    const updated = await airtableClient.update<Payroll>(
-      'Payroll',
-      (payrolls[0] as any)._recordId,
+    if (!payrolls[0].id) {
+      throw new Error('Payroll ID is missing');
+    }
+
+    const updated = await postgresClient.update<Payroll>(
+      'payrolls',
+      payrolls[0].id,
       {
         Status: 'paid',
-        PaymentDate: input.paymentDate,
-        PaymentMethod: input.paymentMethod,
-        ProcessedById: input.processedById,
-        ProcessedAt: new Date().toISOString(),
+        PaidAt: input.paymentDate,
+        PaymentMethod: input.paymentMethod as 'bank_transfer' | 'cash' | 'mobile_money' | 'check',
+        PaidById: input.processedById,
         UpdatedAt: new Date().toISOString(),
-      } as any
+      }
     );
-    if (!updated) {
-      throw new Error('Failed to update payroll - Airtable not configured');
-    }
     return updated;
   }
 
   async cancel(payrollId: string): Promise<Payroll> {
-    const payrolls = await airtableClient.list<Payroll>('Payroll', {
-      filterByFormula: `{PayrollId} = '${payrollId}'`,
+    const payrolls = await postgresClient.list<Payroll>('payrolls', {
+      filterByFormula: `payroll_id = '${payrollId}'`,
     });
 
     if (payrolls.length === 0) {
@@ -189,17 +187,18 @@ export class PayrollService {
       throw new Error('Une paie payée ne peut pas être annulée');
     }
 
-    const updated = await airtableClient.update<Payroll>(
-      'Payroll',
-      (payrolls[0] as any)._recordId,
+    if (!payrolls[0].id) {
+      throw new Error('Payroll ID is missing');
+    }
+
+    const updated = await postgresClient.update<Payroll>(
+      'payrolls',
+      payrolls[0].id,
       {
         Status: 'cancelled',
         UpdatedAt: new Date().toISOString(),
       }
     );
-    if (!updated) {
-      throw new Error('Failed to update payroll - Airtable not configured');
-    }
     return updated;
   }
 
@@ -210,16 +209,16 @@ export class PayrollService {
   ): Promise<Payroll[]> {
     // Get all active employees or specified employees
     const filterFormulas: string[] = [
-      `{WorkspaceId} = '${workspaceId}'`,
-      `{Status} = 'active'`,
+      `workspace_id = '${workspaceId}'`,
+      `status = 'active'`,
     ];
 
     if (employeeIds && employeeIds.length > 0) {
-      const employeeFilter = employeeIds.map((id) => `{EmployeeId} = '${id}'`).join(', ');
+      const employeeFilter = employeeIds.map((id) => `employee_id = '${id}'`).join(', ');
       filterFormulas.push(`OR(${employeeFilter})`);
     }
 
-    const employees = await airtableClient.list<Employee>('Employee', {
+    const employees = await postgresClient.list<Employee>('employees', {
       filterByFormula: `AND(${filterFormulas.join(', ')})`,
     });
 

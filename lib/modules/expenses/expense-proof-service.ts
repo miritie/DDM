@@ -3,11 +3,11 @@
  * Module Dépenses
  */
 
-import { AirtableClient } from '@/lib/airtable/client';
+import { getPostgresClient } from '@/lib/database/postgres-client';
 import { ExpenseProof } from '@/types/modules';
 import { v4 as uuidv4 } from 'uuid';
 
-const airtableClient = new AirtableClient();
+const postgresClient = getPostgresClient();
 
 export interface CreateExpenseProofInput {
   expenseRequestId: string;
@@ -30,8 +30,8 @@ export class ExpenseProofService {
    */
   async create(input: CreateExpenseProofInput): Promise<ExpenseProof> {
     // Validation: vérifier que la demande existe
-    const requests = await airtableClient.list('ExpenseRequest', {
-      filterByFormula: `{ExpenseRequestId} = '${input.expenseRequestId}'`,
+    const requests = await postgresClient.list('expense_requests', {
+      filterByFormula: `{expense_request_id} = '${input.expenseRequestId}'`,
     });
 
     if (requests.length === 0) {
@@ -41,7 +41,7 @@ export class ExpenseProofService {
     const request = requests[0] as any;
 
     // Validation: seules les demandes en draft ou submitted peuvent recevoir des preuves
-    if (!['draft', 'submitted', 'pending_approval'].includes(request.Status)) {
+    if (!['draft', 'submitted', 'pending_approval'].includes(request.status)) {
       throw new Error('Impossible d\'ajouter des preuves à une demande déjà traitée');
     }
 
@@ -71,7 +71,7 @@ export class ExpenseProofService {
       );
     }
 
-    const proof: Partial<ExpenseProof> = {
+    const proof = {
       ProofId: uuidv4(),
       ExpenseRequestId: input.expenseRequestId,
       Type: input.type,
@@ -84,10 +84,7 @@ export class ExpenseProofService {
       UploadedAt: new Date().toISOString(),
     };
 
-    const created = await airtableClient.create<ExpenseProof>('ExpenseProof', proof);
-    if (!created) {
-      throw new Error('Failed to create expense proof - Airtable not configured');
-    }
+    const created = await postgresClient.create<ExpenseProof>('expense_attachments', proof);
     return created;
   }
 
@@ -95,8 +92,8 @@ export class ExpenseProofService {
    * Récupérer une preuve par son ID
    */
   async getById(proofId: string): Promise<ExpenseProof | null> {
-    const proofs = await airtableClient.list<ExpenseProof>('ExpenseProof', {
-      filterByFormula: `{ProofId} = '${proofId}'`,
+    const proofs = await postgresClient.list<ExpenseProof>('expense_attachments', {
+      filterByFormula: `{proof_id} = '${proofId}'`,
     });
     return proofs.length > 0 ? proofs[0] : null;
   }
@@ -105,8 +102,8 @@ export class ExpenseProofService {
    * Lister toutes les preuves d'une demande de dépense
    */
   async listByExpenseRequest(expenseRequestId: string): Promise<ExpenseProof[]> {
-    return await airtableClient.list<ExpenseProof>('ExpenseProof', {
-      filterByFormula: `{ExpenseRequestId} = '${expenseRequestId}'`,
+    return await postgresClient.list<ExpenseProof>('expense_attachments', {
+      filterByFormula: `{expense_request_id} = '${expenseRequestId}'`,
       sort: [{ field: 'UploadedAt', direction: 'desc' }],
     });
   }
@@ -115,8 +112,8 @@ export class ExpenseProofService {
    * Mettre à jour une preuve (description uniquement)
    */
   async update(proofId: string, updates: UpdateExpenseProofInput): Promise<ExpenseProof> {
-    const proofs = await airtableClient.list<ExpenseProof>('ExpenseProof', {
-      filterByFormula: `{ProofId} = '${proofId}'`,
+    const proofs = await postgresClient.list<ExpenseProof>('expense_attachments', {
+      filterByFormula: `{proof_id} = '${proofId}'`,
     });
 
     if (proofs.length === 0) {
@@ -126,15 +123,20 @@ export class ExpenseProofService {
     const proof = proofs[0] as any;
 
     // Validation: vérifier que la demande est encore modifiable
-    const requests = await airtableClient.list('ExpenseRequest', {
-      filterByFormula: `{ExpenseRequestId} = '${proof.ExpenseRequestId}'`,
+    const requests = await postgresClient.list('expense_requests', {
+      filterByFormula: `{expense_request_id} = '${proof.expense_request_id}'`,
     });
 
     if (requests.length > 0) {
       const request = requests[0] as any;
-      if (!['draft', 'submitted', 'pending_approval'].includes(request.Status)) {
+      if (!['draft', 'submitted', 'pending_approval'].includes(request.status)) {
         throw new Error('Impossible de modifier une preuve d\'une demande déjà traitée');
       }
+    }
+
+    const recordId = proofs[0].id;
+    if (!recordId) {
+      throw new Error('ID not found');
     }
 
     const updateData: any = {};
@@ -143,14 +145,11 @@ export class ExpenseProofService {
       updateData.Description = updates.description;
     }
 
-    const updated = await airtableClient.update<ExpenseProof>(
-      'ExpenseProof',
-      proof._recordId,
+    const updated = await postgresClient.update<ExpenseProof>(
+      'expense_attachments',
+      recordId,
       updateData
     );
-    if (!updated) {
-      throw new Error('Failed to update expense proof - Airtable not configured');
-    }
     return updated;
   }
 
@@ -158,8 +157,8 @@ export class ExpenseProofService {
    * Supprimer une preuve
    */
   async delete(proofId: string): Promise<void> {
-    const proofs = await airtableClient.list<ExpenseProof>('ExpenseProof', {
-      filterByFormula: `{ProofId} = '${proofId}'`,
+    const proofs = await postgresClient.list<ExpenseProof>('expense_attachments', {
+      filterByFormula: `{proof_id} = '${proofId}'`,
     });
 
     if (proofs.length === 0) {
@@ -169,20 +168,25 @@ export class ExpenseProofService {
     const proof = proofs[0] as any;
 
     // Validation: vérifier que la demande est encore modifiable
-    const requests = await airtableClient.list('ExpenseRequest', {
-      filterByFormula: `{ExpenseRequestId} = '${proof.ExpenseRequestId}'`,
+    const requests = await postgresClient.list('expense_requests', {
+      filterByFormula: `{expense_request_id} = '${proof.expense_request_id}'`,
     });
 
     if (requests.length > 0) {
       const request = requests[0] as any;
-      if (!['draft', 'submitted'].includes(request.Status)) {
+      if (!['draft', 'submitted'].includes(request.status)) {
         throw new Error(
           'Impossible de supprimer une preuve d\'une demande en cours d\'approbation ou déjà traitée'
         );
       }
     }
 
-    await airtableClient.delete('ExpenseProof', proof._recordId);
+    const recordId = proofs[0].id;
+    if (!recordId) {
+      throw new Error('ID not found');
+    }
+
+    await postgresClient.delete('expense_attachments', recordId);
   }
 
   /**
@@ -192,9 +196,8 @@ export class ExpenseProofService {
     const proofs = await this.listByExpenseRequest(expenseRequestId);
 
     for (const proof of proofs) {
-      const proofWithRecordId = proof as any;
-      if (proofWithRecordId._recordId) {
-        await airtableClient.delete('ExpenseProof', proofWithRecordId._recordId);
+      if (proof.id) {
+        await postgresClient.delete('expense_attachments', proof.id);
       }
     }
   }

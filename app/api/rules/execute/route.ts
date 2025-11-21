@@ -65,10 +65,10 @@ export async function POST(request: NextRequest) {
       })),
       recommendations: result.recommendations,
       executions: result.executions.map((exec) => ({
-        ruleId: exec.RuleId,
-        conditionsMatched: exec.ConditionsMatched,
-        matchedConditions: exec.MatchedConditions,
-        executionTimeMs: exec.ExecutionTimeMs,
+        ruleId: exec.rule_id,
+        conditionsMatched: exec.conditions_matched,
+        matchedConditions: exec.matched_conditions,
+        executionTimeMs: exec.execution_time_ms,
       })),
       summary: {
         totalRulesEvaluated: result.executions.length,
@@ -76,7 +76,7 @@ export async function POST(request: NextRequest) {
         autoExecutedCount: result.matchedRules.filter((r) => r.AutoExecute).length,
         averageExecutionTime:
           result.executions.length > 0
-            ? result.executions.reduce((sum, e) => sum + e.ExecutionTimeMs, 0) /
+            ? result.executions.reduce((sum, e) => sum + e.execution_time_ms, 0) /
               result.executions.length
             : 0,
       },

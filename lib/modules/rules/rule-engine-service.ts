@@ -1,9 +1,9 @@
 /**
- * Service - Moteur de Règles Métier Avancé
- * Gestion, exécution et monitoring des règles automatisées
+ * Service - Moteur de Regles Metier Avance
+ * Gestion, execution et monitoring des regles automatisees
  */
 
-import { AirtableClient } from '@/lib/airtable/client';
+import { getPostgresClient } from '@/lib/database/postgres-client';
 import {
   DecisionRule,
   DecisionRecommendation,
@@ -12,21 +12,22 @@ import {
   RuleConditionOperator,
 } from '@/types/modules';
 
-const airtable = new AirtableClient();
+const postgresClient = getPostgresClient();
 
 // ============================================================================
-// TYPES ÉTENDUS
+// TYPES ETENDUS
 // ============================================================================
 
 export interface RuleTemplate {
-  TemplateId: string;
-  Name: string;
-  Description: string;
-  Category: 'expense' | 'purchase' | 'production' | 'stock' | 'pricing' | 'credit' | 'custom';
-  DecisionType: DecisionType;
+  id: string;
+  template_id: string;
+  name: string;
+  description: string;
+  category: 'expense' | 'purchase' | 'production' | 'stock' | 'pricing' | 'credit' | 'custom';
+  decision_type: DecisionType;
 
   // Template de conditions
-  ConditionTemplate: Array<{
+  condition_template: Array<{
     field: string;
     fieldLabel: string;
     fieldType: 'number' | 'text' | 'date' | 'boolean' | 'select';
@@ -37,7 +38,7 @@ export interface RuleTemplate {
   }>;
 
   // Template d'action
-  ActionTemplate: {
+  action_template: {
     action: 'approve' | 'reject' | 'escalate' | 'defer' | 'custom';
     customFields?: Array<{
       field: string;
@@ -47,62 +48,62 @@ export interface RuleTemplate {
     }>;
   };
 
-  IsActive: boolean;
-  UsageCount: number;
-  CreatedAt: string;
-  UpdatedAt: string;
+  is_active: boolean;
+  usage_count: number;
+  created_at: string;
+  updated_at: string;
 }
 
 export interface RuleExecution {
-  ExecutionId: string;
-  RuleId: string;
-  RuleName: string;
-  TriggerType: RuleTriggerType;
+  execution_id: string;
+  rule_id: string;
+  rule_name: string;
+  trigger_type: RuleTriggerType;
 
-  // Contexte d'exécution
-  ReferenceId: string;
-  ReferenceType: string;
-  ReferenceData: Record<string, any>;
+  // Contexte d'execution
+  reference_id: string;
+  reference_type: string;
+  reference_data: Record<string, any>;
 
-  // Résultat
-  ConditionsMatched: boolean;
-  MatchedConditions: number;
-  TotalConditions: number;
-  ExecutedAction: 'approve' | 'reject' | 'escalate' | 'defer' | 'custom' | 'none';
-  AutoExecuted: boolean;
+  // Resultat
+  conditions_matched: boolean;
+  matched_conditions: number;
+  total_conditions: number;
+  executed_action: 'approve' | 'reject' | 'escalate' | 'defer' | 'custom' | 'none';
+  auto_executed: boolean;
 
   // Performance
-  ExecutionTimeMs: number;
+  execution_time_ms: number;
 
-  // Métadonnées
-  ExecutedAt: string;
-  WorkspaceId: string;
+  // Metadonnees
+  executed_at: string;
+  workspace_id: string;
 }
 
 export interface RulePerformanceStats {
-  RuleId: string;
-  RuleName: string;
+  rule_id: string;
+  rule_name: string;
 
   // Compteurs
-  TotalExecutions: number;
-  TotalMatches: number;
-  TotalAutoExecuted: number;
-  TotalApproved: number;
-  TotalRejected: number;
-  TotalOverridden: number;
+  total_executions: number;
+  total_matches: number;
+  total_auto_executed: number;
+  total_approved: number;
+  total_rejected: number;
+  total_overridden: number;
 
   // Taux
-  MatchRate: number; // % de fois où conditions remplies
-  SuccessRate: number; // % de fois où décision correcte
-  OverrideRate: number; // % de fois où humain override
+  match_rate: number; // % de fois ou conditions remplies
+  success_rate: number; // % de fois ou decision correcte
+  override_rate: number; // % de fois ou humain override
 
   // Performance
-  AvgExecutionTimeMs: number;
+  avg_execution_time_ms: number;
 
-  // Période
-  PeriodStart: string;
-  PeriodEnd: string;
-  WorkspaceId: string;
+  // Periode
+  period_start: string;
+  period_end: string;
+  workspace_id: string;
 }
 
 // ============================================================================
@@ -110,18 +111,12 @@ export interface RulePerformanceStats {
 // ============================================================================
 
 export class RuleEngineService {
-  private airtable: AirtableClient;
-
-  constructor() {
-    this.airtable = new AirtableClient();
-  }
-
   // ==========================================================================
-  // GESTION DES RÈGLES
+  // GESTION DES REGLES
   // ==========================================================================
 
   /**
-   * Créer une nouvelle règle
+   * Creer une nouvelle regle
    */
   async createRule(input: {
     name: string;
@@ -149,7 +144,7 @@ export class RuleEngineService {
     createdById: string;
     createdByName: string;
   }): Promise<DecisionRule> {
-    // Générer code de règle
+    // Generer code de regle
     const ruleCode = await this.generateRuleCode(input.workspaceId);
 
     const data: Partial<DecisionRule> = {
@@ -184,15 +179,12 @@ export class RuleEngineService {
       UpdatedAt: new Date().toISOString(),
     };
 
-    const created = await airtable.create<DecisionRule>('DecisionRule', data);
-    if (!created) {
-      throw new Error('Failed to create decision rule - Airtable not configured');
-    }
+    const created = await postgresClient.create<DecisionRule>('decision_rules', data);
     return created;
   }
 
   /**
-   * Mettre à jour une règle
+   * Mettre a jour une regle
    */
   async updateRule(
     ruleId: string,
@@ -203,29 +195,26 @@ export class RuleEngineService {
       UpdatedAt: new Date().toISOString(),
     };
 
-    const updated = await airtable.update<DecisionRule>('DecisionRule', ruleId, data);
-    if (!updated) {
-      throw new Error('Failed to update decision rule - Airtable not configured');
-    }
+    const updated = await postgresClient.update<DecisionRule>('decision_rules', ruleId, data);
     return updated;
   }
 
   /**
-   * Activer/Désactiver une règle
+   * Activer/Desactiver une regle
    */
   async toggleRule(ruleId: string, isActive: boolean): Promise<DecisionRule> {
     return await this.updateRule(ruleId, { IsActive: isActive });
   }
 
   /**
-   * Supprimer une règle
+   * Supprimer une regle
    */
   async deleteRule(ruleId: string): Promise<void> {
-    await airtable.delete('DecisionRule', ruleId);
+    await postgresClient.delete('decision_rules', ruleId);
   }
 
   /**
-   * Lister toutes les règles
+   * Lister toutes les regles
    */
   async listRules(
     workspaceId: string,
@@ -235,22 +224,22 @@ export class RuleEngineService {
       tags?: string[];
     }
   ): Promise<DecisionRule[]> {
-    let formula = `{WorkspaceId} = '${workspaceId}'`;
+    let formula = `workspace_id = '${workspaceId}'`;
 
     if (filters?.decisionType) {
-      formula += ` AND {DecisionType} = '${filters.decisionType}'`;
+      formula += ` AND decision_type = '${filters.decisionType}'`;
     }
 
     if (filters?.isActive !== undefined) {
-      formula += ` AND {IsActive} = ${filters.isActive ? 'TRUE()' : 'FALSE()'}`;
+      formula += ` AND is_active = ${filters.isActive}`;
     }
 
-    const rules = await airtable.list<DecisionRule>('DecisionRule', { filterByFormula: formula });
+    const rules = await postgresClient.list<DecisionRule>('decision_rules', { filterByFormula: formula });
 
     // Filtrer par tags si fourni
     if (filters?.tags && filters.tags.length > 0) {
       return rules.filter(rule =>
-        rule.Tags?.some(tag => filters.tags!.includes(tag))
+        rule.Tags?.some((tag: string) => filters.tags!.includes(tag))
       );
     }
 
@@ -258,14 +247,14 @@ export class RuleEngineService {
   }
 
   /**
-   * Récupérer une règle par ID
+   * Recuperer une regle par ID
    */
   async getRuleById(ruleId: string): Promise<DecisionRule | null> {
-    return await airtable.get<DecisionRule>('DecisionRule', ruleId);
+    return await postgresClient.get<DecisionRule>('decision_rules', ruleId);
   }
 
   /**
-   * Dupliquer une règle
+   * Dupliquer une regle
    */
   async duplicateRule(
     ruleId: string,
@@ -276,7 +265,7 @@ export class RuleEngineService {
     const original = await this.getRuleById(ruleId);
 
     if (!original) {
-      throw new Error('Règle originale introuvable');
+      throw new Error('Regle originale introuvable');
     }
 
     return await this.createRule({
@@ -287,7 +276,7 @@ export class RuleEngineService {
       conditions: original.Conditions,
       recommendedAction: original.RecommendedAction,
       customActionData: original.CustomActionData,
-      autoExecute: false, // Désactiver auto-exec pour copie
+      autoExecute: false, // Desactiver auto-exec pour copie
       requiresApproval: original.RequiresApproval,
       approverRoles: original.ApproverRoles,
       priority: original.Priority - 1,
@@ -303,11 +292,11 @@ export class RuleEngineService {
   }
 
   // ==========================================================================
-  // EXÉCUTION DES RÈGLES
+  // EXECUTION DES REGLES
   // ==========================================================================
 
   /**
-   * Exécuter toutes les règles pour un contexte donné
+   * Executer toutes les regles pour un contexte donne
    */
   async executeRulesForContext(
     workspaceId: string,
@@ -322,7 +311,7 @@ export class RuleEngineService {
   }> {
     const startTime = performance.now();
 
-    // 1. Récupérer règles actives pour ce type de décision
+    // 1. Recuperer regles actives pour ce type de decision
     const rules = await this.listRules(workspaceId, {
       decisionType,
       isActive: true,
@@ -332,33 +321,33 @@ export class RuleEngineService {
     const recommendations: DecisionRecommendation[] = [];
     const executions: RuleExecution[] = [];
 
-    // 2. Évaluer chaque règle
+    // 2. Evaluer chaque regle
     for (const rule of rules) {
       const execStartTime = performance.now();
 
       const evaluation = this.evaluateRule(rule, referenceData);
 
       const execution: RuleExecution = {
-        ExecutionId: `EXEC-${Date.now()}-${rule.RuleId}`,
-        RuleId: rule.RuleId,
-        RuleName: rule.Name,
-        TriggerType: rule.TriggerType,
-        ReferenceId: referenceId,
-        ReferenceType: referenceType,
-        ReferenceData: referenceData,
-        ConditionsMatched: evaluation.matched,
-        MatchedConditions: evaluation.matchedCount,
-        TotalConditions: rule.Conditions.length,
-        ExecutedAction: evaluation.matched ? rule.RecommendedAction : 'none',
-        AutoExecuted: evaluation.matched && rule.AutoExecute && !rule.RequiresApproval,
-        ExecutionTimeMs: performance.now() - execStartTime,
-        ExecutedAt: new Date().toISOString(),
-        WorkspaceId: workspaceId,
+        execution_id: `EXEC-${Date.now()}-${rule.RuleId}`,
+        rule_id: rule.RuleId,
+        rule_name: rule.Name,
+        trigger_type: rule.TriggerType,
+        reference_id: referenceId,
+        reference_type: referenceType,
+        reference_data: referenceData,
+        conditions_matched: evaluation.matched,
+        matched_conditions: evaluation.matchedCount,
+        total_conditions: rule.Conditions.length,
+        executed_action: evaluation.matched ? rule.RecommendedAction : 'none',
+        auto_executed: evaluation.matched && rule.AutoExecute && !rule.RequiresApproval,
+        execution_time_ms: performance.now() - execStartTime,
+        executed_at: new Date().toISOString(),
+        workspace_id: workspaceId,
       };
 
       executions.push(execution);
 
-      // 3. Si conditions remplies, créer recommandation
+      // 3. Si conditions remplies, creer recommandation
       if (evaluation.matched) {
         matchedRules.push(rule);
 
@@ -372,17 +361,17 @@ export class RuleEngineService {
 
         recommendations.push(recommendation);
 
-        // 4. Auto-exécuter si configuré
+        // 4. Auto-executer si configure
         if (rule.AutoExecute && !rule.RequiresApproval) {
           await this.autoExecuteRecommendation(recommendation);
         }
 
-        // 5. Notifier si configuré
+        // 5. Notifier si configure
         if (rule.NotifyOnTrigger) {
           await this.notifyRuleTriggered(rule, recommendation);
         }
 
-        // 6. Mettre à jour stats règle
+        // 6. Mettre a jour stats regle
         await this.incrementRuleStat(rule.RuleId, 'TotalTriggered');
 
         if (rule.AutoExecute && !rule.RequiresApproval) {
@@ -390,7 +379,7 @@ export class RuleEngineService {
         }
       }
 
-      // 7. Enregistrer exécution (optionnel, pour analytics)
+      // 7. Enregistrer execution (optionnel, pour analytics)
       // await this.saveExecution(execution);
     }
 
@@ -410,7 +399,7 @@ export class RuleEngineService {
   }
 
   /**
-   * Évaluer une règle
+   * Evaluer une regle
    */
   private evaluateRule(
     rule: DecisionRule,
@@ -454,7 +443,7 @@ export class RuleEngineService {
   }
 
   /**
-   * Évaluer une condition
+   * Evaluer une condition
    */
   private evaluateCondition(
     fieldValue: any,
@@ -494,14 +483,14 @@ export class RuleEngineService {
   }
 
   /**
-   * Récupérer valeur imbriquée dans objet
+   * Recuperer valeur imbriquee dans objet
    */
   private getNestedValue(obj: Record<string, any>, path: string): any {
     return path.split('.').reduce((current, key) => current?.[key], obj);
   }
 
   /**
-   * Créer recommandation depuis règle
+   * Creer recommandation depuis regle
    */
   private async createRecommendation(
     rule: DecisionRule,
@@ -520,7 +509,7 @@ export class RuleEngineService {
       RecommendedAction: rule.RecommendedAction,
       Confidence: 'high', // TODO: Calculer vraie confiance
       ConfidenceScore: 85,
-      Reasoning: `Règle "${rule.Name}" appliquée : ${rule.Description}`,
+      Reasoning: `Regle "${rule.Name}" appliquee : ${rule.Description}`,
       FactorsConsidered: this.extractFactors(rule, referenceData),
       Status: 'pending',
       AutoExecuted: rule.AutoExecute && !rule.RequiresApproval,
@@ -530,21 +519,18 @@ export class RuleEngineService {
       UpdatedAt: new Date().toISOString(),
     };
 
-    const created = await airtable.create<DecisionRecommendation>('DecisionRecommendation', data);
-    if (!created) {
-      throw new Error('Failed to create decision recommendation - Airtable not configured');
-    }
+    const created = await postgresClient.create<DecisionRecommendation>('decision_recommendations', data);
     return created;
   }
 
   /**
-   * Extraire facteurs considérés
+   * Extraire facteurs consideres
    */
   private extractFactors(
     rule: DecisionRule,
     data: Record<string, any>
   ): Array<{ factor: string; value: any; weight: number; impact: 'positive' | 'negative' | 'neutral' }> {
-    return rule.Conditions.map(condition => ({
+    return rule.Conditions.map((condition: any) => ({
       factor: condition.field,
       value: this.getNestedValue(data, condition.field),
       weight: 1,
@@ -553,7 +539,7 @@ export class RuleEngineService {
   }
 
   /**
-   * Déterminer impact d'une condition
+   * Determiner impact d'une condition
    */
   private determineImpact(condition: any): 'positive' | 'negative' | 'neutral' {
     if (['greater_than', 'greater_than_or_equal'].includes(condition.operator)) {
@@ -566,12 +552,14 @@ export class RuleEngineService {
   }
 
   /**
-   * Auto-exécuter une recommandation
+   * Auto-executer une recommandation
    */
   private async autoExecuteRecommendation(
     recommendation: DecisionRecommendation
   ): Promise<void> {
-    await airtable.update('DecisionRecommendation', recommendation.RecommendationId, {
+    if (!recommendation.id) return;
+
+    await postgresClient.update('decision_recommendations', recommendation.id, {
       Status: recommendation.RecommendedAction === 'approve' ? 'approved' : 'rejected',
       AppliedAt: new Date().toISOString(),
       UpdatedAt: new Date().toISOString(),
@@ -579,18 +567,18 @@ export class RuleEngineService {
   }
 
   /**
-   * Notifier déclenchement de règle
+   * Notifier declenchement de regle
    */
   private async notifyRuleTriggered(
     rule: DecisionRule,
     recommendation: DecisionRecommendation
   ): Promise<void> {
-    // TODO: Implémenter notifications (email, push, etc.)
+    // TODO: Implementer notifications (email, push, etc.)
     console.log(`Rule triggered: ${rule.Name} - Recommendation: ${recommendation.RecommendedAction}`);
   }
 
   /**
-   * Incrémenter statistique de règle
+   * Incrementer statistique de regle
    */
   private async incrementRuleStat(ruleId: string, stat: keyof DecisionRule): Promise<void> {
     const rule = await this.getRuleById(ruleId);
@@ -604,60 +592,57 @@ export class RuleEngineService {
   }
 
   // ==========================================================================
-  // TEMPLATES DE RÈGLES
+  // TEMPLATES DE REGLES
   // ==========================================================================
 
   /**
-   * Créer template de règle
+   * Creer template de regle
    */
   async createRuleTemplate(input: {
     name: string;
     description: string;
-    category: RuleTemplate['Category'];
+    category: RuleTemplate['category'];
     decisionType: DecisionType;
-    conditionTemplate: RuleTemplate['ConditionTemplate'];
-    actionTemplate: RuleTemplate['ActionTemplate'];
+    conditionTemplate: RuleTemplate['condition_template'];
+    actionTemplate: RuleTemplate['action_template'];
   }): Promise<RuleTemplate> {
     const data: Partial<RuleTemplate> = {
-      TemplateId: `TPL-${Date.now()}`,
-      Name: input.name,
-      Description: input.description,
-      Category: input.category,
-      DecisionType: input.decisionType,
-      ConditionTemplate: input.conditionTemplate,
-      ActionTemplate: input.actionTemplate,
-      IsActive: true,
-      UsageCount: 0,
-      CreatedAt: new Date().toISOString(),
-      UpdatedAt: new Date().toISOString(),
+      template_id: `TPL-${Date.now()}`,
+      name: input.name,
+      description: input.description,
+      category: input.category,
+      decision_type: input.decisionType,
+      condition_template: input.conditionTemplate,
+      action_template: input.actionTemplate,
+      is_active: true,
+      usage_count: 0,
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
     };
 
-    const created = await airtable.create<RuleTemplate>('RuleTemplate', data);
-    if (!created) {
-      throw new Error('Failed to create rule template - Airtable not configured');
-    }
+    const created = await postgresClient.create<RuleTemplate>('rule_templates', data);
     return created;
   }
 
   /**
-   * Lister templates de règles
+   * Lister templates de regles
    */
   async listRuleTemplates(
-    category?: RuleTemplate['Category']
+    category?: RuleTemplate['category']
   ): Promise<RuleTemplate[]> {
     let formula = '';
 
     if (category) {
-      formula = `{Category} = '${category}'`;
+      formula = `category = '${category}'`;
     }
 
-    const templates = await airtable.list<RuleTemplate>('RuleTemplate', { filterByFormula: formula });
+    const templates = await postgresClient.list<RuleTemplate>('rule_templates', { filterByFormula: formula });
 
-    return templates.filter(t => t.IsActive);
+    return templates.filter(t => t.is_active);
   }
 
   /**
-   * Créer règle depuis template
+   * Creer regle depuis template
    */
   async createRuleFromTemplate(
     templateId: string,
@@ -667,41 +652,41 @@ export class RuleEngineService {
     userId: string,
     userName: string
   ): Promise<DecisionRule> {
-    const template = await airtable.get<RuleTemplate>('RuleTemplate', templateId);
+    const template = await postgresClient.get<RuleTemplate>('rule_templates', templateId);
 
     if (!template) {
       throw new Error('Template introuvable');
     }
 
     // Construire conditions depuis template
-    const conditions = template.ConditionTemplate.map(condTemplate => ({
+    const conditions = template.condition_template.map(condTemplate => ({
       field: condTemplate.field,
       operator: condTemplate.operator,
       value: conditionValues[condTemplate.field] ?? condTemplate.defaultValue,
       logicalOperator: 'AND' as const,
     }));
 
-    // Créer règle
+    // Creer regle
     const rule = await this.createRule({
       name,
-      description: template.Description,
-      decisionType: template.DecisionType,
+      description: template.description,
+      decisionType: template.decision_type,
       triggerType: 'automatic',
       conditions,
-      recommendedAction: template.ActionTemplate.action,
+      recommendedAction: template.action_template.action,
       autoExecute: false,
       requiresApproval: true,
       priority: 100,
       notifyOnTrigger: false,
-      tags: [template.Category],
+      tags: [template.category],
       workspaceId,
       createdById: userId,
       createdByName: userName,
     });
 
-    // Incrémenter usage template
-    await airtable.update('RuleTemplate', templateId, {
-      UsageCount: (template.UsageCount || 0) + 1,
+    // Incrementer usage template
+    await postgresClient.update('rule_templates', templateId, {
+      usage_count: (template.usage_count || 0) + 1,
     });
 
     return rule;
@@ -712,7 +697,7 @@ export class RuleEngineService {
   // ==========================================================================
 
   /**
-   * Obtenir statistiques de performance d'une règle
+   * Obtenir statistiques de performance d'une regle
    */
   async getRulePerformance(
     ruleId: string,
@@ -722,10 +707,10 @@ export class RuleEngineService {
     const rule = await this.getRuleById(ruleId);
 
     if (!rule) {
-      throw new Error('Règle introuvable');
+      throw new Error('Regle introuvable');
     }
 
-    // TODO: Récupérer vraies exécutions depuis table RuleExecution
+    // TODO: Recuperer vraies executions depuis table RuleExecution
 
     const matchRate = rule.TotalTriggered > 0
       ? (rule.TotalTriggered / rule.TotalTriggered) * 100
@@ -736,26 +721,26 @@ export class RuleEngineService {
       : 0;
 
     return {
-      RuleId: rule.RuleId,
-      RuleName: rule.Name,
-      TotalExecutions: rule.TotalTriggered,
-      TotalMatches: rule.TotalTriggered,
-      TotalAutoExecuted: rule.TotalAutoExecuted,
-      TotalApproved: rule.TotalApproved,
-      TotalRejected: rule.TotalRejected,
-      TotalOverridden: rule.TotalOverridden,
-      MatchRate: matchRate,
-      SuccessRate: rule.SuccessRate || 0,
-      OverrideRate: overrideRate,
-      AvgExecutionTimeMs: 5, // TODO: Calculer vraie moyenne
-      PeriodStart: periodStart,
-      PeriodEnd: periodEnd,
-      WorkspaceId: rule.WorkspaceId,
+      rule_id: rule.RuleId,
+      rule_name: rule.Name,
+      total_executions: rule.TotalTriggered,
+      total_matches: rule.TotalTriggered,
+      total_auto_executed: rule.TotalAutoExecuted,
+      total_approved: rule.TotalApproved,
+      total_rejected: rule.TotalRejected,
+      total_overridden: rule.TotalOverridden,
+      match_rate: matchRate,
+      success_rate: rule.SuccessRate || 0,
+      override_rate: overrideRate,
+      avg_execution_time_ms: 5, // TODO: Calculer vraie moyenne
+      period_start: periodStart,
+      period_end: periodEnd,
+      workspace_id: rule.WorkspaceId,
     };
   }
 
   /**
-   * Obtenir dashboard global des règles
+   * Obtenir dashboard global des regles
    */
   async getRulesDashboard(workspaceId: string): Promise<{
     totalRules: number;
@@ -792,7 +777,7 @@ export class RuleEngineService {
       totalExecutionsToday,
       totalAutoExecutedToday,
       topPerformingRules,
-      recentExecutions: [], // TODO: Récupérer depuis table
+      recentExecutions: [], // TODO: Recuperer depuis table
     };
   }
 
@@ -801,7 +786,7 @@ export class RuleEngineService {
   // ==========================================================================
 
   /**
-   * Générer code unique de règle
+   * Generer code unique de regle
    */
   private async generateRuleCode(workspaceId: string): Promise<string> {
     const now = new Date();
@@ -809,25 +794,25 @@ export class RuleEngineService {
     const month = String(now.getMonth() + 1).padStart(2, '0');
     const prefix = `RULE-${year}${month}`;
 
-    const formula = `AND({WorkspaceId} = '${workspaceId}', FIND('${prefix}', {RuleCode}) > 0)`;
-    const existing = await airtable.list<DecisionRule>('DecisionRule', { filterByFormula: formula });
+    const formula = `workspace_id = '${workspaceId}' AND rule_code LIKE '${prefix}%'`;
+    const existing = await postgresClient.list<DecisionRule>('decision_rules', { filterByFormula: formula });
 
     const sequence = existing.length + 1;
     return `${prefix}-${String(sequence).padStart(4, '0')}`;
   }
 
   /**
-   * Valider structure de règle
+   * Valider structure de regle
    */
   validateRule(rule: Partial<DecisionRule>): { valid: boolean; errors: string[] } {
     const errors: string[] = [];
 
     if (!rule.Name || rule.Name.trim().length === 0) {
-      errors.push('Le nom de la règle est obligatoire');
+      errors.push('Le nom de la regle est obligatoire');
     }
 
     if (!rule.DecisionType) {
-      errors.push('Le type de décision est obligatoire');
+      errors.push('Le type de decision est obligatoire');
     }
 
     if (!rule.Conditions || rule.Conditions.length === 0) {
@@ -835,12 +820,12 @@ export class RuleEngineService {
     }
 
     if (!rule.RecommendedAction) {
-      errors.push('L\'action recommandée est obligatoire');
+      errors.push('L\'action recommandee est obligatoire');
     }
 
     if (rule.AutoExecute && !rule.RequiresApproval && !rule.ApproverRoles) {
-      // Warn: Auto-exécution sans approbation peut être dangereux
-      console.warn('Règle avec auto-exécution sans approbation ni approbateurs');
+      // Warn: Auto-execution sans approbation peut etre dangereux
+      console.warn('Regle avec auto-execution sans approbation ni approbateurs');
     }
 
     return {

@@ -1,11 +1,13 @@
 /**
  * API Route - /api/stock/markdowns
- * Gestion des démarques (pertes, casses, vols, etc.)
+ * Gestion des demarques (pertes, casses, vols, etc.)
  */
 
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
-import { AirtableClient } from '@/lib/airtable/client';
+import { getPostgresClient } from '@/lib/database/postgres-client';
+
+const postgresClient = getPostgresClient();
 
 const markdownLineSchema = z.object({
   productId: z.string(),
@@ -24,85 +26,71 @@ const createMarkdownSchema = z.object({
 
 /**
  * GET /api/stock/markdowns
- * Liste des démarques avec filtres
+ * Liste des demarques avec filtres
  */
 export async function GET(request: NextRequest) {
   try {
-    // TODO: Migration vers PostgreSQL - Cette route utilise encore Airtable
-    return NextResponse.json(
-      {
-        success: false,
-        error: 'Cette fonctionnalité est en cours de migration vers PostgreSQL',
-      },
-      { status: 503 }
-    );
-
-    /* Migration Airtable -> PostgreSQL en cours
     const { searchParams } = new URL(request.url);
     const warehouseId = searchParams.get('warehouseId');
     const reason = searchParams.get('reason');
     const startDate = searchParams.get('startDate');
     const endDate = searchParams.get('endDate');
 
-    const airtable = new AirtableClient();
-    const base = airtable.base(process.env.AIRTABLE_BASE_ID!);
-
-    if (!base) {
-      return NextResponse.json(
-        {
-          success: false,
-          error: 'Service temporairement indisponible',
-        },
-        { status: 503 }
-      );
-    }
-
-    let filterFormula = '';
     const filters: string[] = [];
+    const values: any[] = [];
+    let paramIndex = 1;
 
     if (warehouseId) {
-      filters.push(`{WarehouseId} = '${warehouseId}'`);
+      filters.push(`warehouse_id = $${paramIndex++}`);
+      values.push(warehouseId);
     }
 
     if (reason) {
-      filters.push(`FIND('${reason}', {Reason}) > 0`);
+      filters.push(`reason ILIKE $${paramIndex++}`);
+      values.push(`%${reason}%`);
     }
 
     if (startDate) {
-      filters.push(`{MarkdownDate} >= '${startDate}'`);
+      filters.push(`markdown_date >= $${paramIndex++}`);
+      values.push(startDate);
     }
 
     if (endDate) {
-      filters.push(`{MarkdownDate} <= '${endDate}'`);
+      filters.push(`markdown_date <= $${paramIndex++}`);
+      values.push(endDate);
     }
 
-    if (filters.length > 0) {
-      filterFormula = `AND(${filters.join(', ')})`;
-    }
+    const whereClause = filters.length > 0 ? `WHERE ${filters.join(' AND ')}` : '';
 
-    const records = await base('StockMarkdowns')
-      .select({
-        filterByFormula: filterFormula || undefined,
-        sort: [{ field: 'MarkdownDate', direction: 'desc' }],
-      })
-      .all();
+    const records = await postgresClient.query(
+      `SELECT * FROM stock_markdowns ${whereClause} ORDER BY markdown_date DESC`,
+      values
+    );
 
-    const markdowns = records.map((record) => ({
+    const markdowns = records.rows.map((record: any) => ({
       MarkdownId: record.id,
-      ...record.fields,
+      MarkdownNumber: record.markdown_number,
+      WarehouseId: record.warehouse_id,
+      MarkdownDate: record.markdown_date,
+      TotalQuantity: record.total_quantity,
+      Status: record.status,
+      Notes: record.notes,
+      MovementId: record.movement_id,
+      LineIds: record.line_ids,
+      ValidatedAt: record.validated_at,
+      CreatedAt: record.created_at,
     }));
 
     return NextResponse.json({
       success: true,
       data: markdowns,
     });
-    */
   } catch (error) {
     console.error('Error fetching markdowns:', error);
     return NextResponse.json(
       {
         success: false,
-        error: 'Erreur lors de la récupération des démarques',
+        error: 'Erreur lors de la recuperation des demarques',
       },
       { status: 500 }
     );
@@ -111,126 +99,116 @@ export async function GET(request: NextRequest) {
 
 /**
  * POST /api/stock/markdowns
- * Créer une nouvelle démarque (avec mouvement de stock automatique)
+ * Creer une nouvelle demarque (avec mouvement de stock automatique)
  */
 export async function POST(request: NextRequest) {
   try {
-    // TODO: Migration vers PostgreSQL - Cette route utilise encore Airtable
-    return NextResponse.json(
-      {
-        success: false,
-        error: 'Cette fonctionnalité est en cours de migration vers PostgreSQL',
-      },
-      { status: 503 }
-    );
-
-    /* Migration Airtable -> PostgreSQL en cours
     const body = await request.json();
     const validatedData = createMarkdownSchema.parse(body);
 
-    const airtable = new AirtableClient();
-    const base = airtable.base(process.env.AIRTABLE_BASE_ID!);
-
-    if (!base) {
-      return NextResponse.json(
-        {
-          success: false,
-          error: 'Service temporairement indisponible',
-        },
-        { status: 503 }
-      );
-    }
-
-    // Générer numéro de démarque
+    // Generer numero de demarque
     const markdownNumber = `DEM-${Date.now()}`;
 
     // Calculer totaux
     const totalQuantity = validatedData.lines.reduce((sum, line) => sum + line.quantity, 0);
 
-    // Créer la démarque
-    const markdownRecord = await base('StockMarkdowns').create({
-      MarkdownNumber: markdownNumber,
-      WarehouseId: validatedData.warehouseId,
-      MarkdownDate: validatedData.markdownDate,
-      TotalQuantity: totalQuantity,
-      Status: 'pending',
-      Notes: validatedData.notes,
-      CreatedAt: new Date().toISOString(),
-    });
-
-    // Créer les lignes
-    const lineRecords = await Promise.all(
-      validatedData.lines.map((line) =>
-        base('StockMarkdownLines').create({
-          MarkdownId: markdownRecord.id,
-          ProductId: line.productId,
-          Quantity: line.quantity,
-          Reason: line.reason,
-          Notes: line.notes,
-          PhotoUrl: line.photoUrl,
-        })
-      )
+    // Creer la demarque
+    const markdownRecords = await postgresClient.query(
+      `INSERT INTO stock_markdowns (markdown_number, warehouse_id, markdown_date, total_quantity, status, notes, created_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7)
+       RETURNING *`,
+      [
+        markdownNumber,
+        validatedData.warehouseId,
+        validatedData.markdownDate,
+        totalQuantity,
+        'pending',
+        validatedData.notes,
+        new Date().toISOString(),
+      ]
     );
 
-    // Créer mouvement de stock automatique (sortie)
-    const movement = await base('StockMovements').create({
-      MovementNumber: `MVT-${Date.now()}`,
-      MovementType: 'adjustment',
-      SourceWarehouseId: validatedData.warehouseId,
-      MovementDate: validatedData.markdownDate,
-      Status: 'pending',
-      Reason: 'markdown',
-      ReferenceType: 'markdown',
-      ReferenceId: markdownRecord.id,
-      Notes: `Démarque ${markdownNumber}`,
-      CreatedAt: new Date().toISOString(),
-    });
+    const markdownRecord = markdownRecords.rows[0];
 
-    // Créer lignes de mouvement
-    await Promise.all(
-      validatedData.lines.map((line) =>
-        base('StockMovementLines').create({
-          MovementId: movement.id,
-          ProductId: line.productId,
-          Quantity: -line.quantity, // Négatif pour sortie
-          UnitCost: 0,
-        })
-      )
-    );
-
-    // Valider automatiquement le mouvement pour déduire le stock
-    await base('StockMovements').update(movement.id, {
-      Status: 'completed',
-      ValidatedAt: new Date().toISOString(),
-    });
-
-    // Mettre à jour le stock pour chaque produit
+    // Creer les lignes
+    const lineIds: string[] = [];
     for (const line of validatedData.lines) {
-      const stockItems = await base('StockItems')
-        .select({
-          filterByFormula: `AND({ProductId} = '${line.productId}', {WarehouseId} = '${validatedData.warehouseId}')`,
-        })
-        .firstPage();
+      const lineRecords = await postgresClient.query(
+        `INSERT INTO stock_markdown_lines (markdown_id, product_id, quantity, reason, notes, photo_url)
+         VALUES ($1, $2, $3, $4, $5, $6)
+         RETURNING *`,
+        [
+          markdownRecord.id,
+          line.productId,
+          line.quantity,
+          line.reason,
+          line.notes,
+          line.photoUrl,
+        ]
+      );
+      lineIds.push(lineRecords.rows[0].id);
+    }
 
-      if (stockItems.length > 0) {
-        const currentStock = stockItems[0];
-        const currentQuantity = (currentStock.fields.Quantity as number) || 0;
+    // Creer mouvement de stock automatique (sortie)
+    const movementRecords = await postgresClient.query(
+      `INSERT INTO stock_movements (movement_number, movement_type, source_warehouse_id, movement_date, status, reason, reference_type, reference_id, notes, created_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+       RETURNING *`,
+      [
+        `MVT-${Date.now()}`,
+        'adjustment',
+        validatedData.warehouseId,
+        validatedData.markdownDate,
+        'pending',
+        'markdown',
+        'markdown',
+        markdownRecord.id,
+        `Demarque ${markdownNumber}`,
+        new Date().toISOString(),
+      ]
+    );
+
+    const movement = movementRecords.rows[0];
+
+    // Creer lignes de mouvement
+    for (const line of validatedData.lines) {
+      await postgresClient.query(
+        `INSERT INTO stock_movement_lines (movement_id, product_id, quantity, unit_cost)
+         VALUES ($1, $2, $3, $4)`,
+        [movement.id, line.productId, -line.quantity, 0]
+      );
+    }
+
+    // Valider automatiquement le mouvement pour deduire le stock
+    await postgresClient.query(
+      `UPDATE stock_movements SET status = $1, validated_at = $2 WHERE id = $3`,
+      ['completed', new Date().toISOString(), movement.id]
+    );
+
+    // Mettre a jour le stock pour chaque produit
+    for (const line of validatedData.lines) {
+      const stockItems = await postgresClient.query(
+        `SELECT * FROM stock_items WHERE product_id = $1 AND warehouse_id = $2`,
+        [line.productId, validatedData.warehouseId]
+      );
+
+      if (stockItems.rows.length > 0) {
+        const currentStock = stockItems.rows[0];
+        const currentQuantity = currentStock.quantity || 0;
         const newQuantity = Math.max(0, currentQuantity - line.quantity);
 
-        await base('StockItems').update(currentStock.id, {
-          Quantity: newQuantity,
-          LastUpdated: new Date().toISOString(),
-        });
+        await postgresClient.query(
+          `UPDATE stock_items SET quantity = $1, last_updated = $2 WHERE id = $3`,
+          [newQuantity, new Date().toISOString(), currentStock.id]
+        );
       }
     }
 
-    // Valider la démarque
-    await base('StockMarkdowns').update(markdownRecord.id, {
-      Status: 'validated',
-      MovementId: movement.id,
-      LineIds: lineRecords.map((r) => r.id),
-      ValidatedAt: new Date().toISOString(),
-    });
+    // Valider la demarque
+    await postgresClient.query(
+      `UPDATE stock_markdowns SET status = $1, movement_id = $2, line_ids = $3, validated_at = $4 WHERE id = $5`,
+      ['validated', movement.id, lineIds, new Date().toISOString(), markdownRecord.id]
+    );
 
     return NextResponse.json({
       success: true,
@@ -240,13 +218,12 @@ export async function POST(request: NextRequest) {
         MovementId: movement.id,
       },
     });
-    */
   } catch (error) {
     if (error instanceof z.ZodError) {
       return NextResponse.json(
         {
           success: false,
-          error: 'Données invalides',
+          error: 'Donnees invalides',
           details: error.issues,
         },
         { status: 400 }
@@ -257,7 +234,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json(
       {
         success: false,
-        error: 'Erreur lors de la création de la démarque',
+        error: 'Erreur lors de la creation de la demarque',
       },
       { status: 500 }
     );

@@ -1,12 +1,12 @@
 /**
  * Script d'initialisation des utilisateurs de test
- * Crée les utilisateurs admin, commercial et production dans Airtable
+ * Crée les utilisateurs admin, commercial et production dans PostgreSQL
  */
 
-import { AirtableClient } from '../lib/airtable/client';
+import { getPostgresClient } from '../lib/database/postgres-client';
 import bcrypt from 'bcryptjs';
 
-const airtableClient = new AirtableClient();
+const postgresClient = getPostgresClient();
 
 interface UserData {
   Email: string;
@@ -67,8 +67,8 @@ async function initUsers() {
   try {
     // Vérifier si les utilisateurs existent déjà
     for (const userData of users) {
-      const existing = await airtableClient.list<UserData>('User', {
-        filterByFormula: `{Email} = '${userData.Email}'`,
+      const existing = await postgresClient.list<UserData>('users', {
+        filterByFormula: `email = '${userData.Email}'`,
       });
 
       if (existing.length > 0) {
@@ -77,7 +77,7 @@ async function initUsers() {
       }
 
       // Créer l'utilisateur
-      await airtableClient.create<UserData>('User', userData);
+      await postgresClient.create<UserData>('users', userData);
       console.log(`✨ ${userData.Email} créé avec succès`);
     }
 

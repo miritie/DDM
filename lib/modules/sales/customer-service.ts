@@ -3,11 +3,11 @@
  * Module Ventes & Encaissements
  */
 
-import { AirtableClient } from '@/lib/airtable/client';
+import { getPostgresClient } from '@/lib/database/postgres-client';
 import { Client as Customer } from '@/types/modules';
 import { v4 as uuidv4 } from 'uuid';
 
-const airtableClient = new AirtableClient();
+const postgresClient = getPostgresClient();
 
 export interface CreateCustomerInput {
   name: string;
@@ -28,7 +28,7 @@ export class CustomerService {
   async create(input: CreateCustomerInput): Promise<Customer> {
     const code = input.code || await this.generateCustomerCode(input.workspaceId);
 
-    const customer: Partial<Customer> = {
+    const customer = {
       ClientId: uuidv4(),
       Name: input.name,
       Code: code,
@@ -45,10 +45,7 @@ export class CustomerService {
       UpdatedAt: new Date().toISOString(),
     };
 
-    const created = await airtableClient.create<Customer>('Client', customer);
-    if (!created) {
-      throw new Error('Failed to create customer - Airtable not configured');
-    }
+    const created = await postgresClient.create<Customer>('clients', customer);
     return created;
   }
 
@@ -56,8 +53,8 @@ export class CustomerService {
    * Générer un code client automatique (CLI-0001)
    */
   async generateCustomerCode(workspaceId: string): Promise<string> {
-    const customers = await airtableClient.list<Customer>('Client', {
-      filterByFormula: `{WorkspaceId} = '${workspaceId}'`,
+    const customers = await postgresClient.list<Customer>('clients', {
+      where: { workspace_id: workspaceId },
     });
 
     return `CLI-${String(customers.length + 1).padStart(4, '0')}`;
@@ -67,8 +64,8 @@ export class CustomerService {
    * Récupérer un client par ID
    */
   async getById(customerId: string): Promise<Customer | null> {
-    const customers = await airtableClient.list<Customer>('Client', {
-      filterByFormula: `{ClientId} = '${customerId}'`,
+    const customers = await postgresClient.list<Customer>('clients', {
+      where: { client_id: customerId },
     });
     return customers.length > 0 ? customers[0] : null;
   }
@@ -97,19 +94,15 @@ export class CustomerService {
    * Lister les clients
    */
   async list(workspaceId: string, filters: { isActive?: boolean } = {}): Promise<Customer[]> {
-    const filterFormulas: string[] = [`{WorkspaceId} = '${workspaceId}'`];
+    const where: Record<string, any> = { workspace_id: workspaceId };
 
     if (filters.isActive !== undefined) {
-      filterFormulas.push(`{IsActive} = ${filters.isActive ? '1' : '0'}`);
+      where.is_active = filters.isActive;
     }
 
-    const filterByFormula = filterFormulas.length > 1
-      ? `AND(${filterFormulas.join(', ')})`
-      : filterFormulas[0];
-
-    return await airtableClient.list<Customer>('Client', {
-      filterByFormula,
-      sort: [{ field: 'Name', direction: 'asc' }],
+    return await postgresClient.list<Customer>('clients', {
+      where,
+      orderBy: { field: 'name', direction: 'asc' },
     });
   }
 
@@ -117,25 +110,39 @@ export class CustomerService {
    * Mettre à jour un client
    */
   async update(customerId: string, updates: Partial<Customer>): Promise<Customer> {
-    const customers = await airtableClient.list<Customer>('Customer', {
-      filterByFormula: `{CustomerId} = '${customerId}'`,
+    const customers = await postgresClient.list<Customer>('clients', {
+      where: { client_id: customerId },
     });
 
     if (customers.length === 0) {
       throw new Error('Client non trouvé');
     }
 
-    const updated = await airtableClient.update<Customer>(
-      'Client',
-      (customers[0] as any)._recordId,
-      {
-        ...updates,
-        UpdatedAt: new Date().toISOString(),
-      }
-    );
-    if (!updated) {
-      throw new Error('Failed to update customer - Airtable not configured');
+    if (!customers[0].id) {
+      throw new Error('Client ID manquant');
     }
+
+    const dbUpdates: Record<string, any> = {
+      UpdatedAt: new Date().toISOString(),
+    };
+
+    // Map PascalCase fields to PascalCase
+    if (updates.Name !== undefined) dbUpdates.Name = updates.Name;
+    if (updates.Code !== undefined) dbUpdates.Code = updates.Code;
+    if (updates.Email !== undefined) dbUpdates.Email = updates.Email;
+    if (updates.Phone !== undefined) dbUpdates.Phone = updates.Phone;
+    if (updates.Address !== undefined) dbUpdates.Address = updates.Address;
+    if (updates.CompanyName !== undefined) dbUpdates.CompanyName = updates.CompanyName;
+    if (updates.TaxId !== undefined) dbUpdates.TaxId = updates.TaxId;
+    if (updates.CreditLimit !== undefined) dbUpdates.CreditLimit = updates.CreditLimit;
+    if (updates.CurrentBalance !== undefined) dbUpdates.CurrentBalance = updates.CurrentBalance;
+    if (updates.IsActive !== undefined) dbUpdates.IsActive = updates.IsActive;
+
+    const updated = await postgresClient.update<Customer>(
+      'clients',
+      customers[0].id,
+      dbUpdates
+    );
     return updated;
   }
 

@@ -1,15 +1,15 @@
 /**
- * Service - Point Flash Automatisé
- * Génération automatique du Point Flash hebdomadaire (dimanche 19h)
- * Calcul des KPIs, génération PDF, transmission WhatsApp
+ * Service - Point Flash Automatise
+ * Generation automatique du Point Flash hebdomadaire (dimanche 19h)
+ * Calcul des KPIs, generation PDF, transmission WhatsApp
  */
 
-import { AirtableClient } from '@/lib/airtable/client';
+import { getPostgresClient } from '@/lib/database/postgres-client';
 import { Sale, Expense, Product, Employee, Transaction } from '@/types/modules';
 import { PDFGeneratorService, PDFPointFlash } from './pdf-generator-service';
 import { WhatsAppReportService } from './whatsapp-report-service';
 
-const airtableClient = new AirtableClient();
+const postgresClient = getPostgresClient();
 const pdfGenerator = new PDFGeneratorService();
 const whatsappService = new WhatsAppReportService();
 
@@ -46,7 +46,7 @@ export interface PointFlashData {
 
 export class PointFlashService {
   /**
-   * Génère le Point Flash pour la période donnée
+   * Genere le Point Flash pour la periode donnee
    */
   async generatePointFlash(
     workspaceId: string,
@@ -57,7 +57,7 @@ export class PointFlashService {
     // Calculer la semaine si non fournie
     const week = weekLabel || this.getWeekLabel(new Date(startDate));
 
-    // Calculer la période précédente (même durée)
+    // Calculer la periode precedente (meme duree)
     const periodDays = Math.ceil(
       (new Date(endDate).getTime() - new Date(startDate).getTime()) / (1000 * 60 * 60 * 24)
     );
@@ -72,7 +72,7 @@ export class PointFlashService {
       .toISOString()
       .split('T')[0];
 
-    // Récupérer les données en parallèle
+    // Recuperer les donnees en parallele
     const [
       sales,
       expenses,
@@ -114,7 +114,7 @@ export class PointFlashService {
 
     const newCustomers = new Set(sales.map((s) => s.ClientId)).size;
 
-    // Productivité = revenue / nombre de jours
+    // Productivite = revenue / nombre de jours
     const productivity = revenue / Math.max(periodDays, 1);
     const previousProductivity = previousRevenue / Math.max(periodDays, 1);
     const productivityTrend = this.calculateTrend(productivity, previousProductivity);
@@ -137,7 +137,7 @@ export class PointFlashService {
       salesCount,
     });
 
-    // Objectifs (TODO: récupérer depuis config)
+    // Objectifs (TODO: recuperer depuis config)
     const objectives = [
       {
         label: 'Chiffre d\'affaires hebdomadaire',
@@ -173,13 +173,13 @@ export class PointFlashService {
   }
 
   /**
-   * Génère et envoie le Point Flash automatiquement
+   * Genere et envoie le Point Flash automatiquement
    */
   async generateAndSendPointFlash(
     workspaceId: string,
     config: PointFlashConfig
   ): Promise<{ success: boolean; pdfUrl?: string; sentTo?: string[] }> {
-    // Calculer la période de la semaine passée (lundi-dimanche)
+    // Calculer la periode de la semaine passee (lundi-dimanche)
     const now = new Date();
     const endDate = new Date(now);
     endDate.setDate(endDate.getDate() - ((endDate.getDay() + 6) % 7) - 1); // Dimanche dernier
@@ -189,18 +189,18 @@ export class PointFlashService {
     const startDateStr = startDate.toISOString().split('T')[0];
     const endDateStr = endDate.toISOString().split('T')[0];
 
-    // Générer les données
+    // Generer les donnees
     const pointFlashData = await this.generatePointFlash(workspaceId, startDateStr, endDateStr);
 
     let pdfUrl: string | undefined;
 
-    // Générer le PDF si demandé
+    // Generer le PDF si demande
     if (config.includePDF) {
       const pdfData: PDFPointFlash = {
         ...pointFlashData,
         generatedAt: new Date().toISOString(),
         signature: {
-          name: 'Direction Générale',
+          name: 'Direction Generale',
           role: 'DG',
           date: new Date().toISOString(),
           simulatedSignature: true,
@@ -209,12 +209,12 @@ export class PointFlashService {
 
       const pdfBlob = await pdfGenerator.generatePointFlashPDF(pdfData);
 
-      // TODO: Upload le PDF quelque part (S3, Cloudinary, etc.) et récupérer l'URL
+      // TODO: Upload le PDF quelque part (S3, Cloudinary, etc.) et recuperer l'URL
       // Pour l'instant, on simule
       pdfUrl = 'https://example.com/point-flash.pdf';
     }
 
-    // Envoyer via WhatsApp si configuré
+    // Envoyer via WhatsApp si configure
     let sentTo: string[] = [];
 
     if (config.whatsappGroups.length > 0 && whatsappService.isConfigured()) {
@@ -246,7 +246,7 @@ export class PointFlashService {
   }
 
   /**
-   * Vérifie si on doit générer le Point Flash maintenant
+   * Verifie si on doit generer le Point Flash maintenant
    */
   shouldGenerateNow(config: PointFlashConfig): boolean {
     if (!config.enabled) return false;
@@ -260,19 +260,19 @@ export class PointFlashService {
       dayOfWeek === config.schedule.dayOfWeek &&
       hour === config.schedule.hour &&
       minute >= config.schedule.minute &&
-      minute < config.schedule.minute + 5 // Fenêtre de 5 minutes
+      minute < config.schedule.minute + 5 // Fenetre de 5 minutes
     );
   }
 
-  // ============ Méthodes privées ============
+  // ============ Methodes privees ============
 
   private async getSales(
     workspaceId: string,
     startDate: string,
     endDate: string
   ): Promise<Sale[]> {
-    return await airtableClient.list<Sale>('Sale', {
-      filterByFormula: `AND({WorkspaceId} = '${workspaceId}', {SaleDate} >= '${startDate}', {SaleDate} <= '${endDate}', {Status} != 'cancelled')`,
+    return await postgresClient.list<Sale>('sales', {
+      filterByFormula: `workspace_id = '${workspaceId}' AND sale_date >= '${startDate}' AND sale_date <= '${endDate}' AND status != 'cancelled'`,
     });
   }
 
@@ -281,8 +281,8 @@ export class PointFlashService {
     startDate: string,
     endDate: string
   ): Promise<Expense[]> {
-    return await airtableClient.list<Expense>('Expense', {
-      filterByFormula: `AND({WorkspaceId} = '${workspaceId}', {CreatedAt} >= '${startDate}', {CreatedAt} <= '${endDate}', {Status} = 'paid')`,
+    return await postgresClient.list<Expense>('expenses', {
+      filterByFormula: `workspace_id = '${workspaceId}' AND created_at >= '${startDate}' AND created_at <= '${endDate}' AND status = 'paid'`,
     });
   }
 
@@ -291,14 +291,14 @@ export class PointFlashService {
     startDate: string,
     endDate: string
   ): Promise<Transaction[]> {
-    return await airtableClient.list<Transaction>('Transaction', {
-      filterByFormula: `AND({WorkspaceId} = '${workspaceId}', {ProcessedAt} >= '${startDate}', {ProcessedAt} <= '${endDate}')`,
+    return await postgresClient.list<Transaction>('transactions', {
+      filterByFormula: `workspace_id = '${workspaceId}' AND processed_at >= '${startDate}' AND processed_at <= '${endDate}'`,
     });
   }
 
   private async getProducts(workspaceId: string): Promise<Product[]> {
-    return await airtableClient.list<Product>('Product', {
-      filterByFormula: `AND({WorkspaceId} = '${workspaceId}', {IsActive} = 1)`,
+    return await postgresClient.list<Product>('products', {
+      filterByFormula: `workspace_id = '${workspaceId}' AND is_active = true`,
     });
   }
 
@@ -322,13 +322,13 @@ export class PointFlashService {
     const productStats = new Map<string, { name: string; quantity: number; revenue: number }>();
 
     for (const sale of sales) {
-      const lines = await airtableClient.list<any>('SaleLine', {
-        filterByFormula: `{SaleId} = '${sale.SaleId}'`,
+      const lines = await postgresClient.list<any>('sale_lines', {
+        filterByFormula: `sale_id = '${sale.SaleId}'`,
       });
 
       for (const line of lines) {
-        const products = await airtableClient.list<Product>('Product', {
-          filterByFormula: `{ProductId} = '${line.ProductId}'`,
+        const products = await postgresClient.list<Product>('products', {
+          filterByFormula: `product_id = '${line.product_id}'`,
         });
 
         if (products.length > 0) {
@@ -343,8 +343,8 @@ export class PointFlashService {
             });
           }
 
-          productStats.get(key)!.quantity += line.Quantity;
-          productStats.get(key)!.revenue += line.TotalPrice;
+          productStats.get(key)!.quantity += line.quantity;
+          productStats.get(key)!.revenue += line.total_price;
         }
       }
     }
@@ -366,8 +366,8 @@ export class PointFlashService {
     for (const sale of sales) {
       if (!sale.SalesPersonId) continue;
 
-      const employees = await airtableClient.list<Employee>('Employee', {
-        filterByFormula: `{EmployeeId} = '${sale.SalesPersonId}'`,
+      const employees = await postgresClient.list<Employee>('employees', {
+        filterByFormula: `employee_id = '${sale.SalesPersonId}'`,
       });
 
       if (employees.length > 0) {
@@ -417,45 +417,45 @@ export class PointFlashService {
       });
     }
 
-    // Alerte dépenses
+    // Alerte depenses
     if (data.expensesTrend > 30) {
       alerts.push({
         type: 'warning',
-        message: `Dépenses en forte hausse (+${data.expensesTrend.toFixed(1)}%). Vérifier les postes de dépense`,
+        message: `Depenses en forte hausse (+${data.expensesTrend.toFixed(1)}%). Verifier les postes de depense`,
       });
     }
 
-    // Alerte profitabilité
+    // Alerte profitabilite
     if (data.profit < 0) {
       alerts.push({
         type: 'error',
-        message: 'Bénéfice négatif ! Actions urgentes requises',
+        message: 'Benefice negatif ! Actions urgentes requises',
       });
     } else if (data.profitTrend < -50) {
       alerts.push({
         type: 'warning',
-        message: `Bénéfice en forte baisse (${data.profitTrend.toFixed(1)}%)`,
+        message: `Benefice en forte baisse (${data.profitTrend.toFixed(1)}%)`,
       });
     }
 
-    // Alerte trésorerie
+    // Alerte tresorerie
     if (data.cashBalance < 0) {
       alerts.push({
         type: 'error',
-        message: 'Trésorerie négative ! Risque de découvert',
+        message: 'Tresorerie negative ! Risque de decouvert',
       });
     } else if (data.cashBalance < 1000000) {
       alerts.push({
         type: 'warning',
-        message: 'Trésorerie faible. Anticiper les besoins de cash',
+        message: 'Tresorerie faible. Anticiper les besoins de cash',
       });
     }
 
-    // Alerte activité
+    // Alerte activite
     if (data.salesCount < 10) {
       alerts.push({
         type: 'warning',
-        message: `Faible activité commerciale (${data.salesCount} ventes). Relancer les efforts commerciaux`,
+        message: `Faible activite commerciale (${data.salesCount} ventes). Relancer les efforts commerciaux`,
       });
     }
 

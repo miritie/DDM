@@ -3,11 +3,11 @@
  * Module Production & Usine
  */
 
-import { AirtableClient } from '@/lib/airtable/client';
+import { getPostgresClient } from '@/lib/database/postgres-client';
 import { Ingredient } from '@/types/modules';
 import { v4 as uuidv4 } from 'uuid';
 
-const airtableClient = new AirtableClient();
+const postgresClient = getPostgresClient();
 
 export interface CreateIngredientInput {
   name: string;
@@ -47,15 +47,15 @@ export class IngredientService {
       belowMinimum?: boolean;
     }
   ): Promise<Ingredient[]> {
-    let formula = `{WorkspaceId} = '${workspaceId}'`;
+    const conditions: string[] = [`workspace_id = '${workspaceId}'`];
 
     if (filters?.isActive !== undefined) {
-      formula += `, {IsActive} = ${filters.isActive ? 'TRUE()' : 'FALSE()'}`;
+      conditions.push(`is_active = ${filters.isActive}`);
     }
 
-    const ingredients = await airtableClient.list<Ingredient>('Ingredient', {
-      filterByFormula: `AND(${formula})`,
-      sort: [{ field: 'Name', direction: 'asc' }],
+    const ingredients = await postgresClient.list<Ingredient>('ingredients', {
+      filterByFormula: conditions.join(' AND '),
+      orderBy: { field: 'name', direction: 'asc' },
     });
 
     // Filtre côté client pour les ingrédients sous le minimum
@@ -70,8 +70,8 @@ export class IngredientService {
    * Récupère un ingrédient par ID
    */
   async getById(ingredientId: string): Promise<Ingredient | null> {
-    const results = await airtableClient.list<Ingredient>('Ingredient', {
-      filterByFormula: `{IngredientId} = '${ingredientId}'`,
+    const results = await postgresClient.list<Ingredient>('ingredients', {
+      filterByFormula: `ingredient_id = '${ingredientId}'`,
     });
     return results[0] || null;
   }
@@ -80,8 +80,8 @@ export class IngredientService {
    * Récupère un ingrédient par code
    */
   async getByCode(workspaceId: string, code: string): Promise<Ingredient | null> {
-    const results = await airtableClient.list<Ingredient>('Ingredient', {
-      filterByFormula: `AND({WorkspaceId} = '${workspaceId}', {Code} = '${code}')`,
+    const results = await postgresClient.list<Ingredient>('ingredients', {
+      filterByFormula: `workspace_id = '${workspaceId}' AND code = '${code}'`,
     });
     return results[0] || null;
   }
@@ -113,10 +113,7 @@ export class IngredientService {
       UpdatedAt: new Date().toISOString(),
     };
 
-    const created = await airtableClient.create<Ingredient>('Ingredient', ingredient);
-    if (!created) {
-      throw new Error('Failed to create ingredient - Airtable not configured');
-    }
+    const created = await postgresClient.create<Ingredient>('ingredients', ingredient);
     return created;
   }
 
@@ -137,23 +134,33 @@ export class IngredientService {
       }
     }
 
-    const records = await airtableClient.list<Ingredient>('Ingredient', {
-      filterByFormula: `{IngredientId} = '${ingredientId}'`,
+    const records = await postgresClient.list<Ingredient>('ingredients', {
+      filterByFormula: `ingredient_id = '${ingredientId}'`,
     });
 
     if (records.length === 0) {
       throw new Error('Ingrédient non trouvé');
     }
 
-    const recordId = (records[0] as any)._recordId;
-
-    const updated = await airtableClient.update<Ingredient>('Ingredient', recordId, {
-      ...updates,
-      UpdatedAt: new Date().toISOString(),
-    });
-    if (!updated) {
-      throw new Error('Failed to update ingredient - Airtable not configured');
+    const recordId = records[0].id;
+    if (!recordId) {
+      throw new Error('ID d\'enregistrement non trouvé');
     }
+
+    const updateData: Record<string, any> = {
+      UpdatedAt: new Date().toISOString(),
+    };
+    if (updates.name !== undefined) updateData.Name = updates.name;
+    if (updates.code !== undefined) updateData.Code = updates.code;
+    if (updates.description !== undefined) updateData.Description = updates.description;
+    if (updates.unit !== undefined) updateData.Unit = updates.unit;
+    if (updates.unitCost !== undefined) updateData.UnitCost = updates.unitCost;
+    if (updates.currency !== undefined) updateData.Currency = updates.currency;
+    if (updates.minimumStock !== undefined) updateData.MinimumStock = updates.minimumStock;
+    if (updates.supplier !== undefined) updateData.Supplier = updates.supplier;
+    if (updates.isActive !== undefined) updateData.IsActive = updates.isActive;
+
+    const updated = await postgresClient.update<Ingredient>('ingredients', recordId, updateData);
     return updated;
   }
 
@@ -177,20 +184,20 @@ export class IngredientService {
     const newStock = ingredient.CurrentStock + quantity;
     const newUnitCost = unitCost !== undefined ? unitCost : ingredient.UnitCost;
 
-    const records = await airtableClient.list<Ingredient>('Ingredient', {
-      filterByFormula: `{IngredientId} = '${ingredientId}'`,
+    const records = await postgresClient.list<Ingredient>('ingredients', {
+      filterByFormula: `ingredient_id = '${ingredientId}'`,
     });
 
-    const recordId = (records[0] as any)._recordId;
+    const recordId = records[0].id;
+    if (!recordId) {
+      throw new Error('ID d\'enregistrement non trouvé');
+    }
 
-    const updated = await airtableClient.update<Ingredient>('Ingredient', recordId, {
+    const updated = await postgresClient.update<Ingredient>('ingredients', recordId, {
       CurrentStock: newStock,
       UnitCost: newUnitCost,
       UpdatedAt: new Date().toISOString(),
     });
-    if (!updated) {
-      throw new Error('Failed to update ingredient - Airtable not configured');
-    }
     return updated;
   }
 
@@ -215,19 +222,19 @@ export class IngredientService {
 
     const newStock = ingredient.CurrentStock - quantity;
 
-    const records = await airtableClient.list<Ingredient>('Ingredient', {
-      filterByFormula: `{IngredientId} = '${ingredientId}'`,
+    const records = await postgresClient.list<Ingredient>('ingredients', {
+      filterByFormula: `ingredient_id = '${ingredientId}'`,
     });
 
-    const recordId = (records[0] as any)._recordId;
+    const recordId = records[0].id;
+    if (!recordId) {
+      throw new Error('ID d\'enregistrement non trouvé');
+    }
 
-    const updated = await airtableClient.update<Ingredient>('Ingredient', recordId, {
+    const updated = await postgresClient.update<Ingredient>('ingredients', recordId, {
       CurrentStock: newStock,
       UpdatedAt: new Date().toISOString(),
     });
-    if (!updated) {
-      throw new Error('Failed to update ingredient - Airtable not configured');
-    }
     return updated;
   }
 

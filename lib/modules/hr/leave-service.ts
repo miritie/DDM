@@ -3,11 +3,11 @@
  * Module Ressources Humaines
  */
 
-import { AirtableClient } from '@/lib/airtable/client';
+import { getPostgresClient } from '@/lib/database/postgres-client';
 import { Leave, LeaveBalance } from '@/types/modules';
 import { v4 as uuidv4 } from 'uuid';
 
-const airtableClient = new AirtableClient();
+const postgresClient = getPostgresClient();
 
 export interface CreateLeaveInput {
   employeeId: string;
@@ -29,8 +29,8 @@ export interface ReviewLeaveInput {
 export class LeaveService {
   async generateLeaveNumber(workspaceId: string): Promise<string> {
     const year = new Date().getFullYear();
-    const leaves = await airtableClient.list<Leave>('Leave', {
-      filterByFormula: `AND({WorkspaceId} = '${workspaceId}', YEAR({RequestedAt}) = ${year})`,
+    const leaves = await postgresClient.list<Leave>('leaves', {
+      filterByFormula: `AND(workspace_id = '${workspaceId}', YEAR(requested_at) = ${year})`,
     });
     return `LVE-${year}-${String(leaves.length + 1).padStart(4, '0')}`;
   }
@@ -47,7 +47,7 @@ export class LeaveService {
     const leaveNumber = await this.generateLeaveNumber(input.workspaceId);
     const daysCount = this.calculateDaysCount(input.startDate, input.endDate);
 
-    const leave: Partial<Leave> = {
+    const leave: any = {
       LeaveId: uuidv4(),
       LeaveNumber: leaveNumber,
       EmployeeId: input.employeeId,
@@ -64,16 +64,13 @@ export class LeaveService {
       UpdatedAt: new Date().toISOString(),
     };
 
-    const created = await airtableClient.create<Leave>('Leave', leave);
-    if (!created) {
-      throw new Error('Failed to create leave - Airtable not configured');
-    }
+    const created = await postgresClient.create<Leave>('leaves', leave);
     return created;
   }
 
   async getById(leaveId: string): Promise<Leave | null> {
-    const leaves = await airtableClient.list<Leave>('Leave', {
-      filterByFormula: `{LeaveId} = '${leaveId}'`,
+    const leaves = await postgresClient.list<Leave>('leaves', {
+      filterByFormula: `leave_id = '${leaveId}'`,
     });
     return leaves.length > 0 ? leaves[0] : null;
   }
@@ -82,16 +79,16 @@ export class LeaveService {
     workspaceId: string,
     filters: { employeeId?: string; status?: string; type?: string } = {}
   ): Promise<Leave[]> {
-    const filterFormulas: string[] = [`{WorkspaceId} = '${workspaceId}'`];
+    const filterFormulas: string[] = [`workspace_id = '${workspaceId}'`];
 
     if (filters.employeeId) {
-      filterFormulas.push(`{EmployeeId} = '${filters.employeeId}'`);
+      filterFormulas.push(`employee_id = '${filters.employeeId}'`);
     }
     if (filters.status) {
-      filterFormulas.push(`{Status} = '${filters.status}'`);
+      filterFormulas.push(`status = '${filters.status}'`);
     }
     if (filters.type) {
-      filterFormulas.push(`{Type} = '${filters.type}'`);
+      filterFormulas.push(`type = '${filters.type}'`);
     }
 
     const filterByFormula =
@@ -99,15 +96,15 @@ export class LeaveService {
         ? `AND(${filterFormulas.join(', ')})`
         : filterFormulas[0];
 
-    return await airtableClient.list<Leave>('Leave', {
+    return await postgresClient.list<Leave>('leaves', {
       filterByFormula,
       sort: [{ field: 'RequestedAt', direction: 'desc' }],
     });
   }
 
   async review(input: ReviewLeaveInput): Promise<Leave> {
-    const leaves = await airtableClient.list<Leave>('Leave', {
-      filterByFormula: `{LeaveId} = '${input.leaveId}'`,
+    const leaves = await postgresClient.list<Leave>('leaves', {
+      filterByFormula: `leave_id = '${input.leaveId}'`,
     });
 
     if (leaves.length === 0) {
@@ -118,9 +115,13 @@ export class LeaveService {
       throw new Error('Ce congé a déjà été traité');
     }
 
-    const updated = await airtableClient.update<Leave>(
-      'Leave',
-      (leaves[0] as any)._recordId,
+    if (!leaves[0].id) {
+      throw new Error('Leave ID is missing');
+    }
+
+    const updated = await postgresClient.update<Leave>(
+      'leaves',
+      leaves[0].id,
       {
         Status: input.status,
         ReviewedById: input.reviewedById,
@@ -129,38 +130,36 @@ export class LeaveService {
         UpdatedAt: new Date().toISOString(),
       }
     );
-    if (!updated) {
-      throw new Error('Failed to update leave - Airtable not configured');
-    }
     return updated;
   }
 
   async cancel(leaveId: string): Promise<Leave> {
-    const leaves = await airtableClient.list<Leave>('Leave', {
-      filterByFormula: `{LeaveId} = '${leaveId}'`,
+    const leaves = await postgresClient.list<Leave>('leaves', {
+      filterByFormula: `leave_id = '${leaveId}'`,
     });
 
     if (leaves.length === 0) {
       throw new Error('Congé non trouvé');
     }
 
-    const updated = await airtableClient.update<Leave>(
-      'Leave',
-      (leaves[0] as any)._recordId,
+    if (!leaves[0].id) {
+      throw new Error('Leave ID is missing');
+    }
+
+    const updated = await postgresClient.update<Leave>(
+      'leaves',
+      leaves[0].id,
       {
         Status: 'cancelled',
         UpdatedAt: new Date().toISOString(),
       }
     );
-    if (!updated) {
-      throw new Error('Failed to update leave - Airtable not configured');
-    }
     return updated;
   }
 
   async getBalance(employeeId: string, year: number = new Date().getFullYear()): Promise<LeaveBalance[]> {
-    const leaves = await airtableClient.list<Leave>('Leave', {
-      filterByFormula: `AND({EmployeeId} = '${employeeId}', {Status} = 'approved', YEAR({StartDate}) = ${year})`,
+    const leaves = await postgresClient.list<Leave>('leaves', {
+      filterByFormula: `AND(employee_id = '${employeeId}', status = 'approved', YEAR(start_date) = ${year})`,
     });
 
     const balances: Map<string, LeaveBalance> = new Map();

@@ -3,12 +3,12 @@
  * Module RH & Rémunérations
  */
 
-import { AirtableClient } from '@/lib/airtable/client';
+import { getPostgresClient } from '@/lib/database/postgres-client';
 import { EmployeeTarget } from '@/types/modules';
 import { v4 as uuidv4 } from 'uuid';
 import { CommissionService } from './commission-service';
 
-const airtableClient = new AirtableClient();
+const postgresClient = getPostgresClient();
 const commissionService = new CommissionService();
 
 export interface CreateEmployeeTargetInput {
@@ -55,8 +55,8 @@ export class EmployeeTargetService {
     }
 
     // Vérifier si un objectif existe déjà pour cette période
-    const existing = await airtableClient.list<EmployeeTarget>('EmployeeTarget', {
-      filterByFormula: `AND({EmployeeId} = '${input.employeeId}', {Period} = '${input.period}')`,
+    const existing = await postgresClient.list<EmployeeTarget>('employee_targets', {
+      filterByFormula: `AND(employee_id = '${input.employeeId}', period = '${input.period}')`,
     });
 
     if (existing.length > 0) {
@@ -68,7 +68,7 @@ export class EmployeeTargetService {
     const periodStart = new Date(parseInt(year), parseInt(month) - 1, 1).toISOString();
     const periodEnd = new Date(parseInt(year), parseInt(month), 0, 23, 59, 59).toISOString();
 
-    const target: Partial<EmployeeTarget> = {
+    const target: any = {
       TargetId: uuidv4(),
       EmployeeId: input.employeeId,
       EmployeeName: input.employeeName,
@@ -87,10 +87,7 @@ export class EmployeeTargetService {
       UpdatedAt: new Date().toISOString(),
     };
 
-    const created = await airtableClient.create<EmployeeTarget>('EmployeeTarget', target);
-    if (!created) {
-      throw new Error('Failed to create employee target - Airtable not configured');
-    }
+    const created = await postgresClient.create<EmployeeTarget>('employee_targets', target);
     return created;
   }
 
@@ -98,8 +95,8 @@ export class EmployeeTargetService {
    * Récupérer un objectif par son ID
    */
   async getById(targetId: string): Promise<EmployeeTarget | null> {
-    const targets = await airtableClient.list<EmployeeTarget>('EmployeeTarget', {
-      filterByFormula: `{TargetId} = '${targetId}'`,
+    const targets = await postgresClient.list<EmployeeTarget>('employee_targets', {
+      filterByFormula: `target_id = '${targetId}'`,
     });
     return targets.length > 0 ? targets[0] : null;
   }
@@ -111,8 +108,8 @@ export class EmployeeTargetService {
     employeeId: string,
     period: string
   ): Promise<EmployeeTarget | null> {
-    const targets = await airtableClient.list<EmployeeTarget>('EmployeeTarget', {
-      filterByFormula: `AND({EmployeeId} = '${employeeId}', {Period} = '${period}')`,
+    const targets = await postgresClient.list<EmployeeTarget>('employee_targets', {
+      filterByFormula: `AND(employee_id = '${employeeId}', period = '${period}')`,
     });
     return targets.length > 0 ? targets[0] : null;
   }
@@ -121,25 +118,25 @@ export class EmployeeTargetService {
    * Lister les objectifs avec filtres
    */
   async list(workspaceId: string, filters: EmployeeTargetFilters = {}): Promise<EmployeeTarget[]> {
-    const filterFormulas: string[] = [`{WorkspaceId} = '${workspaceId}'`];
+    const filterFormulas: string[] = [`workspace_id = '${workspaceId}'`];
 
     if (filters.employeeId) {
-      filterFormulas.push(`{EmployeeId} = '${filters.employeeId}'`);
+      filterFormulas.push(`employee_id = '${filters.employeeId}'`);
     }
     if (filters.period) {
-      filterFormulas.push(`{Period} = '${filters.period}'`);
+      filterFormulas.push(`period = '${filters.period}'`);
     }
     if (filters.isAchieved !== undefined) {
-      filterFormulas.push(`{IsAchieved} = ${filters.isAchieved ? '1' : '0'}`);
+      filterFormulas.push(`is_achieved = ${filters.isAchieved}`);
     }
     if (filters.bonusPaid !== undefined) {
-      filterFormulas.push(`{BonusPaid} = ${filters.bonusPaid ? '1' : '0'}`);
+      filterFormulas.push(`bonus_paid = ${filters.bonusPaid}`);
     }
 
     const filterByFormula =
       filterFormulas.length > 1 ? `AND(${filterFormulas.join(', ')})` : filterFormulas[0];
 
-    return await airtableClient.list<EmployeeTarget>('EmployeeTarget', {
+    return await postgresClient.list<EmployeeTarget>('employee_targets', {
       filterByFormula,
       sort: [{ field: 'Period', direction: 'desc' }],
     });
@@ -149,8 +146,8 @@ export class EmployeeTargetService {
    * Mettre à jour un objectif
    */
   async update(targetId: string, updates: UpdateEmployeeTargetInput): Promise<EmployeeTarget> {
-    const targets = await airtableClient.list<EmployeeTarget>('EmployeeTarget', {
-      filterByFormula: `{TargetId} = '${targetId}'`,
+    const targets = await postgresClient.list<EmployeeTarget>('employee_targets', {
+      filterByFormula: `target_id = '${targetId}'`,
     });
 
     if (targets.length === 0) {
@@ -176,14 +173,15 @@ export class EmployeeTargetService {
     updateData.AchievementRate = achievementRate;
     updateData.IsAchieved = achievementRate >= 100;
 
-    const updated = await airtableClient.update<EmployeeTarget>(
-      'EmployeeTarget',
-      (target as any)._recordId,
+    if (!target.id) {
+      throw new Error('Target ID is missing');
+    }
+
+    const updated = await postgresClient.update<EmployeeTarget>(
+      'employee_targets',
+      target.id,
       updateData
     );
-    if (!updated) {
-      throw new Error('Failed to update employee target - Airtable not configured');
-    }
     return updated;
   }
 
@@ -222,11 +220,11 @@ export class EmployeeTargetService {
     const endDate = new Date(parseInt(year), parseInt(month), 0, 23, 59, 59).toISOString();
 
     // Récupérer les ventes de l'employé pour la période
-    const sales = await airtableClient.list('Sale', {
-      filterByFormula: `AND({WorkspaceId} = '${workspaceId}', {SellerId} = '${employeeId}', {SaleDate} >= '${startDate}', {SaleDate} <= '${endDate}')`,
+    const sales = await postgresClient.list('sales', {
+      filterByFormula: `AND(workspace_id = '${workspaceId}', seller_id = '${employeeId}', sale_date >= '${startDate}', sale_date <= '${endDate}')`,
     });
 
-    return sales.reduce((sum: number, sale: any) => sum + (sale.TotalAmount || 0), 0);
+    return sales.reduce((sum: number, sale: any) => sum + (sale.total_amount || 0), 0);
   }
 
   /**
@@ -312,8 +310,8 @@ export class EmployeeTargetService {
    */
   async createForAllEmployees(period: string, workspaceId: string): Promise<EmployeeTarget[]> {
     // Récupérer tous les employés actifs avec commission activée
-    const employees = await airtableClient.list('Employee', {
-      filterByFormula: `AND({WorkspaceId} = '${workspaceId}', {Status} = 'active', {CommissionEnabled} = 1)`,
+    const employees = await postgresClient.list('employees', {
+      filterByFormula: `AND(workspace_id = '${workspaceId}', status = 'active', commission_enabled = true)`,
     });
 
     const targets: EmployeeTarget[] = [];
@@ -322,22 +320,22 @@ export class EmployeeTargetService {
       const employeeData = employee as any;
 
       // Vérifier si l'employé a un objectif mensuel configuré
-      if (!employeeData.MonthlyTarget || employeeData.MonthlyTarget <= 0) {
+      if (!employeeData.monthly_target || employeeData.monthly_target <= 0) {
         continue;
       }
 
       // Vérifier si un objectif existe déjà
-      const existing = await this.getByEmployeeAndPeriod(employeeData.EmployeeId, period);
+      const existing = await this.getByEmployeeAndPeriod(employeeData.employee_id, period);
       if (existing) {
         continue;
       }
 
       const target = await this.create({
-        employeeId: employeeData.EmployeeId,
-        employeeName: employeeData.FullName,
+        employeeId: employeeData.employee_id,
+        employeeName: employeeData.full_name,
         period,
-        salesTarget: employeeData.MonthlyTarget,
-        targetBonus: employeeData.TargetBonus || 0,
+        salesTarget: employeeData.monthly_target,
+        targetBonus: employeeData.target_bonus || 0,
         workspaceId,
       });
 
@@ -411,8 +409,8 @@ export class EmployeeTargetService {
    * Supprimer un objectif
    */
   async delete(targetId: string): Promise<void> {
-    const targets = await airtableClient.list<EmployeeTarget>('EmployeeTarget', {
-      filterByFormula: `{TargetId} = '${targetId}'`,
+    const targets = await postgresClient.list<EmployeeTarget>('employee_targets', {
+      filterByFormula: `target_id = '${targetId}'`,
     });
 
     if (targets.length === 0) {
@@ -425,6 +423,10 @@ export class EmployeeTargetService {
       throw new Error('Impossible de supprimer un objectif dont le bonus a déjà été payé');
     }
 
-    await airtableClient.delete('EmployeeTarget', (target as any)._recordId);
+    if (!target.id) {
+      throw new Error('Target ID is missing');
+    }
+
+    await postgresClient.delete('employee_targets', target.id);
   }
 }

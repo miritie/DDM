@@ -3,11 +3,11 @@
  * Module Ventes & Encaissements
  */
 
-import { AirtableClient } from '@/lib/airtable/client';
+import { getPostgresClient } from '@/lib/database/postgres-client';
 import { Product } from '@/types/modules';
 import { v4 as uuidv4 } from 'uuid';
 
-const airtableClient = new AirtableClient();
+const postgresClient = getPostgresClient();
 
 export interface CreateProductInput {
   name: string;
@@ -36,8 +36,8 @@ export class ProductService {
    * Génère un code produit unique
    */
   async generateProductCode(workspaceId: string): Promise<string> {
-    const products = await airtableClient.list<Product>('Product', {
-      filterByFormula: `{WorkspaceId} = '${workspaceId}'`,
+    const products = await postgresClient.list<Product>('products', {
+      where: { workspace_id: workspaceId },
     });
 
     const count = products.length + 1;
@@ -50,7 +50,7 @@ export class ProductService {
   async create(input: CreateProductInput): Promise<Product> {
     const code = await this.generateProductCode(input.workspaceId);
 
-    const product: Partial<Product> = {
+    const product = {
       ProductId: uuidv4(),
       Name: input.name,
       Code: code,
@@ -65,10 +65,7 @@ export class ProductService {
       UpdatedAt: new Date().toISOString(),
     };
 
-    const created = await airtableClient.create<Product>('Product', product);
-    if (!created) {
-      throw new Error('Failed to create product - Airtable not configured');
-    }
+    const created = await postgresClient.create<Product>('products', product);
     return created;
   }
 
@@ -76,8 +73,8 @@ export class ProductService {
    * Récupère un produit par ID
    */
   async getById(productId: string): Promise<Product | null> {
-    const products = await airtableClient.list<Product>('Product', {
-      filterByFormula: `{ProductId} = '${productId}'`,
+    const products = await postgresClient.list<Product>('products', {
+      where: { product_id: productId },
     });
 
     return products.length > 0 ? products[0] : null;
@@ -90,24 +87,19 @@ export class ProductService {
     workspaceId: string,
     filters: { isActive?: boolean; category?: string } = {}
   ): Promise<Product[]> {
-    const filterFormulas: string[] = [`{WorkspaceId} = '${workspaceId}'`];
+    const where: Record<string, any> = { workspace_id: workspaceId };
 
     if (filters.isActive !== undefined) {
-      filterFormulas.push(`{IsActive} = ${filters.isActive ? 1 : 0}`);
+      where.is_active = filters.isActive;
     }
 
     if (filters.category) {
-      filterFormulas.push(`{Category} = '${filters.category}'`);
+      where.category = filters.category;
     }
 
-    const filterByFormula =
-      filterFormulas.length > 1
-        ? `AND(${filterFormulas.join(', ')})`
-        : filterFormulas[0];
-
-    return await airtableClient.list<Product>('Product', {
-      filterByFormula,
-      sort: [{ field: 'Name', direction: 'asc' }],
+    return await postgresClient.list<Product>('products', {
+      where,
+      orderBy: { field: 'name', direction: 'asc' },
     });
   }
 
@@ -115,27 +107,34 @@ export class ProductService {
    * Met à jour un produit
    */
   async update(productId: string, input: UpdateProductInput): Promise<Product> {
-    const products = await airtableClient.list<Product>('Product', {
-      filterByFormula: `{ProductId} = '${productId}'`,
+    const products = await postgresClient.list<Product>('products', {
+      where: { product_id: productId },
     });
 
     if (products.length === 0) {
       throw new Error('Produit non trouvé');
     }
 
-    const updates: Partial<Product> = {
-      ...input,
+    if (!products[0].id) {
+      throw new Error('Produit ID manquant');
+    }
+
+    const updates: Record<string, any> = {
       UpdatedAt: new Date().toISOString(),
     };
 
-    const updated = await airtableClient.update<Product>(
-      'Product',
-      (products[0] as any)._recordId,
+    if (input.name !== undefined) updates.Name = input.name;
+    if (input.description !== undefined) updates.Description = input.description;
+    if (input.unitPrice !== undefined) updates.UnitPrice = input.unitPrice;
+    if (input.category !== undefined) updates.Category = input.category;
+    if (input.unit !== undefined) updates.Unit = input.unit;
+    if (input.isActive !== undefined) updates.IsActive = input.isActive;
+
+    const updated = await postgresClient.update<Product>(
+      'products',
+      products[0].id,
       updates
     );
-    if (!updated) {
-      throw new Error('Failed to update product - Airtable not configured');
-    }
     return updated;
   }
 

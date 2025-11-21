@@ -3,11 +3,11 @@
  * Module Ressources Humaines
  */
 
-import { AirtableClient } from '@/lib/airtable/client';
+import { getPostgresClient } from '@/lib/database/postgres-client';
 import { Attendance, AttendanceStatus } from '@/types/modules';
 import { v4 as uuidv4 } from 'uuid';
 
-const airtableClient = new AirtableClient();
+const postgresClient = getPostgresClient();
 
 export interface CreateAttendanceInput {
   employeeId: string;
@@ -61,16 +61,13 @@ export class AttendanceService {
       UpdatedAt: new Date().toISOString(),
     };
 
-    const created = await airtableClient.create<Attendance>('Attendance', attendance);
-    if (!created) {
-      throw new Error('Failed to create attendance - Airtable not configured');
-    }
+    const created = await postgresClient.create<Attendance>('attendances', attendance);
     return created;
   }
 
   async getById(attendanceId: string): Promise<Attendance | null> {
-    const attendances = await airtableClient.list<Attendance>('Attendance', {
-      filterByFormula: `{AttendanceId} = '${attendanceId}'`,
+    const attendances = await postgresClient.list<Attendance>('attendances', {
+      filterByFormula: `attendance_id = '${attendanceId}'`,
     });
     return attendances.length > 0 ? attendances[0] : null;
   }
@@ -79,8 +76,8 @@ export class AttendanceService {
     employeeId: string,
     date: string
   ): Promise<Attendance | null> {
-    const attendances = await airtableClient.list<Attendance>('Attendance', {
-      filterByFormula: `AND({EmployeeId} = '${employeeId}', {Date} = '${date}')`,
+    const attendances = await postgresClient.list<Attendance>('attendances', {
+      filterByFormula: `AND(employee_id = '${employeeId}', date = '${date}')`,
     });
     return attendances.length > 0 ? attendances[0] : null;
   }
@@ -89,19 +86,19 @@ export class AttendanceService {
     workspaceId: string,
     filters: { employeeId?: string; startDate?: string; endDate?: string; status?: string } = {}
   ): Promise<Attendance[]> {
-    const filterFormulas: string[] = [`{WorkspaceId} = '${workspaceId}'`];
+    const filterFormulas: string[] = [`workspace_id = '${workspaceId}'`];
 
     if (filters.employeeId) {
-      filterFormulas.push(`{EmployeeId} = '${filters.employeeId}'`);
+      filterFormulas.push(`employee_id = '${filters.employeeId}'`);
     }
     if (filters.status) {
-      filterFormulas.push(`{Status} = '${filters.status}'`);
+      filterFormulas.push(`status = '${filters.status}'`);
     }
     if (filters.startDate) {
-      filterFormulas.push(`{Date} >= '${filters.startDate}'`);
+      filterFormulas.push(`date >= '${filters.startDate}'`);
     }
     if (filters.endDate) {
-      filterFormulas.push(`{Date} <= '${filters.endDate}'`);
+      filterFormulas.push(`date <= '${filters.endDate}'`);
     }
 
     const filterByFormula =
@@ -109,7 +106,7 @@ export class AttendanceService {
         ? `AND(${filterFormulas.join(', ')})`
         : filterFormulas[0];
 
-    return await airtableClient.list<Attendance>('Attendance', {
+    return await postgresClient.list<Attendance>('attendances', {
       filterByFormula,
       sort: [{ field: 'Date', direction: 'desc' }],
     });
@@ -124,8 +121,8 @@ export class AttendanceService {
       notes?: string;
     }
   ): Promise<Attendance> {
-    const attendances = await airtableClient.list<Attendance>('Attendance', {
-      filterByFormula: `{AttendanceId} = '${attendanceId}'`,
+    const attendances = await postgresClient.list<Attendance>('attendances', {
+      filterByFormula: `attendance_id = '${attendanceId}'`,
     });
 
     if (attendances.length === 0) {
@@ -137,55 +134,67 @@ export class AttendanceService {
     const checkOutTime = updates.checkOutTime || currentAttendance.CheckOutTime;
     const workedHours = this.calculateWorkedHours(checkInTime, checkOutTime);
 
-    const updated = await airtableClient.update<Attendance>(
-      'Attendance',
-      (attendances[0] as any)._recordId,
-      {
-        ...updates,
-        WorkedHours: workedHours,
-        UpdatedAt: new Date().toISOString(),
-      } as any
-    );
-    if (!updated) {
-      throw new Error('Failed to update attendance - Airtable not configured');
+    const updateData: any = {
+      UpdatedAt: new Date().toISOString(),
+      WorkedHours: workedHours,
+    };
+
+    if (updates.status !== undefined) updateData.Status = updates.status;
+    if (updates.checkInTime !== undefined) updateData.CheckInTime = updates.checkInTime;
+    if (updates.checkOutTime !== undefined) updateData.CheckOutTime = updates.checkOutTime;
+    if (updates.notes !== undefined) updateData.Notes = updates.notes;
+
+    if (!attendances[0].id) {
+      throw new Error('Attendance ID is missing');
     }
+
+    const updated = await postgresClient.update<Attendance>(
+      'attendances',
+      attendances[0].id,
+      updateData
+    );
     return updated;
   }
 
   async validate(input: ValidateAttendanceInput): Promise<Attendance> {
-    const attendances = await airtableClient.list<Attendance>('Attendance', {
-      filterByFormula: `{AttendanceId} = '${input.attendanceId}'`,
+    const attendances = await postgresClient.list<Attendance>('attendances', {
+      filterByFormula: `attendance_id = '${input.attendanceId}'`,
     });
 
     if (attendances.length === 0) {
       throw new Error('Présence non trouvée');
     }
 
-    const updated = await airtableClient.update<Attendance>(
-      'Attendance',
-      (attendances[0] as any)._recordId,
+    if (!attendances[0].id) {
+      throw new Error('Attendance ID is missing');
+    }
+
+    const updated = await postgresClient.update<Attendance>(
+      'attendances',
+      attendances[0].id,
       {
         ValidatedById: input.validatedById,
         ValidatedAt: new Date().toISOString(),
         UpdatedAt: new Date().toISOString(),
       }
     );
-    if (!updated) {
-      throw new Error('Failed to update attendance - Airtable not configured');
-    }
     return updated;
   }
 
   async delete(attendanceId: string): Promise<void> {
-    const attendances = await airtableClient.list<Attendance>('Attendance', {
-      filterByFormula: `{AttendanceId} = '${attendanceId}'`,
+    const attendances = await postgresClient.list<Attendance>('attendances', {
+      filterByFormula: `attendance_id = '${attendanceId}'`,
     });
 
     if (attendances.length === 0) {
       throw new Error('Présence non trouvée');
     }
 
-    await airtableClient.delete('Attendance', (attendances[0] as any)._recordId);
+    if (!attendances[0].id) {
+      throw new Error('Attendance ID is missing');
+    }
+
+    await postgresClient.delete('attendances', attendances[0].id);
   }
 
   async getMonthlyReport(
@@ -206,11 +215,11 @@ export class AttendanceService {
     const endDate = new Date(year, month, 0);
     const endDateStr = `${year}-${String(month).padStart(2, '0')}-${String(endDate.getDate()).padStart(2, '0')}`;
 
-    const attendances = await airtableClient.list<Attendance>('Attendance', {
+    const attendances = await postgresClient.list<Attendance>('attendances', {
       filterByFormula: `AND(
-        {EmployeeId} = '${employeeId}',
-        {Date} >= '${startDate}',
-        {Date} <= '${endDateStr}'
+        employee_id = '${employeeId}',
+        date >= '${startDate}',
+        date <= '${endDateStr}'
       )`,
       sort: [{ field: 'Date', direction: 'asc' }],
     });

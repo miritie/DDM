@@ -3,11 +3,11 @@
  * Module Ventes & Encaissements
  */
 
-import { AirtableClient } from '@/lib/airtable/client';
+import { getPostgresClient } from '@/lib/database/postgres-client';
 import { SalePayment as Payment } from '@/types/modules';
 import { v4 as uuidv4 } from 'uuid';
 
-const airtableClient = new AirtableClient();
+const postgresClient = getPostgresClient();
 
 export interface CreatePaymentInput {
   saleId: string;
@@ -27,7 +27,7 @@ export class PaymentService {
   async create(input: CreatePaymentInput): Promise<Payment> {
     const paymentNumber = await this.generatePaymentNumber(input.workspaceId);
 
-    const payment: Partial<Payment> = {
+    const payment = {
       PaymentId: uuidv4(),
       PaymentNumber: paymentNumber,
       SaleId: input.saleId,
@@ -41,10 +41,7 @@ export class PaymentService {
       CreatedAt: new Date().toISOString(),
     };
 
-    const created = await airtableClient.create<Payment>('SalePayment', payment);
-    if (!created) {
-      throw new Error('Failed to create payment - Airtable not configured');
-    }
+    const created = await postgresClient.create<Payment>('sale_payments', payment);
     return created;
   }
 
@@ -53,19 +50,25 @@ export class PaymentService {
    */
   async generatePaymentNumber(workspaceId: string): Promise<string> {
     const year = new Date().getFullYear();
-    const payments = await airtableClient.list<Payment>('SalePayment', {
-      filterByFormula: `AND({WorkspaceId} = '${workspaceId}', YEAR({PaymentDate}) = ${year})`,
+    const payments = await postgresClient.list<Payment>('sale_payments', {
+      where: { workspace_id: workspaceId },
     });
 
-    return `PAY-${year}-${String(payments.length + 1).padStart(4, '0')}`;
+    // Filter by year in application code
+    const yearPayments = payments.filter(p => {
+      const paymentYear = new Date(p.PaymentDate).getFullYear();
+      return paymentYear === year;
+    });
+
+    return `PAY-${year}-${String(yearPayments.length + 1).padStart(4, '0')}`;
   }
 
   /**
    * Récupérer un paiement par ID
    */
   async getById(paymentId: string): Promise<Payment | null> {
-    const payments = await airtableClient.list<Payment>('SalePayment', {
-      filterByFormula: `{PaymentId} = '${paymentId}'`,
+    const payments = await postgresClient.list<Payment>('sale_payments', {
+      where: { payment_id: paymentId },
     });
     return payments.length > 0 ? payments[0] : null;
   }
@@ -74,9 +77,9 @@ export class PaymentService {
    * Lister les paiements d'une vente
    */
   async getBySaleId(saleId: string): Promise<Payment[]> {
-    return await airtableClient.list<Payment>('SalePayment', {
-      filterByFormula: `{SaleId} = '${saleId}'`,
-      sort: [{ field: 'PaymentDate', direction: 'desc' }],
+    return await postgresClient.list<Payment>('sale_payments', {
+      where: { sale_id: saleId },
+      orderBy: { field: 'payment_date', direction: 'desc' },
     });
   }
 
@@ -88,26 +91,26 @@ export class PaymentService {
     endDate?: string;
     paymentMethod?: string;
   } = {}): Promise<Payment[]> {
-    const filterFormulas: string[] = [`{WorkspaceId} = '${workspaceId}'`];
+    const where: Record<string, any> = { workspace_id: workspaceId };
 
+    if (filters.paymentMethod) {
+      where.payment_method = filters.paymentMethod;
+    }
+
+    let payments = await postgresClient.list<Payment>('sale_payments', {
+      where,
+      orderBy: { field: 'payment_date', direction: 'desc' },
+    });
+
+    // Apply date filters in application code
     if (filters.startDate) {
-      filterFormulas.push(`{PaymentDate} >= '${filters.startDate}'`);
+      payments = payments.filter(p => p.PaymentDate >= filters.startDate!);
     }
     if (filters.endDate) {
-      filterFormulas.push(`{PaymentDate} <= '${filters.endDate}'`);
-    }
-    if (filters.paymentMethod) {
-      filterFormulas.push(`{PaymentMethod} = '${filters.paymentMethod}'`);
+      payments = payments.filter(p => p.PaymentDate <= filters.endDate!);
     }
 
-    const filterByFormula = filterFormulas.length > 1
-      ? `AND(${filterFormulas.join(', ')})`
-      : filterFormulas[0];
-
-    return await airtableClient.list<Payment>('SalePayment', {
-      filterByFormula,
-      sort: [{ field: 'PaymentDate', direction: 'desc' }],
-    });
+    return payments;
   }
 
   /**

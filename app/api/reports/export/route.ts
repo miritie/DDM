@@ -5,12 +5,12 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { ExportService } from '@/lib/modules/reports/export-service';
-import { AirtableClient } from '@/lib/airtable/client';
+import { getPostgresClient } from '@/lib/database/postgres-client';
 import { ReportExecution } from '@/types/modules';
 import { requirePermission, PERMISSIONS } from '@/lib/rbac/server';
 
 const exportService = new ExportService();
-const airtableClient = new AirtableClient();
+const postgresClient = getPostgresClient();
 
 export async function POST(request: NextRequest) {
   try {
@@ -19,18 +19,32 @@ export async function POST(request: NextRequest) {
     const { executionId, format = 'excel', filename, includeCharts = false, orientation = 'portrait' } = body;
 
     // Get execution
-    const executions = await airtableClient.list<ReportExecution>('ReportExecution', {
-      filterByFormula: `{ExecutionId} = '${executionId}'`,
-    });
+    const executions = await postgresClient.query(
+      `SELECT * FROM report_executions WHERE execution_id = $1`,
+      [executionId]
+    );
 
-    if (executions.length === 0) {
-      return NextResponse.json({ error: 'Exécution non trouvée' }, { status: 404 });
+    if (executions.rows.length === 0) {
+      return NextResponse.json({ error: 'Execution non trouvee' }, { status: 404 });
     }
 
-    const execution = executions[0];
+    const executionRow = executions.rows[0];
+
+    // Map to expected format
+    const execution: ReportExecution = {
+      ExecutionId: executionRow.execution_id,
+      ReportId: executionRow.report_id,
+      Status: executionRow.status,
+      ResultData: executionRow.result,
+      StartedAt: executionRow.started_at,
+      CompletedAt: executionRow.completed_at,
+      ErrorMessage: executionRow.error_message,
+      TriggeredById: executionRow.created_by_id,
+      CreatedAt: executionRow.created_at,
+    };
 
     if (execution.Status !== 'completed') {
-      return NextResponse.json({ error: 'Le rapport n\'est pas encore terminé' }, { status: 400 });
+      return NextResponse.json({ error: 'Le rapport n\'est pas encore termine' }, { status: 400 });
     }
 
     // Export

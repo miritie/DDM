@@ -18,7 +18,7 @@ export async function GET(request: NextRequest) {
     // Organiser par catégorie
     const templatesByCategory = templates.reduce(
       (acc, template) => {
-        const category = template.Category;
+        const category = template.category;
         if (!acc[category]) {
           acc[category] = [];
         }

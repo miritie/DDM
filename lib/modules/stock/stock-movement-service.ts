@@ -4,12 +4,12 @@
  * Traçabilité complète: Production → Entrepôt → Distribution
  */
 
-import { AirtableClient } from '@/lib/airtable/client';
+import { getPostgresClient } from '@/lib/database/postgres-client';
 import { StockMovement, StockMovementType } from '@/types/modules';
 import { StockService } from './stock-service';
 import { v4 as uuidv4 } from 'uuid';
 
-const airtableClient = new AirtableClient();
+const postgresClient = getPostgresClient();
 const stockService = new StockService();
 
 export interface CreateMovementInput {
@@ -56,10 +56,7 @@ export class StockMovementService {
       UpdatedAt: new Date().toISOString(),
     };
 
-    const createdMovement = await airtableClient.create<StockMovement>('StockMovement', movement);
-    if (!createdMovement) {
-      throw new Error('Failed to create stock movement - Airtable not configured');
-    }
+    const createdMovement = await postgresClient.create<StockMovement>('stock_movements', movement);
 
     // Valider automatiquement le mouvement (mettre à jour les stocks)
     await this.validate(createdMovement.MovementId);
@@ -71,8 +68,8 @@ export class StockMovementService {
    * Valider le mouvement et mettre à jour les stocks
    */
   async validate(movementId: string): Promise<StockMovement> {
-    const movements = await airtableClient.list<StockMovement>('StockMovement', {
-      filterByFormula: `{MovementId} = '${movementId}'`,
+    const movements = await postgresClient.list<StockMovement>('stock_movements', {
+      filterByFormula: `{movement_id} = '${movementId}'`,
     });
 
     if (movements.length === 0) {
@@ -177,29 +174,32 @@ export class StockMovementService {
       }
 
       // Marquer le mouvement comme validé
-      const updated = await airtableClient.update<StockMovement>(
-        'StockMovement',
-        (movements[0] as any)._recordId,
+      if (!movements[0].id) {
+        throw new Error('ID de mouvement manquant pour mise à jour');
+      }
+
+      const updated = await postgresClient.update<StockMovement>(
+        'stock_movements',
+        movements[0].id,
         {
           Status: 'validated',
           ValidatedAt: new Date().toISOString(),
           UpdatedAt: new Date().toISOString(),
         }
       );
-      if (!updated) {
-        throw new Error('Failed to update stock movement - Airtable not configured');
-      }
       return updated;
     } catch (error: any) {
       // En cas d'erreur, annuler le mouvement
-      await airtableClient.update<StockMovement>(
-        'StockMovement',
-        (movements[0] as any)._recordId,
-        {
-          Status: 'cancelled',
-          UpdatedAt: new Date().toISOString(),
-        }
-      );
+      if (movements[0].id) {
+        await postgresClient.update<StockMovement>(
+          'stock_movements',
+          movements[0].id,
+          {
+            Status: 'cancelled',
+            UpdatedAt: new Date().toISOString(),
+          }
+        );
+      }
       throw error;
     }
   }
@@ -208,8 +208,8 @@ export class StockMovementService {
    * Annuler un mouvement
    */
   async cancel(movementId: string): Promise<StockMovement> {
-    const movements = await airtableClient.list<StockMovement>('StockMovement', {
-      filterByFormula: `{MovementId} = '${movementId}'`,
+    const movements = await postgresClient.list<StockMovement>('stock_movements', {
+      filterByFormula: `{movement_id} = '${movementId}'`,
     });
 
     if (movements.length === 0) {
@@ -220,17 +220,18 @@ export class StockMovementService {
       throw new Error('Impossible d\'annuler un mouvement validé. Créez un mouvement inverse.');
     }
 
-    const updated = await airtableClient.update<StockMovement>(
-      'StockMovement',
-      (movements[0] as any)._recordId,
+    if (!movements[0].id) {
+      throw new Error('ID de mouvement manquant pour annulation');
+    }
+
+    const updated = await postgresClient.update<StockMovement>(
+      'stock_movements',
+      movements[0].id,
       {
         Status: 'cancelled',
         UpdatedAt: new Date().toISOString(),
       }
     );
-    if (!updated) {
-      throw new Error('Failed to update stock movement - Airtable not configured');
-    }
     return updated;
   }
 
@@ -239,8 +240,8 @@ export class StockMovementService {
    */
   async generateMovementNumber(workspaceId: string, type: StockMovementType): Promise<string> {
     const year = new Date().getFullYear();
-    const movements = await airtableClient.list<StockMovement>('StockMovement', {
-      filterByFormula: `AND({WorkspaceId} = '${workspaceId}', {Type} = '${type}', YEAR({CreatedAt}) = ${year})`,
+    const movements = await postgresClient.list<StockMovement>('stock_movements', {
+      filterByFormula: `AND({workspace_id} = '${workspaceId}', {type} = '${type}', YEAR({created_at}) = ${year})`,
     });
 
     const prefix = this.getMovementPrefix(type);
@@ -295,8 +296,8 @@ export class StockMovementService {
    * Récupérer un mouvement par ID
    */
   async getById(movementId: string): Promise<StockMovement | null> {
-    const movements = await airtableClient.list<StockMovement>('StockMovement', {
-      filterByFormula: `{MovementId} = '${movementId}'`,
+    const movements = await postgresClient.list<StockMovement>('stock_movements', {
+      filterByFormula: `{movement_id} = '${movementId}'`,
     });
 
     return movements.length > 0 ? movements[0] : null;
@@ -313,32 +314,32 @@ export class StockMovementService {
     startDate?: string;
     endDate?: string;
   } = {}): Promise<StockMovement[]> {
-    const filterFormulas: string[] = [`{WorkspaceId} = '${workspaceId}'`];
+    const filterFormulas: string[] = [`{workspace_id} = '${workspaceId}'`];
 
     if (filters.type) {
-      filterFormulas.push(`{Type} = '${filters.type}'`);
+      filterFormulas.push(`{type} = '${filters.type}'`);
     }
     if (filters.productId) {
-      filterFormulas.push(`{ProductId} = '${filters.productId}'`);
+      filterFormulas.push(`{product_id} = '${filters.productId}'`);
     }
     if (filters.warehouseId) {
-      filterFormulas.push(`OR({SourceWarehouseId} = '${filters.warehouseId}', {DestinationWarehouseId} = '${filters.warehouseId}')`);
+      filterFormulas.push(`OR({source_warehouse_id} = '${filters.warehouseId}', {destination_warehouse_id} = '${filters.warehouseId}')`);
     }
     if (filters.status) {
-      filterFormulas.push(`{Status} = '${filters.status}'`);
+      filterFormulas.push(`{status} = '${filters.status}'`);
     }
     if (filters.startDate) {
-      filterFormulas.push(`{CreatedAt} >= '${filters.startDate}'`);
+      filterFormulas.push(`{created_at} >= '${filters.startDate}'`);
     }
     if (filters.endDate) {
-      filterFormulas.push(`{CreatedAt} <= '${filters.endDate}'`);
+      filterFormulas.push(`{created_at} <= '${filters.endDate}'`);
     }
 
     const filterByFormula = filterFormulas.length > 1
       ? `AND(${filterFormulas.join(', ')})`
       : filterFormulas[0];
 
-    return await airtableClient.list<StockMovement>('StockMovement', {
+    return await postgresClient.list<StockMovement>('stock_movements', {
       filterByFormula,
       sort: [{ field: 'CreatedAt', direction: 'desc' }],
     });

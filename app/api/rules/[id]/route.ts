@@ -48,10 +48,10 @@ export async function GET(
           data: {
             ...rule,
             stats: {
-              totalExecutions: stats.TotalExecutions,
-              matchRate: stats.MatchRate,
-              successRate: stats.SuccessRate,
-              overrideRate: stats.OverrideRate,
+              totalExecutions: stats.total_executions,
+              matchRate: stats.match_rate,
+              successRate: stats.success_rate,
+              overrideRate: stats.override_rate,
             },
           },
         },

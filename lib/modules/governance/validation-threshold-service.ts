@@ -3,11 +3,11 @@
  * Configuration et récupération des seuils pour le workflow de validation hiérarchique
  */
 
-import { AirtableClient } from '@/lib/airtable/client';
+import { getPostgresClient } from '@/lib/database/postgres-client';
 import { v4 as uuidv4 } from 'uuid';
 import { ValidatableEntityType, ValidationThreshold } from './validation-workflow-service';
 
-const airtableClient = new AirtableClient();
+const postgresClient = getPostgresClient();
 
 export interface CreateThresholdInput {
   workspaceId: string;
@@ -30,7 +30,7 @@ export interface UpdateThresholdInput {
 
 export class ValidationThresholdService {
   /**
-   * Crée une configuration de seuils
+   * Cree une configuration de seuils
    */
   async createThreshold(input: CreateThresholdInput): Promise<ValidationThreshold> {
     const {
@@ -47,11 +47,11 @@ export class ValidationThresholdService {
     // Valider la logique des seuils
     this.validateThresholds(level1Threshold, level2Threshold, level3Threshold, autoApproveBelow);
 
-    // Vérifier si une config existe déjà pour ce type et catégorie
+    // Verifier si une config existe deja pour ce type et categorie
     const existing = await this.getThreshold(workspaceId, entityType, category);
     if (existing) {
       throw new Error(
-        `Une configuration existe déjà pour ${entityType}${category ? ` (${category})` : ''}`
+        `Une configuration existe deja pour ${entityType}${category ? ` (${category})` : ''}`
       );
     }
 
@@ -69,30 +69,27 @@ export class ValidationThresholdService {
       UpdatedAt: new Date().toISOString(),
     };
 
-    const created = await airtableClient.create<ValidationThreshold>(
-      'ValidationThreshold',
+    const created = await postgresClient.create<ValidationThreshold>(
+      'validation_thresholds',
       threshold
     );
-    if (!created) {
-      throw new Error('Failed to create validation threshold - Airtable not configured');
-    }
     return created;
   }
 
   /**
-   * Met à jour une configuration de seuils
+   * Met a jour une configuration de seuils
    */
   async updateThreshold(
     thresholdId: string,
     updates: UpdateThresholdInput
   ): Promise<ValidationThreshold> {
-    // Récupérer le seuil existant
-    const thresholds = await airtableClient.list<ValidationThreshold>('ValidationThreshold', {
-      filterByFormula: `{ThresholdId} = '${thresholdId}'`,
+    // Recuperer le seuil existant
+    const thresholds = await postgresClient.list<ValidationThreshold>('validation_thresholds', {
+      filterByFormula: `threshold_id = '${thresholdId}'`,
     });
 
     if (thresholds.length === 0) {
-      throw new Error('Configuration de seuils non trouvée');
+      throw new Error('Configuration de seuils non trouvee');
     }
 
     const existing = thresholds[0];
@@ -106,40 +103,47 @@ export class ValidationThresholdService {
     // Valider la logique
     this.validateThresholds(newLevel1, newLevel2, newLevel3, newAutoApprove);
 
-    // Mettre à jour
-    const updated = await airtableClient.update<ValidationThreshold>(
-      'ValidationThreshold',
-      (existing as any)._recordId,
-      {
-        ...updates,
-        UpdatedAt: new Date().toISOString(),
-      }
-    );
-    if (!updated) {
-      throw new Error('Failed to update validation threshold - Airtable not configured');
+    // Preparer les mises a jour avec les noms de champs PascalCase
+    const updateData: Record<string, any> = {
+      UpdatedAt: new Date().toISOString(),
+    };
+    if (updates.level1Threshold !== undefined) updateData.Level1Threshold = updates.level1Threshold;
+    if (updates.level2Threshold !== undefined) updateData.Level2Threshold = updates.level2Threshold;
+    if (updates.level3Threshold !== undefined) updateData.Level3Threshold = updates.level3Threshold;
+    if (updates.requireAllLevels !== undefined) updateData.RequireAllLevels = updates.requireAllLevels;
+    if (updates.autoApproveBelow !== undefined) updateData.AutoApproveBelow = updates.autoApproveBelow;
+
+    // Mettre a jour
+    const recordId = existing.id;
+    if (!recordId) {
+      throw new Error('ID not found');
     }
+
+    const updated = await postgresClient.update<ValidationThreshold>(
+      'validation_thresholds',
+      recordId,
+      updateData
+    );
     return updated;
   }
 
   /**
-   * Récupère une configuration de seuils
+   * Recupere une configuration de seuils
    */
   async getThreshold(
     workspaceId: string,
     entityType: ValidatableEntityType,
     category?: string
   ): Promise<ValidationThreshold | null> {
-    let filterFormula = `AND({WorkspaceId} = '${workspaceId}', {EntityType} = '${entityType}'`;
+    let filterFormula = `workspace_id = '${workspaceId}' AND entity_type = '${entityType}'`;
 
     if (category) {
-      filterFormula += `, {Category} = '${category}'`;
+      filterFormula += ` AND category = '${category}'`;
     } else {
-      filterFormula += `, {Category} = BLANK()`;
+      filterFormula += ` AND category IS NULL`;
     }
 
-    filterFormula += ')';
-
-    const thresholds = await airtableClient.list<ValidationThreshold>('ValidationThreshold', {
+    const thresholds = await postgresClient.list<ValidationThreshold>('validation_thresholds', {
       filterByFormula: filterFormula,
     });
 
@@ -147,11 +151,11 @@ export class ValidationThresholdService {
   }
 
   /**
-   * Récupère toutes les configurations pour un workspace
+   * Recupere toutes les configurations pour un workspace
    */
   async getAllThresholds(workspaceId: string): Promise<ValidationThreshold[]> {
-    const thresholds = await airtableClient.list<ValidationThreshold>('ValidationThreshold', {
-      filterByFormula: `{WorkspaceId} = '${workspaceId}'`,
+    const thresholds = await postgresClient.list<ValidationThreshold>('validation_thresholds', {
+      filterByFormula: `workspace_id = '${workspaceId}'`,
       sort: [
         { field: 'EntityType', direction: 'asc' },
         { field: 'Category', direction: 'asc' },
@@ -162,14 +166,14 @@ export class ValidationThresholdService {
   }
 
   /**
-   * Récupère les seuils par type d'entité (toutes catégories)
+   * Recupere les seuils par type d'entite (toutes categories)
    */
   async getThresholdsByEntityType(
     workspaceId: string,
     entityType: ValidatableEntityType
   ): Promise<ValidationThreshold[]> {
-    const thresholds = await airtableClient.list<ValidationThreshold>('ValidationThreshold', {
-      filterByFormula: `AND({WorkspaceId} = '${workspaceId}', {EntityType} = '${entityType}')`,
+    const thresholds = await postgresClient.list<ValidationThreshold>('validation_thresholds', {
+      filterByFormula: `workspace_id = '${workspaceId}' AND entity_type = '${entityType}'`,
       sort: [{ field: 'Category', direction: 'asc' }],
     });
 
@@ -180,20 +184,25 @@ export class ValidationThresholdService {
    * Supprime une configuration de seuils
    */
   async deleteThreshold(thresholdId: string): Promise<void> {
-    const thresholds = await airtableClient.list<ValidationThreshold>('ValidationThreshold', {
-      filterByFormula: `{ThresholdId} = '${thresholdId}'`,
+    const thresholds = await postgresClient.list<ValidationThreshold>('validation_thresholds', {
+      filterByFormula: `threshold_id = '${thresholdId}'`,
     });
 
     if (thresholds.length === 0) {
-      throw new Error('Configuration de seuils non trouvée');
+      throw new Error('Configuration de seuils non trouvee');
     }
 
     const threshold = thresholds[0];
-    await airtableClient.delete('ValidationThreshold', (threshold as any)._recordId);
+    const recordId = threshold.id;
+    if (!recordId) {
+      throw new Error('ID not found');
+    }
+
+    await postgresClient.delete('validation_thresholds', recordId);
   }
 
   /**
-   * Récupère ou crée une configuration par défaut
+   * Recupere ou cree une configuration par defaut
    */
   async getOrCreateDefaultThreshold(
     workspaceId: string,
@@ -205,7 +214,7 @@ export class ValidationThresholdService {
       return existing;
     }
 
-    // Créer config par défaut selon le type d'entité
+    // Creer config par defaut selon le type d'entite
     const defaults = this.getDefaultThresholds(entityType);
 
     return await this.createThreshold({
@@ -216,24 +225,24 @@ export class ValidationThresholdService {
   }
 
   /**
-   * Clone une configuration pour une nouvelle catégorie
+   * Clone une configuration pour une nouvelle categorie
    */
   async cloneThreshold(
     thresholdId: string,
     newCategory: string
   ): Promise<ValidationThreshold> {
-    // Récupérer le seuil source
-    const thresholds = await airtableClient.list<ValidationThreshold>('ValidationThreshold', {
-      filterByFormula: `{ThresholdId} = '${thresholdId}'`,
+    // Recuperer le seuil source
+    const thresholds = await postgresClient.list<ValidationThreshold>('validation_thresholds', {
+      filterByFormula: `threshold_id = '${thresholdId}'`,
     });
 
     if (thresholds.length === 0) {
-      throw new Error('Configuration de seuils source non trouvée');
+      throw new Error('Configuration de seuils source non trouvee');
     }
 
     const source = thresholds[0];
 
-    // Créer nouvelle config avec les mêmes valeurs
+    // Creer nouvelle config avec les memes valeurs
     return await this.createThreshold({
       workspaceId: source.WorkspaceId,
       entityType: source.EntityType,
@@ -247,7 +256,7 @@ export class ValidationThresholdService {
   }
 
   /**
-   * Valide la cohérence des seuils
+   * Valide la coherence des seuils
    */
   async validateWorkspaceThresholds(workspaceId: string): Promise<{
     valid: boolean;
@@ -280,7 +289,7 @@ export class ValidationThresholdService {
   }
 
   /**
-   * Récupère les statistiques d'utilisation des seuils
+   * Recupere les statistiques d'utilisation des seuils
    */
   async getThresholdUsageStats(
     workspaceId: string,
@@ -300,13 +309,9 @@ export class ValidationThresholdService {
     totalRequests: number;
     autoApprovalRate: number;
   }> {
-    // Récupérer toutes les demandes de validation dans la période
-    const requests = await airtableClient.list<any>('ValidationRequest', {
-      filterByFormula: `AND(
-        {WorkspaceId} = '${workspaceId}',
-        {RequestedAt} >= '${startDate}',
-        {RequestedAt} <= '${endDate}'
-      )`,
+    // Recuperer toutes les demandes de validation dans la periode
+    const requests = await postgresClient.list<any>('validation_requests', {
+      filterByFormula: `workspace_id = '${workspaceId}' AND requested_at >= '${startDate}' AND requested_at <= '${endDate}'`,
     });
 
     const byEntityType: Record<string, any> = {};
@@ -316,8 +321,8 @@ export class ValidationThresholdService {
     requests.forEach((req) => {
       totalRequests++;
 
-      if (!byEntityType[req.EntityType]) {
-        byEntityType[req.EntityType] = {
+      if (!byEntityType[req.entity_type]) {
+        byEntityType[req.entity_type] = {
           autoApproved: 0,
           level1: 0,
           level2: 0,
@@ -326,15 +331,15 @@ export class ValidationThresholdService {
         };
       }
 
-      if (req.Status === 'auto_approved') {
-        byEntityType[req.EntityType].autoApproved++;
+      if (req.status === 'auto_approved') {
+        byEntityType[req.entity_type].autoApproved++;
         autoApproved++;
       } else {
-        const level = req.RequiredLevel.replace('level_', '');
+        const level = req.required_level.replace('level_', '');
         if (level === 'owner') {
-          byEntityType[req.EntityType].levelOwner++;
+          byEntityType[req.entity_type].levelOwner++;
         } else {
-          byEntityType[req.EntityType][`level${level}`]++;
+          byEntityType[req.entity_type][`level${level}`]++;
         }
       }
     });
@@ -346,7 +351,7 @@ export class ValidationThresholdService {
     };
   }
 
-  // ========== Méthodes privées ==========
+  // ========== Methodes privees ==========
 
   /**
    * Valide la logique des seuils
@@ -357,26 +362,26 @@ export class ValidationThresholdService {
     level3: number,
     autoApprove: number
   ): void {
-    // Les seuils doivent être positifs
+    // Les seuils doivent etre positifs
     if (level1 < 0 || level2 < 0 || level3 < 0 || autoApprove < 0) {
-      throw new Error('Les seuils doivent être des nombres positifs');
+      throw new Error('Les seuils doivent etre des nombres positifs');
     }
 
-    // Les seuils doivent être croissants: Level1 < Level2 < Level3
+    // Les seuils doivent etre croissants: Level1 < Level2 < Level3
     if (level1 >= level2 || level2 >= level3) {
       throw new Error(
-        'Les seuils doivent être croissants: Niveau 1 < Niveau 2 < Niveau 3'
+        'Les seuils doivent etre croissants: Niveau 1 < Niveau 2 < Niveau 3'
       );
     }
 
-    // AutoApprove doit être inférieur à Level1
+    // AutoApprove doit etre inferieur a Level1
     if (autoApprove >= level1) {
-      throw new Error('Le seuil d\'auto-approbation doit être inférieur au seuil Niveau 1');
+      throw new Error('Le seuil d\'auto-approbation doit etre inferieur au seuil Niveau 1');
     }
   }
 
   /**
-   * Retourne les seuils par défaut selon le type d'entité
+   * Retourne les seuils par defaut selon le type d'entite
    */
   private getDefaultThresholds(entityType: ValidatableEntityType): {
     level1Threshold: number;
@@ -385,7 +390,7 @@ export class ValidationThresholdService {
     requireAllLevels: boolean;
     autoApproveBelow: number;
   } {
-    // Seuils par défaut en FCFA selon le type d'entité
+    // Seuils par defaut en FCFA selon le type d'entite
     const defaults: Record<
       ValidatableEntityType,
       {
@@ -432,7 +437,7 @@ export class ValidationThresholdService {
         autoApproveBelow: 0, // Dettes: toujours validation manuelle
       },
       leave: {
-        level1Threshold: 3, // Jours de congé
+        level1Threshold: 3, // Jours de conge
         level2Threshold: 7,
         level3Threshold: 15,
         requireAllLevels: false,
@@ -456,7 +461,7 @@ export class ValidationThresholdService {
         level1Threshold: 100000,
         level2Threshold: 500000,
         level3Threshold: 2000000,
-        requireAllLevels: true, // Crédits: tous niveaux requis
+        requireAllLevels: true, // Credits: tous niveaux requis
         autoApproveBelow: 0,
       },
     };

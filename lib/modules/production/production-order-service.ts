@@ -3,7 +3,7 @@
  * Module Production & Usine
  */
 
-import { AirtableClient } from '@/lib/airtable/client';
+import { getPostgresClient } from '@/lib/database/postgres-client';
 import {
   ProductionOrder,
   ProductionOrderStatus,
@@ -17,7 +17,7 @@ import { RecipeService } from './recipe-service';
 import { IngredientService } from './ingredient-service';
 import { StockService } from '../stock/stock-service';
 
-const airtableClient = new AirtableClient();
+const postgresClient = getPostgresClient();
 const recipeService = new RecipeService();
 const ingredientService = new IngredientService();
 const stockService = new StockService();
@@ -83,35 +83,35 @@ export class ProductionOrderService {
       toDate?: string;
     }
   ): Promise<ProductionOrder[]> {
-    let formulaParts = [`{WorkspaceId} = '${workspaceId}'`];
+    const conditions: string[] = [`workspace_id = '${workspaceId}'`];
 
     if (filters?.status) {
-      formulaParts.push(`{Status} = '${filters.status}'`);
+      conditions.push(`status = '${filters.status}'`);
     }
 
     if (filters?.priority) {
-      formulaParts.push(`{Priority} = '${filters.priority}'`);
+      conditions.push(`priority = '${filters.priority}'`);
     }
 
     if (filters?.assignedToId) {
-      formulaParts.push(`{AssignedToId} = '${filters.assignedToId}'`);
+      conditions.push(`assigned_to_id = '${filters.assignedToId}'`);
     }
 
     if (filters?.productId) {
-      formulaParts.push(`{ProductId} = '${filters.productId}'`);
+      conditions.push(`product_id = '${filters.productId}'`);
     }
 
     if (filters?.fromDate) {
-      formulaParts.push(`{PlannedStartDate} >= '${filters.fromDate}'`);
+      conditions.push(`planned_start_date >= '${filters.fromDate}'`);
     }
 
     if (filters?.toDate) {
-      formulaParts.push(`{PlannedStartDate} <= '${filters.toDate}'`);
+      conditions.push(`planned_start_date <= '${filters.toDate}'`);
     }
 
-    const orders = await airtableClient.list<ProductionOrder>('ProductionOrder', {
-      filterByFormula: `AND(${formulaParts.join(', ')})`,
-      sort: [{ field: 'OrderNumber', direction: 'desc' }],
+    const orders = await postgresClient.list<ProductionOrder>('production_orders', {
+      filterByFormula: conditions.join(' AND '),
+      orderBy: { field: 'order_number', direction: 'desc' },
     });
 
     // Charger les consommations et batches pour chaque ordre
@@ -127,8 +127,8 @@ export class ProductionOrderService {
    * Récupère un ordre de production par ID
    */
   async getById(productionOrderId: string): Promise<ProductionOrder | null> {
-    const results = await airtableClient.list<ProductionOrder>('ProductionOrder', {
-      filterByFormula: `{ProductionOrderId} = '${productionOrderId}'`,
+    const results = await postgresClient.list<ProductionOrder>('production_orders', {
+      filterByFormula: `production_order_id = '${productionOrderId}'`,
     });
 
     if (results.length === 0) {
@@ -146,8 +146,8 @@ export class ProductionOrderService {
    * Récupère un ordre par numéro
    */
   async getByNumber(workspaceId: string, orderNumber: string): Promise<ProductionOrder | null> {
-    const results = await airtableClient.list<ProductionOrder>('ProductionOrder', {
-      filterByFormula: `AND({WorkspaceId} = '${workspaceId}', {OrderNumber} = '${orderNumber}')`,
+    const results = await postgresClient.list<ProductionOrder>('production_orders', {
+      filterByFormula: `workspace_id = '${workspaceId}' AND order_number = '${orderNumber}'`,
     });
 
     if (results.length === 0) {
@@ -165,9 +165,9 @@ export class ProductionOrderService {
    * Récupère les consommations d'ingrédients d'un ordre
    */
   async getIngredientConsumptions(productionOrderId: string): Promise<IngredientConsumption[]> {
-    return await airtableClient.list<IngredientConsumption>('IngredientConsumption', {
-      filterByFormula: `{ProductionOrderId} = '${productionOrderId}'`,
-      sort: [{ field: 'ConsumedAt', direction: 'asc' }],
+    return await postgresClient.list<IngredientConsumption>('ingredient_consumptions', {
+      filterByFormula: `production_order_id = '${productionOrderId}'`,
+      orderBy: { field: 'consumed_at', direction: 'asc' },
     });
   }
 
@@ -175,9 +175,9 @@ export class ProductionOrderService {
    * Récupère les batches/lots produits d'un ordre
    */
   async getBatches(productionOrderId: string): Promise<ProductionBatch[]> {
-    return await airtableClient.list<ProductionBatch>('ProductionBatch', {
-      filterByFormula: `{ProductionOrderId} = '${productionOrderId}'`,
-      sort: [{ field: 'ProductionDate', direction: 'desc' }],
+    return await postgresClient.list<ProductionBatch>('production_batches', {
+      filterByFormula: `production_order_id = '${productionOrderId}'`,
+      orderBy: { field: 'production_date', direction: 'desc' },
     });
   }
 
@@ -190,9 +190,9 @@ export class ProductionOrderService {
     const month = String(now.getMonth() + 1).padStart(2, '0');
     const prefix = `OP-${year}${month}`;
 
-    const existingOrders = await airtableClient.list<ProductionOrder>('ProductionOrder', {
-      filterByFormula: `AND({WorkspaceId} = '${workspaceId}', SEARCH('${prefix}', {OrderNumber}) = 1)`,
-      sort: [{ field: 'OrderNumber', direction: 'desc' }],
+    const existingOrders = await postgresClient.list<ProductionOrder>('production_orders', {
+      filterByFormula: `workspace_id = '${workspaceId}' AND order_number LIKE '${prefix}%'`,
+      orderBy: { field: 'order_number', direction: 'desc' },
     });
 
     let nextNumber = 1;
@@ -253,10 +253,7 @@ export class ProductionOrderService {
       UpdatedAt: new Date().toISOString(),
     };
 
-    const createdOrder = await airtableClient.create<ProductionOrder>('ProductionOrder', order);
-    if (!createdOrder) {
-      throw new Error('Failed to create production order - Airtable not configured');
-    }
+    const createdOrder = await postgresClient.create<ProductionOrder>('production_orders', order);
 
     // Créer les consommations planifiées d'ingrédients
     const consumptions: IngredientConsumption[] = [];
@@ -281,13 +278,10 @@ export class ProductionOrderService {
         ConsumedAt: new Date().toISOString(),
       };
 
-      const createdConsumption = await airtableClient.create<IngredientConsumption>(
-        'IngredientConsumption',
+      const createdConsumption = await postgresClient.create<IngredientConsumption>(
+        'ingredient_consumptions',
         consumption
       );
-      if (!createdConsumption) {
-        throw new Error('Failed to create ingredient consumption - Airtable not configured');
-      }
       consumptions.push(createdConsumption);
     }
 
@@ -311,23 +305,34 @@ export class ProductionOrderService {
       this.validateStatusTransition(order.Status, updates.status);
     }
 
-    const records = await airtableClient.list<ProductionOrder>('ProductionOrder', {
-      filterByFormula: `{ProductionOrderId} = '${productionOrderId}'`,
+    const records = await postgresClient.list<ProductionOrder>('production_orders', {
+      filterByFormula: `production_order_id = '${productionOrderId}'`,
     });
 
     if (records.length === 0) {
       throw new Error('Ordre de production non trouvé');
     }
 
-    const recordId = (records[0] as any)._recordId;
-
-    const updatedOrder = await airtableClient.update<ProductionOrder>('ProductionOrder', recordId, {
-      ...updates,
-      UpdatedAt: new Date().toISOString(),
-    });
-    if (!updatedOrder) {
-      throw new Error('Failed to update production order - Airtable not configured');
+    const recordId = records[0].id;
+    if (!recordId) {
+      throw new Error('ID d\'enregistrement non trouvé');
     }
+
+    const updateData: Record<string, any> = {
+      UpdatedAt: new Date().toISOString(),
+    };
+    if (updates.status !== undefined) updateData.Status = updates.status;
+    if (updates.plannedQuantity !== undefined) updateData.PlannedQuantity = updates.plannedQuantity;
+    if (updates.plannedStartDate !== undefined) updateData.PlannedStartDate = updates.plannedStartDate;
+    if (updates.plannedEndDate !== undefined) updateData.PlannedEndDate = updates.plannedEndDate;
+    if (updates.actualStartDate !== undefined) updateData.ActualStartDate = updates.actualStartDate;
+    if (updates.actualEndDate !== undefined) updateData.ActualEndDate = updates.actualEndDate;
+    if (updates.priority !== undefined) updateData.Priority = updates.priority;
+    if (updates.assignedToId !== undefined) updateData.AssignedToId = updates.assignedToId;
+    if (updates.assignedToName !== undefined) updateData.AssignedToName = updates.assignedToName;
+    if (updates.notes !== undefined) updateData.Notes = updates.notes;
+
+    const updatedOrder = await postgresClient.update<ProductionOrder>('production_orders', recordId, updateData);
 
     updatedOrder.IngredientConsumptions = await this.getIngredientConsumptions(productionOrderId);
     updatedOrder.Batches = await this.getBatches(productionOrderId);
@@ -409,7 +414,7 @@ export class ProductionOrderService {
     for (const consumptionInput of input.ingredients) {
       // Trouver la consommation correspondante
       const consumption = order.IngredientConsumptions.find(
-        (c) => c.IngredientId === consumptionInput.ingredientId
+        (c: IngredientConsumption) => c.IngredientId === consumptionInput.ingredientId
       );
 
       if (!consumption) {
@@ -430,31 +435,35 @@ export class ProductionOrderService {
       const consumptionCost = consumptionInput.actualQuantity * consumption.UnitCost;
       totalCost += consumptionCost;
 
-      const records = await airtableClient.list<IngredientConsumption>('IngredientConsumption', {
-        filterByFormula: `{ConsumptionId} = '${consumption.ConsumptionId}'`,
+      const records = await postgresClient.list<IngredientConsumption>('ingredient_consumptions', {
+        filterByFormula: `consumption_id = '${consumption.ConsumptionId}'`,
       });
 
       if (records.length > 0) {
-        const recordId = (records[0] as any)._recordId;
-        await airtableClient.update<IngredientConsumption>('IngredientConsumption', recordId, {
-          ActualQuantity: consumptionInput.actualQuantity,
-          TotalCost: consumptionCost,
-          Variance: variance,
-          ConsumedAt: new Date().toISOString(),
-        });
+        const recordId = records[0].id;
+        if (recordId) {
+          await postgresClient.update<IngredientConsumption>('ingredient_consumptions', recordId, {
+            ActualQuantity: consumptionInput.actualQuantity,
+            TotalCost: consumptionCost,
+            Variance: variance,
+            ConsumedAt: new Date().toISOString(),
+          });
+        }
       }
     }
 
     // Mettre à jour le coût total de l'ordre
-    const orderRecords = await airtableClient.list<ProductionOrder>('ProductionOrder', {
-      filterByFormula: `{ProductionOrderId} = '${productionOrderId}'`,
+    const orderRecords = await postgresClient.list<ProductionOrder>('production_orders', {
+      filterByFormula: `production_order_id = '${productionOrderId}'`,
     });
 
     if (orderRecords.length > 0) {
-      const recordId = (orderRecords[0] as any)._recordId;
-      await airtableClient.update<ProductionOrder>('ProductionOrder', recordId, {
-        TotalCost: order.TotalCost + totalCost,
-      });
+      const recordId = orderRecords[0].id;
+      if (recordId) {
+        await postgresClient.update<ProductionOrder>('production_orders', recordId, {
+          TotalCost: order.TotalCost + totalCost,
+        });
+      }
     }
 
     const updatedOrder = await this.getById(productionOrderId);
@@ -498,25 +507,24 @@ export class ProductionOrderService {
       UpdatedAt: new Date().toISOString(),
     };
 
-    const createdBatch = await airtableClient.create<ProductionBatch>('ProductionBatch', batch);
-    if (!createdBatch) {
-      throw new Error('Failed to create production batch - Airtable not configured');
-    }
+    const createdBatch = await postgresClient.create<ProductionBatch>('production_batches', batch);
 
     // Mettre à jour la quantité produite de l'ordre
     const newProducedQty = order.ProducedQuantity + (input.quantityProduced - input.quantityDefective);
     const yieldRate = (newProducedQty / order.PlannedQuantity) * 100;
 
-    const orderRecords = await airtableClient.list<ProductionOrder>('ProductionOrder', {
-      filterByFormula: `{ProductionOrderId} = '${productionOrderId}'`,
+    const orderRecords = await postgresClient.list<ProductionOrder>('production_orders', {
+      filterByFormula: `production_order_id = '${productionOrderId}'`,
     });
 
     if (orderRecords.length > 0) {
-      const recordId = (orderRecords[0] as any)._recordId;
-      await airtableClient.update<ProductionOrder>('ProductionOrder', recordId, {
-        ProducedQuantity: newProducedQty,
-        YieldRate: yieldRate,
-      });
+      const recordId = orderRecords[0].id;
+      if (recordId) {
+        await postgresClient.update<ProductionOrder>('production_orders', recordId, {
+          ProducedQuantity: newProducedQty,
+          YieldRate: yieldRate,
+        });
+      }
     }
 
     // Intégration avec le module Stock: Entrée automatique des produits finis
@@ -545,9 +553,9 @@ export class ProductionOrderService {
     const month = String(now.getMonth() + 1).padStart(2, '0');
     const prefix = `LOT-${year}${month}`;
 
-    const existingBatches = await airtableClient.list<ProductionBatch>('ProductionBatch', {
-      filterByFormula: `AND({WorkspaceId} = '${workspaceId}', SEARCH('${prefix}', {BatchNumber}) = 1)`,
-      sort: [{ field: 'BatchNumber', direction: 'desc' }],
+    const existingBatches = await postgresClient.list<ProductionBatch>('production_batches', {
+      filterByFormula: `workspace_id = '${workspaceId}' AND batch_number LIKE '${prefix}%'`,
+      orderBy: { field: 'batch_number', direction: 'desc' },
     });
 
     let nextNumber = 1;

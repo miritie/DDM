@@ -1,19 +1,18 @@
 /**
- * Helper - Envoi de Notifications Simplifié
+ * Helper - Envoi de Notifications Simplifie
  * Module Notifications
  *
  * Ce fichier fournit des fonctions utilitaires pour envoyer facilement des notifications
- * depuis n'importe où dans l'application
+ * depuis n'importe ou dans l'application
  */
 
 import { EmailService } from './email-service';
 import { SMSService } from './sms-service';
-import { AirtableClient } from '@/lib/airtable/client';
-import { User } from '@/types/modules';
+import { getPostgresClient } from '@/lib/database/postgres-client';
 
 const emailService = new EmailService();
 const smsService = new SMSService();
-const airtableClient = new AirtableClient();
+const postgresClient = getPostgresClient();
 
 export interface NotificationRecipient {
   userId: string;
@@ -23,7 +22,7 @@ export interface NotificationRecipient {
 }
 
 /**
- * Envoie une notification de bienvenue à un nouvel utilisateur
+ * Envoie une notification de bienvenue a un nouvel utilisateur
  */
 export async function sendWelcomeNotification(
   recipient: NotificationRecipient,
@@ -161,7 +160,7 @@ export async function sendTransactionNotification(
 }
 
 /**
- * Envoie une notification de rappel d'échéance
+ * Envoie une notification de rappel d'echeance
  */
 export async function sendReminderNotification(
   recipient: NotificationRecipient,
@@ -183,12 +182,12 @@ export async function sendReminderNotification(
       userName: recipient.name,
       type: 'debt',
       amount: data.amount,
-      reason: `Échéance de paiement au ${new Intl.DateTimeFormat('fr-FR').format(new Date(data.dueDate))}`,
+      reason: `Echeance de paiement au ${new Intl.DateTimeFormat('fr-FR').format(new Date(data.dueDate))}`,
       recordNumber: data.recordNumber,
     });
 
     // Customize subject for reminder
-    emailContent.subject = `Rappel d'échéance - ${data.recordNumber}`;
+    emailContent.subject = `Rappel d'echeance - ${data.recordNumber}`;
 
     results.email = await emailService.send({
       to: recipient.email,
@@ -218,24 +217,25 @@ export async function sendReminderNotification(
 }
 
 /**
- * Récupère les informations d'un utilisateur pour l'envoi de notifications
+ * Recupere les informations d'un utilisateur pour l'envoi de notifications
  */
 export async function getUserForNotification(userId: string): Promise<NotificationRecipient | null> {
   try {
-    const users = await airtableClient.list<User>('User', {
-      filterByFormula: `{UserId} = '${userId}'`,
-    });
+    const users = await postgresClient.query(
+      `SELECT * FROM users WHERE user_id = $1`,
+      [userId]
+    );
 
-    if (users.length === 0) {
+    if (!users.rows || users.rows.length === 0) {
       return null;
     }
 
-    const user = users[0];
+    const user = users.rows[0];
     return {
-      userId: user.UserId,
-      email: user.Email,
-      phone: user.Phone,
-      name: user.FullName || user.Email,
+      userId: user.user_id,
+      email: user.email,
+      phone: user.phone,
+      name: user.full_name || user.email,
     };
   } catch (error) {
     console.error('Error fetching user for notification:', error);
@@ -244,7 +244,7 @@ export async function getUserForNotification(userId: string): Promise<Notificati
 }
 
 /**
- * Envoie une notification personnalisée (email et/ou SMS)
+ * Envoie une notification personnalisee (email et/ou SMS)
  */
 export async function sendCustomNotification(
   recipient: NotificationRecipient,

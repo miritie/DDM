@@ -3,11 +3,11 @@
  * Module Clients & Fidélité
  */
 
-import { AirtableClient } from '@/lib/airtable/client';
+import { getPostgresClient } from '@/lib/database/postgres-client';
 import { Customer, CustomerType, CustomerStatus, LoyaltyTier } from '@/types/modules';
 import { v4 as uuidv4 } from 'uuid';
 
-const airtableClient = new AirtableClient();
+const postgresClient = getPostgresClient();
 
 export interface CreateCustomerInput {
   type: CustomerType;
@@ -63,15 +63,15 @@ export interface UpdateCustomerInput {
 
 export class CustomerService {
   async generateCustomerCode(workspaceId: string): Promise<string> {
-    const customers = await airtableClient.list<Customer>('Customer', {
-      filterByFormula: `{WorkspaceId} = '${workspaceId}'`,
+    const customers = await postgresClient.list<Customer>('customers', {
+      where: { workspace_id: workspaceId },
     });
     return `CUS-${String(customers.length + 1).padStart(4, '0')}`;
   }
 
   async create(input: CreateCustomerInput): Promise<Customer> {
-    const existing = await airtableClient.list<Customer>('Customer', {
-      filterByFormula: `AND({WorkspaceId} = '${input.workspaceId}', {Phone} = '${input.phone}')`,
+    const existing = await postgresClient.list<Customer>('customers', {
+      where: { workspace_id: input.workspaceId, phone: input.phone },
     });
 
     if (existing.length > 0) {
@@ -80,11 +80,11 @@ export class CustomerService {
 
     const customerCode = await this.generateCustomerCode(input.workspaceId);
 
-    const customer: Partial<Customer> = {
+    const customer = {
       CustomerId: uuidv4(),
       CustomerCode: customerCode,
       Type: input.type,
-      Status: 'active',
+      Status: 'active' as const,
       FirstName: input.firstName,
       LastName: input.lastName,
       FullName: input.fullName,
@@ -97,7 +97,7 @@ export class CustomerService {
       City: input.city,
       Region: input.region,
       Country: input.country,
-      LoyaltyTier: 'bronze',
+      LoyaltyTier: 'bronze' as const,
       LoyaltyPoints: 0,
       TotalPointsEarned: 0,
       TotalPointsRedeemed: 0,
@@ -120,69 +120,64 @@ export class CustomerService {
       UpdatedAt: new Date().toISOString(),
     };
 
-    const created = await airtableClient.create<Customer>('Customer', customer);
-    if (!created) {
-      throw new Error('Failed to create customer - Airtable not configured');
-    }
+    const created = await postgresClient.create<Customer>('customers', customer);
     return created;
   }
 
   async getById(customerId: string): Promise<Customer | null> {
-    const customers = await airtableClient.list<Customer>('Customer', {
-      filterByFormula: `{CustomerId} = '${customerId}'`,
+    const customers = await postgresClient.list<Customer>('customers', {
+      where: { customer_id: customerId },
     });
     return customers.length > 0 ? customers[0] : null;
   }
 
   async getByPhone(phone: string, workspaceId: string): Promise<Customer | null> {
-    const customers = await airtableClient.list<Customer>('Customer', {
-      filterByFormula: `AND({WorkspaceId} = '${workspaceId}', {Phone} = '${phone}')`,
+    const customers = await postgresClient.list<Customer>('customers', {
+      where: { workspace_id: workspaceId, phone: phone },
     });
     return customers.length > 0 ? customers[0] : null;
   }
 
   async list(workspaceId: string, filters: any = {}): Promise<Customer[]> {
-    const filterFormulas: string[] = [`{WorkspaceId} = '${workspaceId}'`];
+    const where: any = { workspace_id: workspaceId };
 
-    if (filters.status) filterFormulas.push(`{Status} = '${filters.status}'`);
-    if (filters.type) filterFormulas.push(`{Type} = '${filters.type}'`);
-    if (filters.tier) filterFormulas.push(`{LoyaltyTier} = '${filters.tier}'`);
-    if (filters.city) filterFormulas.push(`{City} = '${filters.city}'`);
-    if (filters.region) filterFormulas.push(`{Region} = '${filters.region}'`);
+    if (filters.status) where.status = filters.status;
+    if (filters.type) where.type = filters.type;
+    if (filters.tier) where.loyalty_tier = filters.tier;
+    if (filters.city) where.city = filters.city;
+    if (filters.region) where.region = filters.region;
 
-    const filterByFormula =
-      filterFormulas.length > 1 ? `AND(${filterFormulas.join(', ')})` : filterFormulas[0];
-
-    return await airtableClient.list<Customer>('Customer', {
-      filterByFormula,
-      sort: [{ field: 'FullName', direction: 'asc' }],
+    return await postgresClient.list<Customer>('customers', {
+      where,
+      orderBy: { field: 'full_name', direction: 'asc' },
     });
   }
 
   async update(customerId: string, updates: UpdateCustomerInput): Promise<Customer> {
-    const customers = await airtableClient.list<Customer>('Customer', {
-      filterByFormula: `{CustomerId} = '${customerId}'`,
+    const customers = await postgresClient.list<Customer>('customers', {
+      where: { customer_id: customerId },
     });
 
     if (customers.length === 0) throw new Error('Client non trouvé');
+
+    const customer = customers[0];
+    if (!customer.id) throw new Error('Customer ID is missing');
 
     const updateData: any = { UpdatedAt: new Date().toISOString() };
 
     Object.keys(updates).forEach((key) => {
       if (updates[key as keyof UpdateCustomerInput] !== undefined) {
-        updateData[key.charAt(0).toUpperCase() + key.slice(1)] =
-          updates[key as keyof UpdateCustomerInput];
+        // Convert first letter to uppercase for PascalCase
+        const pascalKey = key.charAt(0).toUpperCase() + key.slice(1);
+        updateData[pascalKey] = updates[key as keyof UpdateCustomerInput];
       }
     });
 
-    const updated = await airtableClient.update<Customer>(
-      'Customer',
-      (customers[0] as any)._recordId,
+    const updated = await postgresClient.update<Customer>(
+      'customers',
+      customer.id,
       updateData
     );
-    if (!updated) {
-      throw new Error('Failed to update customer - Airtable not configured');
-    }
     return updated;
   }
 
@@ -193,12 +188,13 @@ export class CustomerService {
   ): Promise<Customer> {
     const customer = await this.getById(customerId);
     if (!customer) throw new Error('Client non trouvé');
+    if (!customer.id) throw new Error('Customer ID is missing');
 
     const newTotalOrders = customer.TotalOrders + 1;
     const newTotalSpent = customer.TotalSpent + orderAmount;
     const newAverageOrderValue = newTotalSpent / newTotalOrders;
 
-    const updated = await airtableClient.update<Customer>('Customer', (customer as any)._recordId, {
+    const updated = await postgresClient.update<Customer>('customers', customer.id, {
       TotalOrders: newTotalOrders,
       TotalSpent: newTotalSpent,
       AverageOrderValue: newAverageOrderValue,
@@ -209,26 +205,23 @@ export class CustomerService {
       TotalPointsEarned: customer.TotalPointsEarned + pointsEarned,
       UpdatedAt: new Date().toISOString(),
     });
-    if (!updated) {
-      throw new Error('Failed to update customer - Airtable not configured');
-    }
     return updated;
   }
 
   async updateLoyaltyTier(customerId: string, newTier: LoyaltyTier): Promise<Customer> {
-    const customers = await airtableClient.list<Customer>('Customer', {
-      filterByFormula: `{CustomerId} = '${customerId}'`,
+    const customers = await postgresClient.list<Customer>('customers', {
+      where: { customer_id: customerId },
     });
 
     if (customers.length === 0) throw new Error('Client non trouvé');
 
-    const updated = await airtableClient.update<Customer>('Customer', (customers[0] as any)._recordId, {
+    const customer = customers[0];
+    if (!customer.id) throw new Error('Customer ID is missing');
+
+    const updated = await postgresClient.update<Customer>('customers', customer.id, {
       LoyaltyTier: newTier,
       UpdatedAt: new Date().toISOString(),
     });
-    if (!updated) {
-      throw new Error('Failed to update customer - Airtable not configured');
-    }
     return updated;
   }
 

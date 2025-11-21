@@ -53,10 +53,10 @@ export async function GET(request: NextRequest) {
           return {
             ...rule,
             stats: {
-              totalExecutions: stats.TotalExecutions,
-              matchRate: stats.MatchRate,
-              successRate: stats.SuccessRate,
-              overrideRate: stats.OverrideRate,
+              totalExecutions: stats.total_executions,
+              matchRate: stats.match_rate,
+              successRate: stats.success_rate,
+              overrideRate: stats.override_rate,
             },
           };
         } catch {

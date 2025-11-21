@@ -7,6 +7,7 @@
 // ============================================================================
 
 export interface Workspace {
+  id?: string;
   WorkspaceId: string;
   Name: string;
   Slug: string;
@@ -59,6 +60,7 @@ export interface Permission {
 // ============================================================================
 
 export interface Product {
+  id?: string;
   ProductId: string;
   Name: string;
   Code: string;
@@ -74,6 +76,7 @@ export interface Product {
 }
 
 export interface Client {
+  id?: string;
   ClientId: string;
   Name: string;
   Code: string;
@@ -94,6 +97,7 @@ export type SaleStatus = 'draft' | 'confirmed' | 'partially_paid' | 'fully_paid'
 export type PaymentStatus = 'unpaid' | 'partially_paid' | 'fully_paid' | 'overdue';
 
 export interface Sale {
+  id?: string;
   SaleId: string;
   SaleNumber: string;
   ClientId?: string;
@@ -136,6 +140,7 @@ export type PaymentMethodType =
   | 'other';
 
 export interface SalePayment {
+  id?: string;
   PaymentId: string;
   SaleId: string;
   PaymentNumber: string;
@@ -177,6 +182,7 @@ export interface SalesStatistics {
 // ============================================================================
 
 export interface Warehouse {
+  id?: string;
   WarehouseId: string;
   Name: string;
   Code: string;
@@ -190,6 +196,7 @@ export interface Warehouse {
 }
 
 export interface StockItem {
+  id?: string;
   StockItemId: string;
   ProductId: string;
   WarehouseId: string;
@@ -214,6 +221,7 @@ export type StockMovementType =
 export type StockMovementStatus = 'pending' | 'validated' | 'cancelled';
 
 export interface StockMovement {
+  id?: string;
   MovementId: string;
   MovementNumber: string;
   Type: StockMovementType;
@@ -237,6 +245,7 @@ export interface StockMovement {
 }
 
 export interface StockAlert {
+  id?: string;
   AlertId: string;
   StockItemId: string;
   ProductId: string;
@@ -303,6 +312,7 @@ export interface StockInventoryReport {
 // ============================================================================
 
 export interface ExpenseCategory {
+  id?: string;
   ExpenseCategoryId: string;
   Label: string;
   Code: string;
@@ -338,6 +348,7 @@ export type ExpenseStatus =
   | 'cancelled';
 
 export interface Expense {
+  id?: string;
   ExpenseId: string;
   ExpenseNumber: string;
   ExpenseRequestId: string;
@@ -371,6 +382,7 @@ export interface ExpenseAttachment {
 // ============================================================================
 
 export interface Account {
+  id?: string;
   AccountId: string;
   AccountType: 'agent' | 'supplier' | 'client' | 'other';
   Name: string;
@@ -388,6 +400,7 @@ export type AdvanceDebtType = 'advance' | 'debt';
 export type AdvanceDebtStatus = 'active' | 'partially_paid' | 'fully_paid' | 'cancelled';
 
 export interface AdvanceDebt {
+  id?: string;
   AdvanceDebtId: string;
   RecordNumber: string;
   Type: AdvanceDebtType;
@@ -405,6 +418,7 @@ export interface AdvanceDebt {
 }
 
 export interface AdvanceDebtSchedule {
+  id?: string;
   ScheduleId: string;
   AdvanceDebtId: string;
   DueDate: string;
@@ -440,6 +454,7 @@ export type WalletType = 'cash' | 'bank' | 'mobile_money' | 'other';
 export type WalletStatus = 'active' | 'inactive' | 'closed';
 
 export interface Wallet {
+  id?: string;
   WalletId: string;
   Name: string;
   Code: string;
@@ -471,6 +486,7 @@ export type TransactionCategory =
   | 'other';
 
 export interface Transaction {
+  id?: string;
   TransactionId: string;
   TransactionNumber: string;
   Type: TransactionType;
@@ -523,6 +539,7 @@ export type LeaveType =
 export type LeaveStatus = 'pending' | 'approved' | 'rejected' | 'cancelled';
 
 export interface Leave {
+  id?: string;
   LeaveId: string;
   LeaveNumber: string;
   EmployeeId: string;
@@ -633,6 +650,7 @@ export type AccountClass =
   | 'class_9'; // Comptes analytiques
 
 export interface ChartAccount {
+  id?: string;
   AccountId: string;
   AccountNumber: string;  // Ex: 411000, 607000
   Label: string;
@@ -670,6 +688,7 @@ export interface Journal {
 export type EntryStatus = 'draft' | 'posted' | 'validated' | 'cancelled';
 
 export interface JournalEntry {
+  id?: string;
   EntryId: string;
   EntryNumber: string;  // Ex: VT-2025-0001
   JournalId: string;
@@ -818,6 +837,7 @@ export type ReportFormat = 'pdf' | 'excel' | 'csv' | 'json';
 export type ReportPeriod = 'daily' | 'weekly' | 'monthly' | 'quarterly' | 'yearly' | 'custom';
 
 export interface Report {
+  id?: string;
   ReportId: string;
   ReportName: string;
   Description?: string;
@@ -837,6 +857,7 @@ export interface Report {
 }
 
 export interface ReportExecution {
+  id?: string;
   ExecutionId: string;
   ReportId: string;
   Status: 'pending' | 'running' | 'completed' | 'failed';
@@ -869,7 +890,7 @@ export interface ChartData {
   }>;
 }
 
-export interface SalesReport {
+export interface SalesAnalyticsReport {
   period: { start: string; end: string };
   totalSales: number;
   totalRevenue: number;
@@ -975,6 +996,7 @@ export interface GlobalDashboard {
  * Éléments de base utilisés dans les recettes de production
  */
 export interface Ingredient {
+  id?: string;
   IngredientId: string;
   Name: string;
   Code: string;
@@ -996,6 +1018,7 @@ export interface Ingredient {
  * Définit la quantité d'ingrédient nécessaire pour une recette
  */
 export interface RecipeLine {
+  id?: string;
   RecipeLineId: string;
   RecipeId: string;
   IngredientId: string;
@@ -1011,6 +1034,7 @@ export interface RecipeLine {
  * Définit comment fabriquer un produit fini à partir d'ingrédients
  */
 export interface Recipe {
+  id?: string;
   RecipeId: string;
   RecipeNumber: string; // REC-202511-0001
   Name: string;
@@ -1044,6 +1068,7 @@ export type ProductionOrderStatus =
  * Enregistre les ingrédients réellement consommés lors de la production
  */
 export interface IngredientConsumption {
+  id?: string;
   ConsumptionId: string;
   ProductionOrderId: string;
   IngredientId: string;
@@ -1062,6 +1087,7 @@ export interface IngredientConsumption {
  * Représente un batch produit avec traçabilité complète
  */
 export interface ProductionBatch {
+  id?: string;
   BatchId: string;
   BatchNumber: string; // LOT-202511-0001
   ProductionOrderId: string;
@@ -1085,6 +1111,7 @@ export interface ProductionBatch {
  * Planifie et suit la fabrication de produits finis
  */
 export interface ProductionOrder {
+  id?: string;
   ProductionOrderId: string;
   OrderNumber: string; // OP-202511-0001
   RecipeId: string;
@@ -1154,6 +1181,7 @@ export type ExpenseRequestStatus =
 export type ExpenseUrgency = 'low' | 'normal' | 'high' | 'urgent';
 
 export interface ExpenseProof {
+  id?: string;
   ProofId: string;
   ExpenseRequestId: string;
   Type: 'receipt' | 'invoice' | 'photo' | 'document' | 'other';
@@ -1182,6 +1210,7 @@ export interface ExpenseApproval {
 }
 
 export interface ExpenseRequest {
+  id?: string;
   ExpenseRequestId: string;
   RequestNumber: string; // DEP-202511-0001
   Title: string;
@@ -1513,6 +1542,7 @@ export type EmployeeRole = 'admin' | 'manager' | 'sales_agent' | 'warehouse_keep
 export type ContractType = 'permanent' | 'temporary' | 'contractor' | 'intern';
 
 export interface Employee {
+  id?: string;
   EmployeeId: string;
   EmployeeCode: string; // EMP-0001
   FirstName: string;
@@ -1564,6 +1594,7 @@ export interface Employee {
 export type AttendanceStatus = 'pending' | 'validated' | 'rejected' | 'auto_validated';
 
 export interface Attendance {
+  id?: string;
   AttendanceId: string;
   EmployeeId: string;
   EmployeeName: string;
@@ -1609,6 +1640,7 @@ export type CommissionStatus = 'pending' | 'calculated' | 'paid';
 export type CommissionType = 'sales' | 'target_bonus' | 'performance_bonus' | 'manual';
 
 export interface Commission {
+  id?: string;
   CommissionId: string;
   EmployeeId: string;
   EmployeeName: string;
@@ -1663,6 +1695,7 @@ export interface PayrollLine {
 }
 
 export interface Payroll {
+  id?: string;
   PayrollId: string;
   PayrollNumber: string; // PAY-202411-0001
   Status: PayrollStatus;
@@ -1703,6 +1736,7 @@ export interface Payroll {
 }
 
 export interface EmployeeTarget {
+  id?: string;
   TargetId: string;
   EmployeeId: string;
   EmployeeName: string;
@@ -1727,6 +1761,7 @@ export interface EmployeeTarget {
 }
 
 export interface EmployeeAdvance {
+  id?: string;
   AdvanceId: string;
   AdvanceNumber: string; // ADV-202411-0001
   EmployeeId: string;
@@ -1788,6 +1823,7 @@ export type TransportAllowanceStatus = 'pending' | 'validated' | 'paid' | 'rejec
 export type TransportType = 'stand_visit' | 'client_visit' | 'delivery' | 'meeting' | 'other';
 
 export interface TransportAllowance {
+  id?: string;
   TransportId: string;
   TransportNumber: string; // TRA-202411-0001
   EmployeeId: string;
@@ -1877,6 +1913,7 @@ export type RewardType = 'discount' | 'free_product' | 'cashback' | 'points_mult
 export type RewardStatus = 'available' | 'redeemed' | 'expired' | 'cancelled';
 
 export interface Customer {
+  id?: string; // Database ID for update/delete operations
   CustomerId: string;
   CustomerCode: string; // CUS-0001
   Type: CustomerType;
@@ -2038,6 +2075,7 @@ export interface CustomerReward {
 }
 
 export interface LoyaltyTierConfig {
+  id?: string; // Database ID for update/delete operations
   TierConfigId: string;
   Tier: LoyaltyTier;
   Name: string;
@@ -2073,6 +2111,7 @@ export interface LoyaltyTierConfig {
 }
 
 export interface CustomerSegment {
+  id?: string; // Database ID for update/delete operations
   SegmentId: string;
   Name: string;
   Description?: string;
@@ -2107,6 +2146,7 @@ export interface CustomerSegment {
 }
 
 export interface CustomerInteraction {
+  id?: string; // Database ID for update/delete operations
   InteractionId: string;
   CustomerId: string;
   CustomerName: string;
@@ -2136,6 +2176,7 @@ export interface CustomerInteraction {
 }
 
 export interface CustomerFeedback {
+  id?: string; // Database ID for update/delete operations
   FeedbackId: string;
   CustomerId: string;
   CustomerName: string;
@@ -2211,6 +2252,7 @@ export type RuleConditionOperator =
 export type RecommendationConfidence = 'very_low' | 'low' | 'medium' | 'high' | 'very_high';
 
 export interface DecisionRule {
+  id?: string;
   RuleId: string;
   RuleCode: string; // RULE-001
   Name: string;
@@ -2274,9 +2316,10 @@ export interface DecisionRule {
 }
 
 export interface DecisionRecommendation {
+  id?: string;
   RecommendationId: string;
   DecisionType: DecisionType;
-  
+
   // Contexte de la décision
   ReferenceId: string;        // ID de l'entité concernée
   ReferenceType: string;       // Type d'entité

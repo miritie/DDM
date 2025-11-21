@@ -3,11 +3,11 @@
  * Module 7.3 - Trésorerie Multi-wallet
  */
 
-import { AirtableClient } from '@/lib/airtable/client';
+import { getPostgresClient } from '@/lib/database/postgres-client';
 import { Wallet, WalletType, WalletStatus } from '@/types/modules';
 import { v4 as uuidv4 } from 'uuid';
 
-const airtableClient = new AirtableClient();
+const postgresClient = getPostgresClient();
 
 export interface CreateWalletInput {
   name: string;
@@ -35,30 +35,33 @@ export class WalletService {
       isActive?: boolean;
     }
   ): Promise<Wallet[]> {
-    let formula = `{WorkspaceId} = '${workspaceId}'`;
+    const conditions: string[] = [`workspace_id = '${workspaceId}'`];
+    const params: any[] = [];
 
     if (filters?.type) {
-      formula += `, {Type} = '${filters.type}'`;
+      conditions.push(`type = '${filters.type}'`);
     }
     if (filters?.status) {
-      formula += `, {Status} = '${filters.status}'`;
+      conditions.push(`status = '${filters.status}'`);
     }
     if (filters?.isActive !== undefined) {
-      formula += `, {IsActive} = ${filters.isActive ? 'TRUE()' : 'FALSE()'}`;
+      conditions.push(`is_active = ${filters.isActive}`);
     }
 
-    return await airtableClient.list<Wallet>('Wallet', {
-      filterByFormula: `AND(${formula})`,
-      sort: [{ field: 'Name', direction: 'asc' }],
+    const records = await postgresClient.list<Wallet>('wallets', {
+      filterByFormula: conditions.join(' AND '),
+      orderBy: { field: 'name', direction: 'asc' },
     });
+
+    return records;
   }
 
   /**
    * Récupère un wallet par ID
    */
   async getById(walletId: string): Promise<Wallet | null> {
-    const results = await airtableClient.list<Wallet>('Wallet', {
-      filterByFormula: `{WalletId} = '${walletId}'`,
+    const results = await postgresClient.list<Wallet>('wallets', {
+      filterByFormula: `wallet_id = '${walletId}'`,
     });
     return results[0] || null;
   }
@@ -87,10 +90,7 @@ export class WalletService {
       UpdatedAt: new Date().toISOString(),
     };
 
-    const created = await airtableClient.create<Wallet>('Wallet', wallet);
-    if (!created) {
-      throw new Error('Failed to create wallet - Airtable not configured');
-    }
+    const created = await postgresClient.create<Wallet>('wallets', wallet);
     return created;
   }
 
@@ -103,23 +103,33 @@ export class WalletService {
       throw new Error('Wallet non trouvé');
     }
 
-    const records = await airtableClient.list<Wallet>('Wallet', {
-      filterByFormula: `{WalletId} = '${walletId}'`,
+    const records = await postgresClient.list<Wallet>('wallets', {
+      filterByFormula: `wallet_id = '${walletId}'`,
     });
 
     if (records.length === 0) {
       throw new Error('Wallet non trouvé');
     }
 
-    const recordId = (records[0] as any)._recordId;
-
-    const updated = await airtableClient.update<Wallet>('Wallet', recordId, {
-      ...updates,
-      UpdatedAt: new Date().toISOString(),
-    });
-    if (!updated) {
-      throw new Error('Failed to update wallet - Airtable not configured');
+    const recordId = records[0].id;
+    if (!recordId) {
+      throw new Error('Wallet ID non trouvé');
     }
+
+    const updateData: Record<string, any> = {
+      UpdatedAt: new Date().toISOString(),
+    };
+
+    // Map updates to PascalCase
+    if (updates.Name !== undefined) updateData.Name = updates.Name;
+    if (updates.Description !== undefined) updateData.Description = updates.Description;
+    if (updates.BankName !== undefined) updateData.BankName = updates.BankName;
+    if (updates.AccountNumber !== undefined) updateData.AccountNumber = updates.AccountNumber;
+    if (updates.Balance !== undefined) updateData.Balance = updates.Balance;
+    if (updates.Status !== undefined) updateData.Status = updates.Status;
+    if (updates.IsActive !== undefined) updateData.IsActive = updates.IsActive;
+
+    const updated = await postgresClient.update<Wallet>('wallets', recordId, updateData);
     return updated;
   }
 
@@ -222,8 +232,8 @@ export class WalletService {
 
     const prefix = typePrefix[type];
 
-    const existingWallets = await airtableClient.list<Wallet>('Wallet', {
-      filterByFormula: `AND({WorkspaceId} = '${workspaceId}', {Type} = '${type}')`,
+    const existingWallets = await postgresClient.list<Wallet>('wallets', {
+      filterByFormula: `workspace_id = '${workspaceId}' AND type = '${type}'`,
     });
 
     const sequence = String(existingWallets.length + 1).padStart(3, '0');

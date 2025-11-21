@@ -3,11 +3,11 @@
  * Module Clients & Fidélité
  */
 
-import { AirtableClient } from '@/lib/airtable/client';
+import { getPostgresClient } from '@/lib/database/postgres-client';
 import { CustomerSegment, Customer, LoyaltyTier } from '@/types/modules';
 import { v4 as uuidv4 } from 'uuid';
 
-const airtableClient = new AirtableClient();
+const postgresClient = getPostgresClient();
 
 export interface SegmentCriteria {
   minTotalSpent?: number;
@@ -36,7 +36,7 @@ export class SegmentService {
    * Crée un segment de clients
    */
   async create(input: CreateSegmentInput): Promise<CustomerSegment> {
-    const segment: Partial<CustomerSegment> = {
+    const segment = {
       SegmentId: uuidv4(),
       Name: input.name,
       Description: input.description,
@@ -50,10 +50,7 @@ export class SegmentService {
       UpdatedAt: new Date().toISOString(),
     };
 
-    const created = await airtableClient.create<CustomerSegment>('CustomerSegment', segment);
-    if (!created) {
-      throw new Error('Failed to create customer segment - Airtable not configured');
-    }
+    const created = await postgresClient.create<CustomerSegment>('customer_segments', segment);
     return created;
   }
 
@@ -61,13 +58,14 @@ export class SegmentService {
    * Liste tous les segments
    */
   async list(workspaceId: string, activeOnly = false): Promise<CustomerSegment[]> {
-    const filterFormula = activeOnly
-      ? `AND({WorkspaceId} = '${workspaceId}', {IsActive} = 1)`
-      : `{WorkspaceId} = '${workspaceId}'`;
+    const where: any = { workspace_id: workspaceId };
+    if (activeOnly) {
+      where.is_active = true;
+    }
 
-    return await airtableClient.list<CustomerSegment>('CustomerSegment', {
-      filterByFormula: filterFormula,
-      sort: [{ field: 'Name', direction: 'asc' }],
+    return await postgresClient.list<CustomerSegment>('customer_segments', {
+      where,
+      orderBy: { field: 'name', direction: 'asc' },
     });
   }
 
@@ -75,8 +73,8 @@ export class SegmentService {
    * Récupère un segment par ID
    */
   async getById(segmentId: string): Promise<CustomerSegment | null> {
-    const segments = await airtableClient.list<CustomerSegment>('CustomerSegment', {
-      filterByFormula: `{SegmentId} = '${segmentId}'`,
+    const segments = await postgresClient.list<CustomerSegment>('customer_segments', {
+      where: { segment_id: segmentId },
     });
 
     return segments.length > 0 ? segments[0] : null;
@@ -86,34 +84,29 @@ export class SegmentService {
    * Met à jour un segment
    */
   async update(segmentId: string, updates: Partial<CreateSegmentInput>): Promise<CustomerSegment> {
-    const segments = await airtableClient.list<CustomerSegment>('CustomerSegment', {
-      filterByFormula: `{SegmentId} = '${segmentId}'`,
+    const segments = await postgresClient.list<CustomerSegment>('customer_segments', {
+      where: { segment_id: segmentId },
     });
 
     if (segments.length === 0) {
       throw new Error('Segment non trouvé');
     }
 
-    const updateData: any = {
-      ...updates,
-      UpdatedAt: new Date().toISOString(),
-    };
+    const segment = segments[0];
+    if (!segment.id) throw new Error('Segment ID is missing');
 
-    // Convertir en PascalCase
+    // Convert to PascalCase
     const formattedUpdates: any = { UpdatedAt: new Date().toISOString() };
     Object.keys(updates).forEach((key) => {
       const pascalKey = key.charAt(0).toUpperCase() + key.slice(1);
       formattedUpdates[pascalKey] = updates[key as keyof CreateSegmentInput];
     });
 
-    const updated = await airtableClient.update<CustomerSegment>(
-      'CustomerSegment',
-      (segments[0] as any)._recordId,
+    const updated = await postgresClient.update<CustomerSegment>(
+      'customer_segments',
+      segment.id,
       formattedUpdates
     );
-    if (!updated) {
-      throw new Error('Failed to update customer segment - Airtable not configured');
-    }
     return updated;
   }
 
@@ -178,8 +171,8 @@ export class SegmentService {
     if (!segment) throw new Error('Segment non trouvé');
 
     // Récupérer tous les clients du workspace
-    const allCustomers = await airtableClient.list<Customer>('Customer', {
-      filterByFormula: `{WorkspaceId} = '${workspaceId}'`,
+    const allCustomers = await postgresClient.list<Customer>('customers', {
+      where: { workspace_id: workspaceId },
     });
 
     // Filtrer les clients qui correspondent aux critères
@@ -191,21 +184,24 @@ export class SegmentService {
     const totalRevenue = matchingCustomers.reduce((sum, customer) => sum + customer.TotalSpent, 0);
 
     // Mettre à jour le segment
-    const segments = await airtableClient.list<CustomerSegment>('CustomerSegment', {
-      filterByFormula: `{SegmentId} = '${segmentId}'`,
+    const segments = await postgresClient.list<CustomerSegment>('customer_segments', {
+      where: { segment_id: segmentId },
     });
 
     if (segments.length > 0) {
-      await airtableClient.update<CustomerSegment>(
-        'CustomerSegment',
-        (segments[0] as any)._recordId,
-        {
-          CustomerCount: customerCount,
-          TotalRevenue: totalRevenue,
-          LastCalculatedAt: new Date().toISOString(),
-          UpdatedAt: new Date().toISOString(),
-        }
-      );
+      const segmentToUpdate = segments[0];
+      if (segmentToUpdate.id) {
+        await postgresClient.update<CustomerSegment>(
+          'customer_segments',
+          segmentToUpdate.id,
+          {
+            CustomerCount: customerCount,
+            TotalRevenue: totalRevenue,
+            LastCalculatedAt: new Date().toISOString(),
+            UpdatedAt: new Date().toISOString(),
+          }
+        );
+      }
     }
 
     return { customerCount, totalRevenue };
@@ -218,8 +214,8 @@ export class SegmentService {
     const segment = await this.getById(segmentId);
     if (!segment) throw new Error('Segment non trouvé');
 
-    const allCustomers = await airtableClient.list<Customer>('Customer', {
-      filterByFormula: `{WorkspaceId} = '${workspaceId}'`,
+    const allCustomers = await postgresClient.list<Customer>('customers', {
+      where: { workspace_id: workspaceId },
     });
 
     return allCustomers.filter((customer) => this.matchesCriteria(customer, segment.Criteria));

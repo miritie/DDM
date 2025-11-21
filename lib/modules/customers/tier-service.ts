@@ -3,11 +3,11 @@
  * Module Clients & Fidélité
  */
 
-import { AirtableClient } from '@/lib/airtable/client';
+import { getPostgresClient } from '@/lib/database/postgres-client';
 import { LoyaltyTierConfig, LoyaltyTier, Customer } from '@/types/modules';
 import { v4 as uuidv4 } from 'uuid';
 
-const airtableClient = new AirtableClient();
+const postgresClient = getPostgresClient();
 
 export interface CreateTierConfigInput {
   tier: LoyaltyTier;
@@ -37,15 +37,15 @@ export class TierService {
    */
   async create(input: CreateTierConfigInput): Promise<LoyaltyTierConfig> {
     // Vérifier qu'un tier avec ce niveau n'existe pas déjà
-    const existing = await airtableClient.list<LoyaltyTierConfig>('LoyaltyTierConfig', {
-      filterByFormula: `AND({WorkspaceId} = '${input.workspaceId}', {Tier} = '${input.tier}')`,
+    const existing = await postgresClient.list<LoyaltyTierConfig>('loyalty_tier_configs', {
+      where: { workspace_id: input.workspaceId, tier: input.tier },
     });
 
     if (existing.length > 0) {
       throw new Error('Une configuration existe déjà pour ce tier');
     }
 
-    const config: Partial<LoyaltyTierConfig> = {
+    const config = {
       TierConfigId: uuidv4(),
       Tier: input.tier,
       Name: input.name,
@@ -71,10 +71,7 @@ export class TierService {
       UpdatedAt: new Date().toISOString(),
     };
 
-    const created = await airtableClient.create<LoyaltyTierConfig>('LoyaltyTierConfig', config);
-    if (!created) {
-      throw new Error('Failed to create loyalty tier config - Airtable not configured');
-    }
+    const created = await postgresClient.create<LoyaltyTierConfig>('loyalty_tier_configs', config);
     return created;
   }
 
@@ -82,9 +79,9 @@ export class TierService {
    * Récupère toutes les configurations de tier
    */
   async list(workspaceId: string): Promise<LoyaltyTierConfig[]> {
-    return await airtableClient.list<LoyaltyTierConfig>('LoyaltyTierConfig', {
-      filterByFormula: `{WorkspaceId} = '${workspaceId}'`,
-      sort: [{ field: 'Order', direction: 'asc' }],
+    return await postgresClient.list<LoyaltyTierConfig>('loyalty_tier_configs', {
+      where: { workspace_id: workspaceId },
+      orderBy: { field: 'order', direction: 'asc' },
     });
   }
 
@@ -92,8 +89,8 @@ export class TierService {
    * Récupère une configuration de tier par tier
    */
   async getByTier(workspaceId: string, tier: LoyaltyTier): Promise<LoyaltyTierConfig | null> {
-    const configs = await airtableClient.list<LoyaltyTierConfig>('LoyaltyTierConfig', {
-      filterByFormula: `AND({WorkspaceId} = '${workspaceId}', {Tier} = '${tier}', {IsActive} = 1)`,
+    const configs = await postgresClient.list<LoyaltyTierConfig>('loyalty_tier_configs', {
+      where: { workspace_id: workspaceId, tier: tier, is_active: true },
     });
 
     return configs.length > 0 ? configs[0] : null;
@@ -103,34 +100,29 @@ export class TierService {
    * Met à jour une configuration de tier
    */
   async update(tierConfigId: string, updates: Partial<CreateTierConfigInput>): Promise<LoyaltyTierConfig> {
-    const configs = await airtableClient.list<LoyaltyTierConfig>('LoyaltyTierConfig', {
-      filterByFormula: `{TierConfigId} = '${tierConfigId}'`,
+    const configs = await postgresClient.list<LoyaltyTierConfig>('loyalty_tier_configs', {
+      where: { tier_config_id: tierConfigId },
     });
 
     if (configs.length === 0) {
       throw new Error('Configuration de tier non trouvée');
     }
 
-    const updateData: any = {
-      ...updates,
-      UpdatedAt: new Date().toISOString(),
-    };
+    const config = configs[0];
+    if (!config.id) throw new Error('Tier config ID is missing');
 
-    // Convertir les noms de propriétés en PascalCase
+    // Convert to PascalCase
     const formattedUpdates: any = { UpdatedAt: new Date().toISOString() };
     Object.keys(updates).forEach((key) => {
       const pascalKey = key.charAt(0).toUpperCase() + key.slice(1);
       formattedUpdates[pascalKey] = updates[key as keyof CreateTierConfigInput];
     });
 
-    const updated = await airtableClient.update<LoyaltyTierConfig>(
-      'LoyaltyTierConfig',
-      (configs[0] as any)._recordId,
+    const updated = await postgresClient.update<LoyaltyTierConfig>(
+      'loyalty_tier_configs',
+      config.id,
       formattedUpdates
     );
-    if (!updated) {
-      throw new Error('Failed to update loyalty tier config - Airtable not configured');
-    }
     return updated;
   }
 

@@ -3,7 +3,7 @@
  * Module RH - Remboursement des frais de déplacement
  */
 
-import { AirtableClient } from '@/lib/airtable/client';
+import { getPostgresClient } from '@/lib/database/postgres-client';
 import {
   TransportAllowance,
   TransportAllowanceRule,
@@ -12,15 +12,11 @@ import {
   EmployeeRole,
 } from '@/types/modules';
 
-const TABLE_TRANSPORT = 'TransportAllowance';
-const TABLE_RULES = 'TransportAllowanceRule';
+const TABLE_TRANSPORT = 'transport_allowances';
+const TABLE_RULES = 'transport_allowance_rules';
 
 export class TransportAllowanceService {
-  private airtable: AirtableClient;
-
-  constructor() {
-    this.airtable = new AirtableClient();
-  }
+  private postgresClient = getPostgresClient();
 
   // ============================================================================
   // CRUD - Transport Allowances
@@ -39,29 +35,29 @@ export class TransportAllowanceService {
       isPaid?: boolean;
     }
   ): Promise<TransportAllowance[]> {
-    let formula = `{WorkspaceId} = '${workspaceId}'`;
+    let formula = `workspace_id = '${workspaceId}'`;
 
     if (filters?.employeeId) {
-      formula += ` AND {EmployeeId} = '${filters.employeeId}'`;
+      formula += ` AND employee_id = '${filters.employeeId}'`;
     }
     if (filters?.status) {
-      formula += ` AND {Status} = '${filters.status}'`;
+      formula += ` AND status = '${filters.status}'`;
     }
     if (filters?.dateFrom) {
-      formula += ` AND {WorkDate} >= '${filters.dateFrom}'`;
+      formula += ` AND work_date >= '${filters.dateFrom}'`;
     }
     if (filters?.dateTo) {
-      formula += ` AND {WorkDate} <= '${filters.dateTo}'`;
+      formula += ` AND work_date <= '${filters.dateTo}'`;
     }
     if (filters?.isPaid !== undefined) {
       if (filters.isPaid) {
-        formula += ` AND {Status} = 'paid'`;
+        formula += ` AND status = 'paid'`;
       } else {
-        formula += ` AND {Status} != 'paid'`;
+        formula += ` AND status != 'paid'`;
       }
     }
 
-    const records = await this.airtable.list<TransportAllowance>(
+    const records = await this.postgresClient.list<TransportAllowance>(
       TABLE_TRANSPORT,
       { filterByFormula: formula }
     );
@@ -75,7 +71,7 @@ export class TransportAllowanceService {
    * Récupérer une indemnité par ID
    */
   async getById(transportId: string): Promise<TransportAllowance | null> {
-    return this.airtable.get<TransportAllowance>(TABLE_TRANSPORT, transportId);
+    return this.postgresClient.get<TransportAllowance>(TABLE_TRANSPORT, transportId);
   }
 
   /**
@@ -127,7 +123,7 @@ export class TransportAllowanceService {
       amount = rule.MaxAmountPerDay;
     }
 
-    const data: Partial<TransportAllowance> = {
+    const data: any = {
       TransportNumber: transportNumber,
       EmployeeId: input.employeeId,
       EmployeeName: input.employeeName,
@@ -151,14 +147,10 @@ export class TransportAllowanceService {
       UpdatedAt: new Date().toISOString(),
     };
 
-    const record = await this.airtable.create<TransportAllowance>(
+    const record = await this.postgresClient.create<TransportAllowance>(
       TABLE_TRANSPORT,
       data
     );
-
-    if (!record) {
-      throw new Error('Failed to create transport allowance - Airtable not configured');
-    }
 
     return record;
   }
@@ -170,20 +162,24 @@ export class TransportAllowanceService {
     transportId: string,
     updates: Partial<TransportAllowance>
   ): Promise<TransportAllowance> {
-    const data = {
-      ...updates,
-      UpdatedAt: new Date().toISOString(),
+    const data: any = {
+      updated_at: new Date().toISOString(),
     };
 
-    const updated = await this.airtable.update<TransportAllowance>(
+    // Convert PascalCase to snake_case for updates
+    if (updates.Status !== undefined) data.status = updates.Status;
+    if (updates.ValidatedById !== undefined) data.validated_by_id = updates.ValidatedById;
+    if (updates.ValidatedByName !== undefined) data.validated_by_name = updates.ValidatedByName;
+    if (updates.ValidatedAt !== undefined) data.validated_at = updates.ValidatedAt;
+    if (updates.RejectionReason !== undefined) data.rejection_reason = updates.RejectionReason;
+    if (updates.PayrollId !== undefined) data.payroll_id = updates.PayrollId;
+    if (updates.PaidDate !== undefined) data.paid_date = updates.PaidDate;
+
+    const updated = await this.postgresClient.update<TransportAllowance>(
       TABLE_TRANSPORT,
       transportId,
       data
     );
-
-    if (!updated) {
-      throw new Error('Failed to update transport allowance - Airtable not configured');
-    }
 
     return updated;
   }
@@ -273,16 +269,16 @@ export class TransportAllowanceService {
     periodStart?: string,
     periodEnd?: string
   ): Promise<TransportAllowance[]> {
-    let formula = `AND({WorkspaceId} = '${workspaceId}', {EmployeeId} = '${employeeId}', {Status} = 'validated')`;
+    let formula = `AND(workspace_id = '${workspaceId}', employee_id = '${employeeId}', status = 'validated')`;
 
     if (periodStart) {
-      formula = `AND(${formula}, {WorkDate} >= '${periodStart}')`;
+      formula = `AND(${formula}, work_date >= '${periodStart}')`;
     }
     if (periodEnd) {
-      formula = `AND(${formula}, {WorkDate} <= '${periodEnd}')`;
+      formula = `AND(${formula}, work_date <= '${periodEnd}')`;
     }
 
-    return this.airtable.list<TransportAllowance>(TABLE_TRANSPORT, { filterByFormula: formula });
+    return this.postgresClient.list<TransportAllowance>(TABLE_TRANSPORT, { filterByFormula: formula });
   }
 
   /**
@@ -318,20 +314,20 @@ export class TransportAllowanceService {
       isActive?: boolean;
     }
   ): Promise<TransportAllowanceRule[]> {
-    let formula = `{WorkspaceId} = '${workspaceId}'`;
+    let formula = `workspace_id = '${workspaceId}'`;
 
     if (filters?.isActive !== undefined) {
-      formula += ` AND {IsActive} = ${filters.isActive ? 'TRUE()' : 'FALSE()'}`;
+      formula += ` AND is_active = ${filters.isActive}`;
     }
 
-    return this.airtable.list<TransportAllowanceRule>(TABLE_RULES, { filterByFormula: formula });
+    return this.postgresClient.list<TransportAllowanceRule>(TABLE_RULES, { filterByFormula: formula });
   }
 
   /**
    * Récupérer une règle par ID
    */
   async getRuleById(ruleId: string): Promise<TransportAllowanceRule | null> {
-    return this.airtable.get<TransportAllowanceRule>(TABLE_RULES, ruleId);
+    return this.postgresClient.get<TransportAllowanceRule>(TABLE_RULES, ruleId);
   }
 
   /**
@@ -352,29 +348,26 @@ export class TransportAllowanceService {
     notes?: string;
     workspaceId: string;
   }): Promise<TransportAllowanceRule> {
-    const data: Partial<TransportAllowanceRule> = {
-      Name: input.name,
-      IsActive: true,
-      DefaultAmount: input.defaultAmount,
-      Currency: input.currency,
-      EmployeeRoles: input.employeeRoles,
-      TransportTypes: input.transportTypes,
-      MinDistanceKm: input.minDistanceKm,
-      RatePerKm: input.ratePerKm,
-      MaxAmountPerDay: input.maxAmountPerDay,
-      RequiresApproval: input.requiresApproval ?? false,
-      ValidFrom: input.validFrom,
-      ValidUntil: input.validUntil,
-      Notes: input.notes,
-      WorkspaceId: input.workspaceId,
-      CreatedAt: new Date().toISOString(),
-      UpdatedAt: new Date().toISOString(),
+    const data: any = {
+      name: input.name,
+      is_active: true,
+      default_amount: input.defaultAmount,
+      currency: input.currency,
+      employee_roles: input.employeeRoles,
+      transport_types: input.transportTypes,
+      min_distance_km: input.minDistanceKm,
+      rate_per_km: input.ratePerKm,
+      max_amount_per_day: input.maxAmountPerDay,
+      requires_approval: input.requiresApproval ?? false,
+      valid_from: input.validFrom,
+      valid_until: input.validUntil,
+      notes: input.notes,
+      workspace_id: input.workspaceId,
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
     };
 
-    const created = await this.airtable.create<TransportAllowanceRule>(TABLE_RULES, data);
-    if (!created) {
-      throw new Error('Failed to create transport allowance rule - Airtable not configured');
-    }
+    const created = await this.postgresClient.create<TransportAllowanceRule>(TABLE_RULES, data);
     return created;
   }
 
@@ -385,19 +378,30 @@ export class TransportAllowanceService {
     ruleId: string,
     updates: Partial<TransportAllowanceRule>
   ): Promise<TransportAllowanceRule> {
-    const data = {
-      ...updates,
-      UpdatedAt: new Date().toISOString(),
+    const data: any = {
+      updated_at: new Date().toISOString(),
     };
 
-    const updated = await this.airtable.update<TransportAllowanceRule>(
+    // Convert PascalCase to snake_case for updates
+    if (updates.Name !== undefined) data.name = updates.Name;
+    if (updates.IsActive !== undefined) data.is_active = updates.IsActive;
+    if (updates.DefaultAmount !== undefined) data.default_amount = updates.DefaultAmount;
+    if (updates.Currency !== undefined) data.currency = updates.Currency;
+    if (updates.EmployeeRoles !== undefined) data.employee_roles = updates.EmployeeRoles;
+    if (updates.TransportTypes !== undefined) data.transport_types = updates.TransportTypes;
+    if (updates.MinDistanceKm !== undefined) data.min_distance_km = updates.MinDistanceKm;
+    if (updates.RatePerKm !== undefined) data.rate_per_km = updates.RatePerKm;
+    if (updates.MaxAmountPerDay !== undefined) data.max_amount_per_day = updates.MaxAmountPerDay;
+    if (updates.RequiresApproval !== undefined) data.requires_approval = updates.RequiresApproval;
+    if (updates.ValidFrom !== undefined) data.valid_from = updates.ValidFrom;
+    if (updates.ValidUntil !== undefined) data.valid_until = updates.ValidUntil;
+    if (updates.Notes !== undefined) data.notes = updates.Notes;
+
+    const updated = await this.postgresClient.update<TransportAllowanceRule>(
       TABLE_RULES,
       ruleId,
       data
     );
-    if (!updated) {
-      throw new Error('Failed to update transport allowance rule - Airtable not configured');
-    }
     return updated;
   }
 
@@ -532,8 +536,8 @@ export class TransportAllowanceService {
     const month = String(now.getMonth() + 1).padStart(2, '0');
     const prefix = `TRA-${year}${month}`;
 
-    const formula = `AND({WorkspaceId} = '${workspaceId}', FIND('${prefix}', {TransportNumber}) > 0)`;
-    const existing = await this.airtable.list<TransportAllowance>(
+    const formula = `AND(workspace_id = '${workspaceId}', transport_number LIKE '${prefix}%')`;
+    const existing = await this.postgresClient.list<TransportAllowance>(
       TABLE_TRANSPORT,
       { filterByFormula: formula }
     );

@@ -57,10 +57,10 @@ export async function GET(request: NextRequest) {
           now.toISOString()
         );
 
-        totalExecutions += perf.TotalExecutions;
-        totalMatches += Math.round(perf.TotalExecutions * (perf.MatchRate / 100));
-        totalSuccesses += Math.round(perf.TotalExecutions * (perf.SuccessRate / 100));
-        totalOverrides += Math.round(perf.TotalExecutions * (perf.OverrideRate / 100));
+        totalExecutions += perf.total_executions;
+        totalMatches += Math.round(perf.total_executions * (perf.match_rate / 100));
+        totalSuccesses += Math.round(perf.total_executions * (perf.success_rate / 100));
+        totalOverrides += Math.round(perf.total_executions * (perf.override_rate / 100));
       } catch {
         // Ignorer les erreurs pour des règles individuelles
       }
@@ -89,8 +89,8 @@ export async function GET(request: NextRequest) {
           return {
             ruleId: rule.RuleId,
             name: rule.Name,
-            executions: perf.TotalExecutions,
-            matchRate: perf.MatchRate,
+            executions: perf.total_executions,
+            matchRate: perf.match_rate,
           };
         } catch {
           return {

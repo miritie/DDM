@@ -3,13 +3,13 @@
  * Module Consignation & Partenaires
  */
 
-import { AirtableClient } from '@/lib/airtable/client';
+import { getPostgresClient } from '@/lib/database/postgres-client';
 import { ConsignationReturn } from '@/types/modules';
 import { v4 as uuidv4 } from 'uuid';
 import { PartnerService } from './partner-service';
 import { DepositService } from './deposit-service';
 
-const airtableClient = new AirtableClient();
+const postgresClient = getPostgresClient();
 const partnerService = new PartnerService();
 const depositService = new DepositService();
 
@@ -45,30 +45,30 @@ export interface ConsignationReturnFilters {
 
 export class ConsignationReturnService {
   /**
-   * Générer le numéro de retour (RET-202511-0001)
+   * Generer le numero de retour (RET-202511-0001)
    */
   async generateReturnNumber(workspaceId: string): Promise<string> {
     const year = new Date().getFullYear();
     const month = String(new Date().getMonth() + 1).padStart(2, '0');
-    const returns = await airtableClient.list<ConsignationReturn>('ConsignationReturn', {
-      filterByFormula: `AND({WorkspaceId} = '${workspaceId}', YEAR({CreatedAt}) = ${year}, MONTH({CreatedAt}) = ${parseInt(month)})`,
+    const returns = await postgresClient.list<any>('consignation_returns', {
+      filterByFormula: `AND({workspace_id} = '${workspaceId}', YEAR({created_at}) = ${year}, MONTH({created_at}) = ${parseInt(month)})`,
     });
     return `RET-${year}${month}-${String(returns.length + 1).padStart(4, '0')}`;
   }
 
   /**
-   * Créer un nouveau retour de consignation
+   * Creer un nouveau retour de consignation
    */
   async create(input: CreateConsignationReturnInput): Promise<ConsignationReturn> {
-    // Validation: vérifier que le dépôt existe
+    // Validation: verifier que le depot existe
     const deposit = await depositService.getById(input.depositId);
     if (!deposit) {
-      throw new Error('Dépôt non trouvé');
+      throw new Error('Depot non trouve');
     }
 
-    // Validation: dépôt doit être validé ou partial
+    // Validation: depot doit etre valide ou partial
     if (!['validated', 'partial'].includes(deposit.Status)) {
-      throw new Error('Seuls les dépôts validés ou partiels peuvent faire l\'objet d\'un retour');
+      throw new Error('Seuls les depots valides ou partiels peuvent faire l\'objet d\'un retour');
     }
 
     // Validation: au moins une ligne
@@ -76,37 +76,37 @@ export class ConsignationReturnService {
       throw new Error('Le retour doit contenir au moins un produit');
     }
 
-    // Validation: quantités positives et cohérentes avec le dépôt
+    // Validation: quantites positives et coherentes avec le depot
     for (const line of input.lines) {
       if (line.quantityReturned <= 0) {
-        throw new Error('Les quantités retournées doivent être positives');
+        throw new Error('Les quantites retournees doivent etre positives');
       }
 
-      // Vérifier que le produit existe dans le dépôt
+      // Verifier que le produit existe dans le depot
       const depositLine = deposit.Lines.find((l) => l.ProductId === line.productId);
       if (!depositLine) {
         throw new Error(
-          `Le produit ${line.productName} n'existe pas dans le dépôt ${deposit.DepositNumber}`
+          `Le produit ${line.productName} n'existe pas dans le depot ${deposit.DepositNumber}`
         );
       }
 
-      // Vérifier que la quantité retournée ne dépasse pas la quantité restante
+      // Verifier que la quantite retournee ne depasse pas la quantite restante
       if (line.quantityReturned > depositLine.QuantityRemaining) {
         throw new Error(
-          `La quantité retournée pour ${line.productName} (${line.quantityReturned}) dépasse la quantité restante dans le dépôt (${depositLine.QuantityRemaining})`
+          `La quantite retournee pour ${line.productName} (${line.quantityReturned}) depasse la quantite restante dans le depot (${depositLine.QuantityRemaining})`
         );
       }
     }
 
     const returnNumber = await this.generateReturnNumber(input.workspaceId);
 
-    // Récupérer le partenaire du dépôt
+    // Recuperer le partenaire du depot
     const partner = await partnerService.getById(deposit.PartnerId);
     if (!partner) {
-      throw new Error('Partenaire non trouvé');
+      throw new Error('Partenaire non trouve');
     }
 
-    const returnDoc: Partial<ConsignationReturn> = {
+    const returnDoc: any = {
       ReturnId: uuidv4(),
       ReturnNumber: returnNumber,
       DepositId: input.depositId,
@@ -132,16 +132,13 @@ export class ConsignationReturnService {
       UpdatedAt: new Date().toISOString(),
     };
 
-    // Créer le retour
-    const created = await airtableClient.create<ConsignationReturn>(
-      'ConsignationReturn',
+    // Creer le retour
+    const created = await postgresClient.create<any>(
+      'consignation_returns',
       returnDoc
     );
-    if (!created) {
-      throw new Error('Failed to create consignation return - Airtable not configured');
-    }
 
-    // Mettre à jour les quantités dans le dépôt
+    // Mettre a jour les quantites dans le depot
     for (const line of input.lines) {
       const depositLine = deposit.Lines.find((l) => l.ProductId === line.productId);
       if (depositLine) {
@@ -154,7 +151,7 @@ export class ConsignationReturnService {
       }
     }
 
-    // Calculer la valeur totale retournée
+    // Calculer la valeur totale retournee
     let totalReturnedValue = 0;
     for (const line of input.lines) {
       const depositLine = deposit.Lines.find((l) => l.ProductId === line.productId);
@@ -163,30 +160,30 @@ export class ConsignationReturnService {
       }
     }
 
-    // Mettre à jour les statistiques du partenaire
+    // Mettre a jour les statistiques du partenaire
     await partnerService.incrementReturned(deposit.PartnerId, totalReturnedValue);
 
-    return created;
+    return this.mapToConsignationReturn(created);
   }
 
   /**
-   * Récupérer un retour par son ID
+   * Recuperer un retour par son ID
    */
   async getById(returnId: string): Promise<ConsignationReturn | null> {
-    const returns = await airtableClient.list<ConsignationReturn>('ConsignationReturn', {
-      filterByFormula: `{ReturnId} = '${returnId}'`,
+    const returns = await postgresClient.list<any>('consignation_returns', {
+      filterByFormula: `{return_id} = '${returnId}'`,
     });
-    return returns.length > 0 ? returns[0] : null;
+    return returns.length > 0 ? this.mapToConsignationReturn(returns[0]) : null;
   }
 
   /**
-   * Récupérer un retour par son numéro
+   * Recuperer un retour par son numero
    */
   async getByNumber(returnNumber: string, workspaceId: string): Promise<ConsignationReturn | null> {
-    const returns = await airtableClient.list<ConsignationReturn>('ConsignationReturn', {
-      filterByFormula: `AND({WorkspaceId} = '${workspaceId}', {ReturnNumber} = '${returnNumber}')`,
+    const returns = await postgresClient.list<any>('consignation_returns', {
+      filterByFormula: `AND({workspace_id} = '${workspaceId}', {return_number} = '${returnNumber}')`,
     });
-    return returns.length > 0 ? returns[0] : null;
+    return returns.length > 0 ? this.mapToConsignationReturn(returns[0]) : null;
   }
 
   /**
@@ -196,51 +193,54 @@ export class ConsignationReturnService {
     workspaceId: string,
     filters: ConsignationReturnFilters = {}
   ): Promise<ConsignationReturn[]> {
-    const filterFormulas: string[] = [`{WorkspaceId} = '${workspaceId}'`];
+    const filterFormulas: string[] = [`{workspace_id} = '${workspaceId}'`];
 
     if (filters.depositId) {
-      filterFormulas.push(`{DepositId} = '${filters.depositId}'`);
+      filterFormulas.push(`{deposit_id} = '${filters.depositId}'`);
     }
     if (filters.partnerId) {
-      filterFormulas.push(`{PartnerId} = '${filters.partnerId}'`);
+      filterFormulas.push(`{partner_id} = '${filters.partnerId}'`);
     }
     if (filters.warehouseId) {
-      filterFormulas.push(`{WarehouseId} = '${filters.warehouseId}'`);
+      filterFormulas.push(`{warehouse_id} = '${filters.warehouseId}'`);
     }
     if (filters.startDate) {
-      filterFormulas.push(`{ReturnDate} >= '${filters.startDate}'`);
+      filterFormulas.push(`{return_date} >= '${filters.startDate}'`);
     }
     if (filters.endDate) {
-      filterFormulas.push(`{ReturnDate} <= '${filters.endDate}'`);
+      filterFormulas.push(`{return_date} <= '${filters.endDate}'`);
     }
 
     const filterByFormula =
       filterFormulas.length > 1 ? `AND(${filterFormulas.join(', ')})` : filterFormulas[0];
 
-    return await airtableClient.list<ConsignationReturn>('ConsignationReturn', {
+    const results = await postgresClient.list<any>('consignation_returns', {
       filterByFormula,
       sort: [{ field: 'ReturnDate', direction: 'desc' }],
     });
+    return results.map((record: any) => this.mapToConsignationReturn(record));
   }
 
   /**
-   * Obtenir les retours d'un dépôt spécifique
+   * Obtenir les retours d'un depot specifique
    */
   async getByDeposit(depositId: string): Promise<ConsignationReturn[]> {
-    return await airtableClient.list<ConsignationReturn>('ConsignationReturn', {
-      filterByFormula: `{DepositId} = '${depositId}'`,
+    const results = await postgresClient.list<any>('consignation_returns', {
+      filterByFormula: `{deposit_id} = '${depositId}'`,
       sort: [{ field: 'ReturnDate', direction: 'desc' }],
     });
+    return results.map((record: any) => this.mapToConsignationReturn(record));
   }
 
   /**
    * Obtenir les retours d'un partenaire
    */
   async getByPartner(partnerId: string): Promise<ConsignationReturn[]> {
-    return await airtableClient.list<ConsignationReturn>('ConsignationReturn', {
-      filterByFormula: `{PartnerId} = '${partnerId}'`,
+    const results = await postgresClient.list<any>('consignation_returns', {
+      filterByFormula: `{partner_id} = '${partnerId}'`,
       sort: [{ field: 'ReturnDate', direction: 'desc' }],
     });
+    return results.map((record: any) => this.mapToConsignationReturn(record));
   }
 
   /**
@@ -273,7 +273,7 @@ export class ConsignationReturnService {
 
     const totalReturns = returns.length;
 
-    // Comptabiliser les articles retournés
+    // Comptabiliser les articles retournes
     let totalItemsReturned = 0;
     const byCondition = {
       good: 0,
@@ -322,7 +322,7 @@ export class ConsignationReturnService {
   }
 
   /**
-   * Obtenir les retours récents (derniers N jours)
+   * Obtenir les retours recents (derniers N jours)
    */
   async getRecentReturns(workspaceId: string, days: number = 7): Promise<ConsignationReturn[]> {
     const startDate = new Date();
@@ -343,7 +343,7 @@ export class ConsignationReturnService {
   }> {
     const partner = await partnerService.getById(partnerId);
     if (!partner) {
-      throw new Error('Partenaire non trouvé');
+      throw new Error('Partenaire non trouve');
     }
 
     const totalDeposited = partner.TotalDeposited;
@@ -358,7 +358,7 @@ export class ConsignationReturnService {
   }
 
   /**
-   * Obtenir les produits les plus retournés
+   * Obtenir les produits les plus retournes
    */
   async getMostReturnedProducts(
     workspaceId: string,
@@ -404,28 +404,50 @@ export class ConsignationReturnService {
   }
 
   /**
-   * Mettre à jour les notes d'un retour
+   * Mettre a jour les notes d'un retour
    */
   async updateNotes(returnId: string, notes: string): Promise<ConsignationReturn> {
-    const returns = await airtableClient.list<ConsignationReturn>('ConsignationReturn', {
-      filterByFormula: `{ReturnId} = '${returnId}'`,
+    const returns = await postgresClient.list<any>('consignation_returns', {
+      filterByFormula: `{return_id} = '${returnId}'`,
     });
 
     if (returns.length === 0) {
-      throw new Error('Retour non trouvé');
+      throw new Error('Retour non trouve');
     }
 
-    const updated = await airtableClient.update<ConsignationReturn>(
-      'ConsignationReturn',
-      (returns[0] as any)._recordId,
+    const updated = await postgresClient.update<any>(
+      'consignation_returns',
+      returns[0].id,
       {
         Notes: notes,
         UpdatedAt: new Date().toISOString(),
       }
     );
-    if (!updated) {
-      throw new Error('Failed to update consignation return - Airtable not configured');
-    }
-    return updated;
+    return this.mapToConsignationReturn(updated);
+  }
+
+  /**
+   * Map database record to ConsignationReturn type
+   */
+  private mapToConsignationReturn(record: any): ConsignationReturn {
+    return {
+      ReturnId: record.return_id,
+      ReturnNumber: record.return_number,
+      DepositId: record.deposit_id,
+      DepositNumber: record.deposit_number,
+      PartnerId: record.partner_id,
+      PartnerName: record.partner_name,
+      Lines: record.lines,
+      ReturnDate: record.return_date,
+      ReceivedById: record.received_by_id,
+      ReceivedByName: record.received_by_name,
+      WarehouseId: record.warehouse_id,
+      WarehouseName: record.warehouse_name,
+      Notes: record.notes,
+      ReturnProof: record.return_proof,
+      WorkspaceId: record.workspace_id,
+      CreatedAt: record.created_at,
+      UpdatedAt: record.updated_at,
+    };
   }
 }

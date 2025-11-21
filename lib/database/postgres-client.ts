@@ -10,6 +10,8 @@ import { Pool, PoolClient, QueryResult, QueryResultRow } from 'pg';
  */
 export interface ListOptions {
   filterByFormula?: string;
+  where?: Record<string, any>;
+  orderBy?: { field: string; direction?: 'asc' | 'desc' };
   sort?: Array<{ field: string; direction?: 'asc' | 'desc' }>;
   maxRecords?: number;
   pageSize?: number;
@@ -61,6 +63,8 @@ export class PostgresClient {
   async list<T>(tableName: string, options: ListOptions = {}): Promise<T[]> {
     const {
       filterByFormula,
+      where,
+      orderBy,
       sort = [],
       maxRecords,
       pageSize,
@@ -81,8 +85,20 @@ export class PostgresClient {
       }
     }
 
-    // ORDER BY clause
-    if (sort.length > 0) {
+    // WHERE clause (direct where object)
+    if (where && Object.keys(where).length > 0) {
+      const whereClauses = Object.entries(where).map(([key, value]) => {
+        params.push(value);
+        return `${key} = $${params.length}`;
+      });
+      const whereStr = whereClauses.join(' AND ');
+      query += filterByFormula ? ` AND ${whereStr}` : ` WHERE ${whereStr}`;
+    }
+
+    // ORDER BY clause (orderBy takes precedence over sort)
+    if (orderBy) {
+      query += ` ORDER BY ${orderBy.field} ${orderBy.direction?.toUpperCase() || 'ASC'}`;
+    } else if (sort.length > 0) {
       const orderClauses = sort.map(s => `${s.field} ${s.direction?.toUpperCase() || 'ASC'}`);
       query += ` ORDER BY ${orderClauses.join(', ')}`;
     }
@@ -97,7 +113,8 @@ export class PostgresClient {
     }
 
     const result = await this.pool.query(query, params);
-    return result.rows as T[];
+    // Convertir les résultats de snake_case vers PascalCase
+    return result.rows.map(row => this.mapRowToPascalCase<T>(row));
   }
 
   /**
@@ -111,15 +128,17 @@ export class PostgresClient {
       return null;
     }
 
-    return result.rows[0] as T;
+    return this.mapRowToPascalCase<T>(result.rows[0]);
   }
 
   /**
    * Créer un nouvel enregistrement
    */
   async create<T>(tableName: string, data: Partial<T>): Promise<T> {
-    const keys = Object.keys(data);
-    const values = Object.values(data);
+    // Convertir les clés de PascalCase vers snake_case
+    const snakeData = this.mapDataToSnakeCase(data);
+    const keys = Object.keys(snakeData);
+    const values = Object.values(snakeData);
     const placeholders = keys.map((_, i) => `$${i + 1}`);
 
     const query = `
@@ -129,15 +148,17 @@ export class PostgresClient {
     `;
 
     const result = await this.pool.query(query, values);
-    return result.rows[0] as T;
+    return this.mapRowToPascalCase<T>(result.rows[0]);
   }
 
   /**
    * Mettre à jour un enregistrement
    */
   async update<T>(tableName: string, recordId: string, data: Partial<T>): Promise<T> {
-    const keys = Object.keys(data);
-    const values = Object.values(data);
+    // Convertir les clés de PascalCase vers snake_case
+    const snakeData = this.mapDataToSnakeCase(data);
+    const keys = Object.keys(snakeData);
+    const values = Object.values(snakeData);
     const setClauses = keys.map((key, i) => `${key} = $${i + 1}`);
 
     const query = `
@@ -153,7 +174,7 @@ export class PostgresClient {
       throw new Error(`Enregistrement ${recordId} non trouvé dans ${tableName}`);
     }
 
-    return result.rows[0] as T;
+    return this.mapRowToPascalCase<T>(result.rows[0]);
   }
 
   /**
@@ -385,6 +406,42 @@ export class PostgresClient {
       .replace(/([A-Z])/g, '_$1')
       .toLowerCase()
       .replace(/^_/, '');
+  }
+
+  /**
+   * Convertir snake_case en PascalCase
+   */
+  private toPascalCase(str: string): string {
+    return str
+      .split('_')
+      .map(word => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
+      .join('');
+  }
+
+  /**
+   * Convertir les clés d'un objet de snake_case vers PascalCase
+   */
+  private mapRowToPascalCase<T>(row: any): T {
+    if (!row) return row;
+    const result: any = {};
+    for (const key in row) {
+      const pascalKey = this.toPascalCase(key);
+      result[pascalKey] = row[key];
+    }
+    return result as T;
+  }
+
+  /**
+   * Convertir les clés d'un objet de PascalCase vers snake_case
+   */
+  private mapDataToSnakeCase(data: any): any {
+    if (!data) return data;
+    const result: any = {};
+    for (const key in data) {
+      const snakeKey = this.toSnakeCase(key);
+      result[snakeKey] = data[key];
+    }
+    return result;
   }
 }
 

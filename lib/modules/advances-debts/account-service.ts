@@ -3,11 +3,11 @@
  * Module 7.5 - Avances & Dettes
  */
 
-import { AirtableClient } from '@/lib/airtable/client';
+import { getPostgresClient } from '@/lib/database/postgres-client';
 import { Account } from '@/types/modules';
 import { v4 as uuidv4 } from 'uuid';
 
-const airtableClient = new AirtableClient();
+const postgresClient = getPostgresClient();
 
 export interface CreateAccountInput {
   accountType: 'agent' | 'supplier' | 'client' | 'other';
@@ -33,17 +33,17 @@ export class AccountService {
       isActive?: boolean;
     }
   ): Promise<Account[]> {
-    let formula = `{WorkspaceId} = '${workspaceId}'`;
+    let formula = `workspace_id = '${workspaceId}'`;
 
     if (filters?.accountType) {
-      formula += `, {AccountType} = '${filters.accountType}'`;
+      formula += ` AND account_type = '${filters.accountType}'`;
     }
     if (filters?.isActive !== undefined) {
-      formula += `, {IsActive} = ${filters.isActive ? 'TRUE()' : 'FALSE()'}`;
+      formula += ` AND is_active = ${filters.isActive}`;
     }
 
-    return await airtableClient.list<Account>('Account', {
-      filterByFormula: `AND(${formula})`,
+    return await postgresClient.list<Account>('accounts', {
+      filterByFormula: formula,
       sort: [{ field: 'Name', direction: 'asc' }],
     });
   }
@@ -52,8 +52,8 @@ export class AccountService {
    * Récupère un compte par ID
    */
   async getById(accountId: string): Promise<Account | null> {
-    const results = await airtableClient.list<Account>('Account', {
-      filterByFormula: `{AccountId} = '${accountId}'`,
+    const results = await postgresClient.list<Account>('accounts', {
+      filterByFormula: `account_id = '${accountId}'`,
     });
     return results[0] || null;
   }
@@ -78,39 +78,30 @@ export class AccountService {
       UpdatedAt: new Date().toISOString(),
     };
 
-    const created = await airtableClient.create<Account>('Account', account);
-
-    if (!created) {
-      throw new Error('Failed to create account - Airtable not configured');
-    }
-
-    return created;
+    return await postgresClient.create<Account>('accounts', account);
   }
 
   /**
    * Met à jour un compte
    */
   async update(accountId: string, updates: Partial<Account>): Promise<Account> {
-    const records = await airtableClient.list<Account>('Account', {
-      filterByFormula: `{AccountId} = '${accountId}'`,
+    const records = await postgresClient.list<Account>('accounts', {
+      filterByFormula: `account_id = '${accountId}'`,
     });
 
     if (records.length === 0) {
       throw new Error('Compte non trouvé');
     }
 
-    const recordId = (records[0] as any)._recordId;
+    const recordId = records[0].id;
+    if (!recordId) {
+      throw new Error('ID not found');
+    }
 
-    const updated = await airtableClient.update<Account>('Account', recordId, {
+    return await postgresClient.update<Account>('accounts', recordId, {
       ...updates,
       UpdatedAt: new Date().toISOString(),
     });
-
-    if (!updated) {
-      throw new Error('Failed to update account - Airtable not configured');
-    }
-
-    return updated;
   }
 
   /**
@@ -156,8 +147,8 @@ export class AccountService {
 
     const prefix = typePrefix[accountType] || 'ACC';
 
-    const existingAccounts = await airtableClient.list<Account>('Account', {
-      filterByFormula: `AND({WorkspaceId} = '${workspaceId}', {AccountType} = '${accountType}')`,
+    const existingAccounts = await postgresClient.list<Account>('accounts', {
+      filterByFormula: `workspace_id = '${workspaceId}' AND account_type = '${accountType}'`,
     });
 
     const sequence = String(existingAccounts.length + 1).padStart(4, '0');

@@ -3,11 +3,11 @@
  * Module RH & Rémunérations
  */
 
-import { AirtableClient } from '@/lib/airtable/client';
+import { getPostgresClient } from '@/lib/database/postgres-client';
 import { EmployeeAdvance } from '@/types/modules';
 import { v4 as uuidv4 } from 'uuid';
 
-const airtableClient = new AirtableClient();
+const postgresClient = getPostgresClient();
 
 export interface CreateEmployeeAdvanceInput {
   employeeId: string;
@@ -51,8 +51,8 @@ export class EmployeeAdvanceService {
   async generateAdvanceNumber(workspaceId: string): Promise<string> {
     const year = new Date().getFullYear();
     const month = String(new Date().getMonth() + 1).padStart(2, '0');
-    const advances = await airtableClient.list<EmployeeAdvance>('EmployeeAdvance', {
-      filterByFormula: `AND({WorkspaceId} = '${workspaceId}', YEAR({CreatedAt}) = ${year}, MONTH({CreatedAt}) = ${parseInt(month)})`,
+    const advances = await postgresClient.list<EmployeeAdvance>('employee_advances', {
+      filterByFormula: `AND(workspace_id = '${workspaceId}', YEAR(created_at) = ${year}, MONTH(created_at) = ${parseInt(month)})`,
     });
     return `ADV-${year}${month}-${String(advances.length + 1).padStart(4, '0')}`;
   }
@@ -67,8 +67,8 @@ export class EmployeeAdvanceService {
     }
 
     // Vérifier que l'employé existe et est actif
-    const employees = await airtableClient.list('Employee', {
-      filterByFormula: `{EmployeeId} = '${input.employeeId}'`,
+    const employees = await postgresClient.list('employees', {
+      filterByFormula: `employee_id = '${input.employeeId}'`,
     });
 
     if (employees.length === 0) {
@@ -77,21 +77,21 @@ export class EmployeeAdvanceService {
 
     const employee = employees[0] as any;
 
-    if (employee.Status !== 'active') {
+    if (employee.status !== 'active') {
       throw new Error('Seuls les employés actifs peuvent demander une avance');
     }
 
     // Vérifier le montant maximal autorisé (50% du salaire de base)
-    const maxAdvance = employee.BaseSalary * 0.5;
+    const maxAdvance = employee.base_salary * 0.5;
     if (input.amount > maxAdvance) {
       throw new Error(
-        `Le montant de l'avance ne peut pas dépasser 50% du salaire de base (${maxAdvance} ${employee.Currency})`
+        `Le montant de l'avance ne peut pas dépasser 50% du salaire de base (${maxAdvance} ${employee.currency})`
       );
     }
 
     // Vérifier qu'il n'y a pas d'avance en cours (pending, approved, paid)
-    const activeAdvances = await airtableClient.list<EmployeeAdvance>('EmployeeAdvance', {
-      filterByFormula: `AND({EmployeeId} = '${input.employeeId}', OR({Status} = 'pending', {Status} = 'approved', {Status} = 'paid'))`,
+    const activeAdvances = await postgresClient.list<EmployeeAdvance>('employee_advances', {
+      filterByFormula: `AND(employee_id = '${input.employeeId}', OR(status = 'pending', status = 'approved', status = 'paid'))`,
     });
 
     if (activeAdvances.length > 0) {
@@ -100,7 +100,7 @@ export class EmployeeAdvanceService {
 
     const advanceNumber = await this.generateAdvanceNumber(input.workspaceId);
 
-    const advance: Partial<EmployeeAdvance> = {
+    const advance: any = {
       AdvanceId: uuidv4(),
       AdvanceNumber: advanceNumber,
       EmployeeId: input.employeeId,
@@ -115,10 +115,7 @@ export class EmployeeAdvanceService {
       UpdatedAt: new Date().toISOString(),
     };
 
-    const created = await airtableClient.create<EmployeeAdvance>('EmployeeAdvance', advance);
-    if (!created) {
-      throw new Error('Failed to create employee advance - Airtable not configured');
-    }
+    const created = await postgresClient.create<EmployeeAdvance>('employee_advances', advance);
     return created;
   }
 
@@ -126,8 +123,8 @@ export class EmployeeAdvanceService {
    * Récupérer une avance par son ID
    */
   async getById(advanceId: string): Promise<EmployeeAdvance | null> {
-    const advances = await airtableClient.list<EmployeeAdvance>('EmployeeAdvance', {
-      filterByFormula: `{AdvanceId} = '${advanceId}'`,
+    const advances = await postgresClient.list<EmployeeAdvance>('employee_advances', {
+      filterByFormula: `advance_id = '${advanceId}'`,
     });
     return advances.length > 0 ? advances[0] : null;
   }
@@ -136,8 +133,8 @@ export class EmployeeAdvanceService {
    * Récupérer une avance par son numéro
    */
   async getByNumber(advanceNumber: string, workspaceId: string): Promise<EmployeeAdvance | null> {
-    const advances = await airtableClient.list<EmployeeAdvance>('EmployeeAdvance', {
-      filterByFormula: `AND({WorkspaceId} = '${workspaceId}', {AdvanceNumber} = '${advanceNumber}')`,
+    const advances = await postgresClient.list<EmployeeAdvance>('employee_advances', {
+      filterByFormula: `AND(workspace_id = '${workspaceId}', advance_number = '${advanceNumber}')`,
     });
     return advances.length > 0 ? advances[0] : null;
   }
@@ -146,31 +143,31 @@ export class EmployeeAdvanceService {
    * Lister les avances avec filtres
    */
   async list(workspaceId: string, filters: EmployeeAdvanceFilters = {}): Promise<EmployeeAdvance[]> {
-    const filterFormulas: string[] = [`{WorkspaceId} = '${workspaceId}'`];
+    const filterFormulas: string[] = [`workspace_id = '${workspaceId}'`];
 
     if (filters.employeeId) {
-      filterFormulas.push(`{EmployeeId} = '${filters.employeeId}'`);
+      filterFormulas.push(`employee_id = '${filters.employeeId}'`);
     }
     if (filters.status) {
-      filterFormulas.push(`{Status} = '${filters.status}'`);
+      filterFormulas.push(`status = '${filters.status}'`);
     }
     if (filters.startDate) {
-      filterFormulas.push(`{RequestDate} >= '${filters.startDate}'`);
+      filterFormulas.push(`request_date >= '${filters.startDate}'`);
     }
     if (filters.endDate) {
-      filterFormulas.push(`{RequestDate} <= '${filters.endDate}'`);
+      filterFormulas.push(`request_date <= '${filters.endDate}'`);
     }
     if (filters.minAmount !== undefined) {
-      filterFormulas.push(`{Amount} >= ${filters.minAmount}`);
+      filterFormulas.push(`amount >= ${filters.minAmount}`);
     }
     if (filters.maxAmount !== undefined) {
-      filterFormulas.push(`{Amount} <= ${filters.maxAmount}`);
+      filterFormulas.push(`amount <= ${filters.maxAmount}`);
     }
 
     const filterByFormula =
       filterFormulas.length > 1 ? `AND(${filterFormulas.join(', ')})` : filterFormulas[0];
 
-    return await airtableClient.list<EmployeeAdvance>('EmployeeAdvance', {
+    return await postgresClient.list<EmployeeAdvance>('employee_advances', {
       filterByFormula,
       sort: [{ field: 'RequestDate', direction: 'desc' }],
     });
@@ -180,8 +177,8 @@ export class EmployeeAdvanceService {
    * Approuver une avance
    */
   async approve(advanceId: string, input: ApproveAdvanceInput): Promise<EmployeeAdvance> {
-    const advances = await airtableClient.list<EmployeeAdvance>('EmployeeAdvance', {
-      filterByFormula: `{AdvanceId} = '${advanceId}'`,
+    const advances = await postgresClient.list<EmployeeAdvance>('employee_advances', {
+      filterByFormula: `advance_id = '${advanceId}'`,
     });
 
     if (advances.length === 0) {
@@ -194,16 +191,17 @@ export class EmployeeAdvanceService {
       throw new Error('Seules les avances en attente peuvent être approuvées');
     }
 
-    const updated = await airtableClient.update<EmployeeAdvance>('EmployeeAdvance', (advance as any)._recordId, {
+    if (!advance.id) {
+      throw new Error('Advance ID is missing');
+    }
+
+    const updated = await postgresClient.update<EmployeeAdvance>('employee_advances', advance.id, {
       Status: 'approved',
       ApprovedById: input.approvedById,
       ApprovedByName: input.approvedByName,
       ApprovedAt: new Date().toISOString(),
       UpdatedAt: new Date().toISOString(),
     });
-    if (!updated) {
-      throw new Error('Failed to update employee advance - Airtable not configured');
-    }
     return updated;
   }
 
@@ -211,8 +209,8 @@ export class EmployeeAdvanceService {
    * Rejeter une avance
    */
   async reject(advanceId: string, reason?: string): Promise<EmployeeAdvance> {
-    const advances = await airtableClient.list<EmployeeAdvance>('EmployeeAdvance', {
-      filterByFormula: `{AdvanceId} = '${advanceId}'`,
+    const advances = await postgresClient.list<EmployeeAdvance>('employee_advances', {
+      filterByFormula: `advance_id = '${advanceId}'`,
     });
 
     if (advances.length === 0) {
@@ -234,10 +232,11 @@ export class EmployeeAdvanceService {
       updateData.Notes = advance.Notes ? `${advance.Notes}\n\nRejet: ${reason}` : `Rejet: ${reason}`;
     }
 
-    const updated = await airtableClient.update<EmployeeAdvance>('EmployeeAdvance', (advance as any)._recordId, updateData);
-    if (!updated) {
-      throw new Error('Failed to update employee advance - Airtable not configured');
+    if (!advance.id) {
+      throw new Error('Advance ID is missing');
     }
+
+    const updated = await postgresClient.update<EmployeeAdvance>('employee_advances', advance.id, updateData);
     return updated;
   }
 
@@ -245,8 +244,8 @@ export class EmployeeAdvanceService {
    * Payer une avance
    */
   async pay(advanceId: string, input: PayAdvanceInput): Promise<EmployeeAdvance> {
-    const advances = await airtableClient.list<EmployeeAdvance>('EmployeeAdvance', {
-      filterByFormula: `{AdvanceId} = '${advanceId}'`,
+    const advances = await postgresClient.list<EmployeeAdvance>('employee_advances', {
+      filterByFormula: `advance_id = '${advanceId}'`,
     });
 
     if (advances.length === 0) {
@@ -259,7 +258,11 @@ export class EmployeeAdvanceService {
       throw new Error('Seules les avances approuvées peuvent être payées');
     }
 
-    const updated = await airtableClient.update<EmployeeAdvance>('EmployeeAdvance', (advance as any)._recordId, {
+    if (!advance.id) {
+      throw new Error('Advance ID is missing');
+    }
+
+    const updated = await postgresClient.update<EmployeeAdvance>('employee_advances', advance.id, {
       Status: 'paid',
       PaymentDate: input.paymentDate,
       PaymentMethod: input.paymentMethod,
@@ -267,9 +270,6 @@ export class EmployeeAdvanceService {
       TransactionId: input.transactionId,
       UpdatedAt: new Date().toISOString(),
     });
-    if (!updated) {
-      throw new Error('Failed to update employee advance - Airtable not configured');
-    }
     return updated;
   }
 
@@ -277,8 +277,8 @@ export class EmployeeAdvanceService {
    * Marquer une avance comme déduite (après déduction sur paie)
    */
   async markAsDeducted(advanceId: string, input: DeductAdvanceInput): Promise<EmployeeAdvance> {
-    const advances = await airtableClient.list<EmployeeAdvance>('EmployeeAdvance', {
-      filterByFormula: `{AdvanceId} = '${advanceId}'`,
+    const advances = await postgresClient.list<EmployeeAdvance>('employee_advances', {
+      filterByFormula: `advance_id = '${advanceId}'`,
     });
 
     if (advances.length === 0) {
@@ -291,15 +291,16 @@ export class EmployeeAdvanceService {
       throw new Error('Seules les avances payées peuvent être marquées comme déduites');
     }
 
-    const updated = await airtableClient.update<EmployeeAdvance>('EmployeeAdvance', (advance as any)._recordId, {
+    if (!advance.id) {
+      throw new Error('Advance ID is missing');
+    }
+
+    const updated = await postgresClient.update<EmployeeAdvance>('employee_advances', advance.id, {
       Status: 'deducted',
       DeductionPayrollId: input.deductionPayrollId,
       DeductionDate: input.deductionDate,
       UpdatedAt: new Date().toISOString(),
     });
-    if (!updated) {
-      throw new Error('Failed to update employee advance - Airtable not configured');
-    }
     return updated;
   }
 
@@ -321,8 +322,8 @@ export class EmployeeAdvanceService {
    * Obtenir les avances payées non encore déduites pour un employé
    */
   async getUndeductedAdvances(employeeId: string): Promise<EmployeeAdvance[]> {
-    return await airtableClient.list<EmployeeAdvance>('EmployeeAdvance', {
-      filterByFormula: `AND({EmployeeId} = '${employeeId}', {Status} = 'paid')`,
+    return await postgresClient.list<EmployeeAdvance>('employee_advances', {
+      filterByFormula: `AND(employee_id = '${employeeId}', status = 'paid')`,
       sort: [{ field: 'PaymentDate', direction: 'asc' }],
     });
   }
@@ -411,21 +412,22 @@ export class EmployeeAdvanceService {
    * Mettre à jour les notes d'une avance
    */
   async updateNotes(advanceId: string, notes: string): Promise<EmployeeAdvance> {
-    const advances = await airtableClient.list<EmployeeAdvance>('EmployeeAdvance', {
-      filterByFormula: `{AdvanceId} = '${advanceId}'`,
+    const advances = await postgresClient.list<EmployeeAdvance>('employee_advances', {
+      filterByFormula: `advance_id = '${advanceId}'`,
     });
 
     if (advances.length === 0) {
       throw new Error('Avance non trouvée');
     }
 
-    const updated = await airtableClient.update<EmployeeAdvance>('EmployeeAdvance', (advances[0] as any)._recordId, {
+    if (!advances[0].id) {
+      throw new Error('Advance ID is missing');
+    }
+
+    const updated = await postgresClient.update<EmployeeAdvance>('employee_advances', advances[0].id, {
       Notes: notes,
       UpdatedAt: new Date().toISOString(),
     });
-    if (!updated) {
-      throw new Error('Failed to update employee advance - Airtable not configured');
-    }
     return updated;
   }
 
@@ -433,8 +435,8 @@ export class EmployeeAdvanceService {
    * Annuler une avance (seulement si pending ou approved)
    */
   async cancel(advanceId: string, reason?: string): Promise<EmployeeAdvance> {
-    const advances = await airtableClient.list<EmployeeAdvance>('EmployeeAdvance', {
-      filterByFormula: `{AdvanceId} = '${advanceId}'`,
+    const advances = await postgresClient.list<EmployeeAdvance>('employee_advances', {
+      filterByFormula: `advance_id = '${advanceId}'`,
     });
 
     if (advances.length === 0) {
@@ -455,10 +457,11 @@ export class EmployeeAdvanceService {
     const cancelNote = `Annulation: ${reason || 'Aucune raison fournie'}`;
     updateData.Notes = advance.Notes ? `${advance.Notes}\n\n${cancelNote}` : cancelNote;
 
-    const updated = await airtableClient.update<EmployeeAdvance>('EmployeeAdvance', (advance as any)._recordId, updateData);
-    if (!updated) {
-      throw new Error('Failed to update employee advance - Airtable not configured');
+    if (!advance.id) {
+      throw new Error('Advance ID is missing');
     }
+
+    const updated = await postgresClient.update<EmployeeAdvance>('employee_advances', advance.id, updateData);
     return updated;
   }
 }

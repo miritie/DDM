@@ -4,10 +4,10 @@
  */
 
 import { Notification } from '@/types/modules';
-import { AirtableClient } from '@/lib/airtable/client';
+import { getPostgresClient } from '@/lib/database/postgres-client';
 import { v4 as uuidv4 } from 'uuid';
 
-const airtableClient = new AirtableClient();
+const postgresClient = getPostgresClient();
 
 export interface SendSMSInput {
   to: string;
@@ -34,9 +34,9 @@ export class SMSService {
    * Envoie un SMS via Twilio
    */
   async send(input: SendSMSInput): Promise<{ success: boolean; sid?: string; error?: string }> {
-    // Si Twilio n'est pas configuré, simuler l'envoi en développement
+    // Si Twilio n'est pas configure, simuler l'envoi en developpement
     if (!this.accountSid || !this.authToken) {
-      console.log('📱 [SMS SIMULATION]', {
+      console.log('[SMS SIMULATION]', {
         to: input.to,
         message: input.message,
       });
@@ -55,14 +55,14 @@ export class SMSService {
     }
 
     try {
-      // Construire les paramètres pour l'API Twilio
+      // Construire les parametres pour l'API Twilio
       const params = new URLSearchParams({
         To: input.to,
         From: this.fromNumber,
         Body: input.message,
       });
 
-      // Créer les credentials en base64 pour l'authentification Basic
+      // Creer les credentials en base64 pour l'authentification Basic
       const credentials = Buffer.from(`${this.accountSid}:${this.authToken}`).toString('base64');
 
       // Appel API Twilio
@@ -83,7 +83,7 @@ export class SMSService {
       if (!response.ok) {
         console.error('Twilio error:', data);
 
-        // Enregistrer l'échec
+        // Enregistrer l'echec
         if (input.recipientId && input.workspaceId) {
           await this.logNotification({
             recipientId: input.recipientId,
@@ -100,7 +100,7 @@ export class SMSService {
         };
       }
 
-      // Enregistrer le succès
+      // Enregistrer le succes
       if (input.recipientId && input.workspaceId) {
         await this.logNotification({
           recipientId: input.recipientId,
@@ -114,7 +114,7 @@ export class SMSService {
     } catch (error: any) {
       console.error('Error sending SMS:', error);
 
-      // Enregistrer l'échec
+      // Enregistrer l'echec
       if (input.recipientId && input.workspaceId) {
         await this.logNotification({
           recipientId: input.recipientId,
@@ -130,7 +130,7 @@ export class SMSService {
   }
 
   /**
-   * Enregistre une notification en base de données
+   * Enregistre une notification en base de donnees
    */
   private async logNotification(input: {
     recipientId: string;
@@ -140,20 +140,25 @@ export class SMSService {
     errorMessage?: string;
   }): Promise<void> {
     try {
-      const notification: Partial<Notification> = {
-        NotificationId: uuidv4(),
-        RecipientId: input.recipientId,
-        Channel: 'sms',
-        Message: input.message,
-        Status: input.status,
-        SentAt: input.status === 'sent' ? new Date().toISOString() : undefined,
-        ErrorMessage: input.errorMessage,
-        WorkspaceId: input.workspaceId,
-        CreatedAt: new Date().toISOString(),
-        UpdatedAt: new Date().toISOString(),
-      };
+      const notificationId = uuidv4();
+      const now = new Date().toISOString();
 
-      await airtableClient.create<Notification>('Notification', notification);
+      await postgresClient.query(
+        `INSERT INTO notifications (notification_id, recipient_id, channel, message, status, sent_at, error_message, workspace_id, created_at, updated_at)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+        [
+          notificationId,
+          input.recipientId,
+          'sms',
+          input.message,
+          input.status,
+          input.status === 'sent' ? now : null,
+          input.errorMessage,
+          input.workspaceId,
+          now,
+          now,
+        ]
+      );
     } catch (error) {
       console.error('Error logging notification:', error);
     }
@@ -201,7 +206,7 @@ export class SMSService {
   }
 
   /**
-   * Template: SMS rappel échéance
+   * Template: SMS rappel echeance
    */
   getReminderSMS(data: {
     userName: string;

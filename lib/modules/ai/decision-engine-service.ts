@@ -1,13 +1,13 @@
 /**
- * Service - Moteur de Décisions et Recommandations
- * Module IA Prédictive & Aide à la Décision
+ * Service - Moteur de Decisions et Recommandations
+ * Module IA Predictive & Aide a la Decision
  */
 
-import { AirtableClient } from '@/lib/airtable/client';
+import { getPostgresClient } from '@/lib/database/postgres-client';
 import { DecisionRecommendation, DecisionRule, DecisionType, DecisionStatus } from '@/types/modules';
 import { v4 as uuidv4 } from 'uuid';
 
-const airtableClient = new AirtableClient();
+const postgresClient = getPostgresClient();
 
 export interface RequestDecisionInput {
   decisionType: DecisionType;
@@ -30,18 +30,18 @@ export interface ApplyDecisionInput {
 
 export class DecisionEngineService {
   /**
-   * Demander une recommandation de décision
+   * Demander une recommandation de decision
    */
   async requestDecision(input: RequestDecisionInput): Promise<DecisionRecommendation> {
-    // Récupérer toutes les règles actives pour ce type de décision
-    const rules = await airtableClient.list<DecisionRule>('DecisionRule', {
-      filterByFormula: `AND({WorkspaceId} = '${input.workspaceId}', {DecisionType} = '${input.decisionType}', {IsActive} = 1)`,
+    // Recuperer toutes les regles actives pour ce type de decision
+    const rules = await postgresClient.list<DecisionRule>('decision_rules', {
+      filterByFormula: `workspace_id = '${input.workspaceId}' AND decision_type = '${input.decisionType}' AND is_active = true`,
       sort: [{ field: 'Priority', direction: 'desc' }],
     });
 
     let matchedRule: DecisionRule | null = null;
 
-    // Évaluer les règles par ordre de priorité
+    // Evaluer les regles par ordre de priorite
     for (const rule of rules) {
       if (this.evaluateConditions(rule.Conditions, input.referenceData)) {
         matchedRule = rule;
@@ -49,18 +49,18 @@ export class DecisionEngineService {
       }
     }
 
-    // Si aucune règle ne correspond, utiliser une recommandation par défaut
+    // Si aucune regle ne correspond, utiliser une recommandation par defaut
     if (!matchedRule) {
       return this.generateDefaultRecommendation(input);
     }
 
-    // Générer la recommandation basée sur la règle
+    // Generer la recommandation basee sur la regle
     const recommendation = await this.generateRecommendation(input, matchedRule);
 
-    // Mettre à jour les statistiques de la règle
+    // Mettre a jour les statistiques de la regle
     await this.updateRuleStatistics(matchedRule.RuleId, 'triggered');
 
-    // Si auto-exécution activée, appliquer la décision automatiquement
+    // Si auto-execution activee, appliquer la decision automatiquement
     if (matchedRule.AutoExecute && !matchedRule.RequiresApproval) {
       await this.autoExecuteDecision(recommendation, matchedRule);
     }
@@ -69,7 +69,7 @@ export class DecisionEngineService {
   }
 
   /**
-   * Évaluer les conditions d'une règle
+   * Evaluer les conditions d'une regle
    */
   private evaluateConditions(
     conditions: Array<{
@@ -107,7 +107,7 @@ export class DecisionEngineService {
   }
 
   /**
-   * Évaluer une condition unique
+   * Evaluer une condition unique
    */
   private evaluateCondition(fieldValue: any, operator: string, conditionValue: any): boolean {
     switch (operator) {
@@ -143,20 +143,20 @@ export class DecisionEngineService {
   }
 
   /**
-   * Obtenir une valeur imbriquée dans un objet
+   * Obtenir une valeur imbriquee dans un objet
    */
   private getNestedValue(obj: Record<string, any>, path: string): any {
     return path.split('.').reduce((current, key) => current?.[key], obj);
   }
 
   /**
-   * Générer une recommandation basée sur une règle
+   * Generer une recommandation basee sur une regle
    */
   private async generateRecommendation(
     input: RequestDecisionInput,
     rule: DecisionRule
   ): Promise<DecisionRecommendation> {
-    // Calculer le score de confiance basé sur les conditions remplies
+    // Calculer le score de confiance base sur les conditions remplies
     const confidenceScore = this.calculateConfidenceScore(rule, input.referenceData);
 
     const recommendation: Partial<DecisionRecommendation> = {
@@ -181,18 +181,15 @@ export class DecisionEngineService {
       UpdatedAt: new Date().toISOString(),
     };
 
-    const created = await airtableClient.create<DecisionRecommendation>(
-      'DecisionRecommendation',
+    const created = await postgresClient.create<DecisionRecommendation>(
+      'decision_recommendations',
       recommendation
     );
-    if (!created) {
-      throw new Error('Failed to create decision recommendation - Airtable not configured');
-    }
     return created;
   }
 
   /**
-   * Générer une recommandation par défaut (aucune règle ne correspond)
+   * Generer une recommandation par defaut (aucune regle ne correspond)
    */
   private async generateDefaultRecommendation(
     input: RequestDecisionInput
@@ -207,7 +204,7 @@ export class DecisionEngineService {
       RecommendedAction: 'escalate',
       Confidence: 'low',
       ConfidenceScore: 30,
-      Reasoning: 'Aucune règle applicable. Escalade recommandée pour validation manuelle.',
+      Reasoning: 'Aucune regle applicable. Escalade recommandee pour validation manuelle.',
       FactorsConsidered: [],
       Status: 'pending',
       AutoExecuted: false,
@@ -217,13 +214,10 @@ export class DecisionEngineService {
       UpdatedAt: new Date().toISOString(),
     };
 
-    const created = await airtableClient.create<DecisionRecommendation>(
-      'DecisionRecommendation',
+    const created = await postgresClient.create<DecisionRecommendation>(
+      'decision_recommendations',
       recommendation
     );
-    if (!created) {
-      throw new Error('Failed to create decision recommendation - Airtable not configured');
-    }
     return created;
   }
 
@@ -233,7 +227,7 @@ export class DecisionEngineService {
   private calculateConfidenceScore(rule: DecisionRule, data: Record<string, any>): number {
     let baseScore = 70;
 
-    // Augmenter la confiance si la règle a un bon historique
+    // Augmenter la confiance si la regle a un bon historique
     if (rule.SuccessRate && rule.SuccessRate > 80) {
       baseScore += 15;
     }
@@ -243,7 +237,7 @@ export class DecisionEngineService {
       baseScore += 10;
     }
 
-    // Diminuer si auto-exécution sans approbation
+    // Diminuer si auto-execution sans approbation
     if (rule.AutoExecute && !rule.RequiresApproval) {
       baseScore -= 5;
     }
@@ -263,24 +257,24 @@ export class DecisionEngineService {
   }
 
   /**
-   * Générer le raisonnement de la décision
+   * Generer le raisonnement de la decision
    */
   private generateReasoning(rule: DecisionRule, data: Record<string, any>): string {
-    let reasoning = `Règle "${rule.Name}" appliquée. `;
+    let reasoning = `Regle "${rule.Name}" appliquee. `;
 
     if (rule.Conditions.length > 0) {
       reasoning += `${rule.Conditions.length} condition(s) remplie(s). `;
     }
 
     if (rule.AutoExecute) {
-      reasoning += 'Exécution automatique activée. ';
+      reasoning += 'Execution automatique activee. ';
     }
 
     return reasoning + rule.Description;
   }
 
   /**
-   * Extraire les facteurs considérés
+   * Extraire les facteurs consideres
    */
   private extractFactors(
     rule: DecisionRule,
@@ -288,7 +282,7 @@ export class DecisionEngineService {
   ): Array<{ factor: string; value: any; weight: number; impact: 'positive' | 'negative' | 'neutral' }> {
     const factors: any[] = [];
 
-    rule.Conditions.forEach((condition) => {
+    rule.Conditions.forEach((condition: any) => {
       const value = this.getNestedValue(data, condition.field);
       factors.push({
         factor: condition.field,
@@ -302,7 +296,7 @@ export class DecisionEngineService {
   }
 
   /**
-   * Déterminer l'impact d'un facteur
+   * Determiner l'impact d'un facteur
    */
   private determineImpact(condition: any, value: any): 'positive' | 'negative' | 'neutral' {
     if (condition.operator.includes('greater')) return 'positive';
@@ -311,39 +305,41 @@ export class DecisionEngineService {
   }
 
   /**
-   * Auto-exécuter une décision
+   * Auto-executer une decision
    */
   private async autoExecuteDecision(
     recommendation: DecisionRecommendation,
     rule: DecisionRule
   ): Promise<void> {
-    // Mettre à jour le statut de la recommandation
-    await airtableClient.update('DecisionRecommendation', (recommendation as any)._recordId, {
-      Status: recommendation.RecommendedAction === 'approve' ? 'approved' : 'rejected',
-      AppliedAt: new Date().toISOString(),
-      UpdatedAt: new Date().toISOString(),
-    });
+    // Mettre a jour le statut de la recommandation
+    if (recommendation.id) {
+      await postgresClient.update('decision_recommendations', recommendation.id, {
+        Status: recommendation.RecommendedAction === 'approve' ? 'approved' : 'rejected',
+        AppliedAt: new Date().toISOString(),
+        UpdatedAt: new Date().toISOString(),
+      });
+    }
 
-    // Mettre à jour les statistiques de la règle
+    // Mettre a jour les statistiques de la regle
     await this.updateRuleStatistics(rule.RuleId, 'auto_executed');
   }
 
   /**
-   * Appliquer manuellement une décision
+   * Appliquer manuellement une decision
    */
   async applyDecision(input: ApplyDecisionInput): Promise<DecisionRecommendation> {
-    const recommendations = await airtableClient.list<DecisionRecommendation>('DecisionRecommendation', {
-      filterByFormula: `{RecommendationId} = '${input.recommendationId}'`,
+    const recommendations = await postgresClient.list<DecisionRecommendation>('decision_recommendations', {
+      filterByFormula: `recommendation_id = '${input.recommendationId}'`,
     });
 
     if (recommendations.length === 0) {
-      throw new Error('Recommandation non trouvée');
+      throw new Error('Recommandation non trouvee');
     }
 
     const recommendation = recommendations[0];
 
     if (recommendation.Status !== 'pending') {
-      throw new Error('Cette recommandation a déjà été traitée');
+      throw new Error('Cette recommandation a deja ete traitee');
     }
 
     const finalAction = input.overrideAction || recommendation.RecommendedAction;
@@ -359,7 +355,7 @@ export class DecisionEngineService {
       UpdatedAt: new Date().toISOString(),
     };
 
-    // Mettre à jour les statistiques de la règle si applicable
+    // Mettre a jour les statistiques de la regle si applicable
     if (recommendation.RuleId) {
       await this.updateRuleStatistics(
         recommendation.RuleId,
@@ -371,26 +367,26 @@ export class DecisionEngineService {
       }
     }
 
-    const updated = await airtableClient.update<DecisionRecommendation>(
-      'DecisionRecommendation',
-      (recommendation as any)._recordId,
-      updateData
-    );
-    if (!updated) {
-      throw new Error('Failed to update decision recommendation - Airtable not configured');
+    if (recommendation.id) {
+      const updated = await postgresClient.update<DecisionRecommendation>(
+        'decision_recommendations',
+        recommendation.id,
+        updateData
+      );
+      return updated;
     }
-    return updated;
+    return recommendation;
   }
 
   /**
-   * Mettre à jour les statistiques d'une règle
+   * Mettre a jour les statistiques d'une regle
    */
   private async updateRuleStatistics(
     ruleId: string,
     type: 'triggered' | 'auto_executed' | 'approved' | 'rejected' | 'overridden'
   ): Promise<void> {
-    const rules = await airtableClient.list<DecisionRule>('DecisionRule', {
-      filterByFormula: `{RuleId} = '${ruleId}'`,
+    const rules = await postgresClient.list<DecisionRule>('decision_rules', {
+      filterByFormula: `rule_id = '${ruleId}'`,
     });
 
     if (rules.length === 0) return;
@@ -416,7 +412,7 @@ export class DecisionEngineService {
         break;
     }
 
-    // Recalculer le taux de succès
+    // Recalculer le taux de succes
     const totalDecisions = rule.TotalApproved + rule.TotalRejected;
     if (totalDecisions > 0) {
       updateData.SuccessRate = ((rule.TotalApproved + (updateData.TotalApproved || 0)) / totalDecisions) * 100;
@@ -424,36 +420,37 @@ export class DecisionEngineService {
 
     updateData.UpdatedAt = new Date().toISOString();
 
-    await airtableClient.update('DecisionRule', (rule as any)._recordId, updateData);
+    if (rule.id) {
+      await postgresClient.update('decision_rules', rule.id, updateData);
+    }
   }
 
   /**
    * Obtenir les recommandations en attente
    */
   async getPendingRecommendations(workspaceId: string): Promise<DecisionRecommendation[]> {
-    return await airtableClient.list<DecisionRecommendation>('DecisionRecommendation', {
-      filterByFormula: `AND({WorkspaceId} = '${workspaceId}', {Status} = 'pending')`,
+    return await postgresClient.list<DecisionRecommendation>('decision_recommendations', {
+      filterByFormula: `workspace_id = '${workspaceId}' AND status = 'pending'`,
       sort: [{ field: 'CreatedAt', direction: 'desc' }],
     });
   }
 
   /**
-   * Obtenir l'historique des décisions
+   * Obtenir l'historique des decisions
    */
   async getDecisionHistory(
     workspaceId: string,
     filters: any = {}
   ): Promise<DecisionRecommendation[]> {
-    const filterFormulas: string[] = [`{WorkspaceId} = '${workspaceId}'`];
+    const filterFormulas: string[] = [`workspace_id = '${workspaceId}'`];
 
-    if (filters.decisionType) filterFormulas.push(`{DecisionType} = '${filters.decisionType}'`);
-    if (filters.status) filterFormulas.push(`{Status} = '${filters.status}'`);
-    if (filters.ruleId) filterFormulas.push(`{RuleId} = '${filters.ruleId}'`);
+    if (filters.decisionType) filterFormulas.push(`decision_type = '${filters.decisionType}'`);
+    if (filters.status) filterFormulas.push(`status = '${filters.status}'`);
+    if (filters.ruleId) filterFormulas.push(`rule_id = '${filters.ruleId}'`);
 
-    const filterByFormula =
-      filterFormulas.length > 1 ? `AND(${filterFormulas.join(', ')})` : filterFormulas[0];
+    const filterByFormula = filterFormulas.join(' AND ');
 
-    return await airtableClient.list<DecisionRecommendation>('DecisionRecommendation', {
+    return await postgresClient.list<DecisionRecommendation>('decision_recommendations', {
       filterByFormula,
       sort: [{ field: 'CreatedAt', direction: 'desc' }],
     });

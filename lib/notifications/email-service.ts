@@ -4,10 +4,10 @@
  */
 
 import { Notification } from '@/types/modules';
-import { AirtableClient } from '@/lib/airtable/client';
+import { getPostgresClient } from '@/lib/database/postgres-client';
 import { v4 as uuidv4 } from 'uuid';
 
-const airtableClient = new AirtableClient();
+const postgresClient = getPostgresClient();
 
 export interface SendEmailInput {
   to: string;
@@ -36,9 +36,9 @@ export class EmailService {
    * Envoie un email via SendGrid
    */
   async send(input: SendEmailInput): Promise<{ success: boolean; messageId?: string; error?: string }> {
-    // Si SendGrid n'est pas configuré, simuler l'envoi en développement
+    // Si SendGrid n'est pas configure, simuler l'envoi en developpement
     if (!this.apiKey) {
-      console.log('📧 [EMAIL SIMULATION]', {
+      console.log('[EMAIL SIMULATION]', {
         to: input.to,
         subject: input.subject,
         html: input.html.substring(0, 100) + '...',
@@ -96,7 +96,7 @@ export class EmailService {
         const errorData = await response.json();
         console.error('SendGrid error:', errorData);
 
-        // Enregistrer l'échec
+        // Enregistrer l'echec
         if (input.recipientId && input.workspaceId) {
           await this.logNotification({
             recipientId: input.recipientId,
@@ -114,7 +114,7 @@ export class EmailService {
         };
       }
 
-      // Enregistrer le succès
+      // Enregistrer le succes
       if (input.recipientId && input.workspaceId) {
         await this.logNotification({
           recipientId: input.recipientId,
@@ -129,7 +129,7 @@ export class EmailService {
     } catch (error: any) {
       console.error('Error sending email:', error);
 
-      // Enregistrer l'échec
+      // Enregistrer l'echec
       if (input.recipientId && input.workspaceId) {
         await this.logNotification({
           recipientId: input.recipientId,
@@ -146,7 +146,7 @@ export class EmailService {
   }
 
   /**
-   * Enregistre une notification en base de données
+   * Enregistre une notification en base de donnees
    */
   private async logNotification(input: {
     recipientId: string;
@@ -157,21 +157,26 @@ export class EmailService {
     errorMessage?: string;
   }): Promise<void> {
     try {
-      const notification: Partial<Notification> = {
-        NotificationId: uuidv4(),
-        RecipientId: input.recipientId,
-        Channel: 'email',
-        Subject: input.subject,
-        Message: input.message,
-        Status: input.status,
-        SentAt: input.status === 'sent' ? new Date().toISOString() : undefined,
-        ErrorMessage: input.errorMessage,
-        WorkspaceId: input.workspaceId,
-        CreatedAt: new Date().toISOString(),
-        UpdatedAt: new Date().toISOString(),
-      };
+      const notificationId = uuidv4();
+      const now = new Date().toISOString();
 
-      await airtableClient.create<Notification>('Notification', notification);
+      await postgresClient.query(
+        `INSERT INTO notifications (notification_id, recipient_id, channel, subject, message, status, sent_at, error_message, workspace_id, created_at, updated_at)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
+        [
+          notificationId,
+          input.recipientId,
+          'email',
+          input.subject,
+          input.message,
+          input.status,
+          input.status === 'sent' ? now : null,
+          input.errorMessage,
+          input.workspaceId,
+          now,
+          now,
+        ]
+      );
     } catch (error) {
       console.error('Error logging notification:', error);
     }
@@ -204,21 +209,21 @@ export class EmailService {
               </div>
               <div class="content">
                 <h2>Bonjour ${userName},</h2>
-                <p>Votre compte a été créé avec succès sur DDM System.</p>
-                <p>Vous pouvez maintenant vous connecter et commencer à utiliser toutes les fonctionnalités de la plateforme.</p>
+                <p>Votre compte a ete cree avec succes sur DDM System.</p>
+                <p>Vous pouvez maintenant vous connecter et commencer a utiliser toutes les fonctionnalites de la plateforme.</p>
                 <p style="text-align: center; margin: 30px 0;">
                   <a href="${process.env.NEXTAUTH_URL}/auth/login" class="button">Se connecter</a>
                 </p>
               </div>
               <div class="footer">
-                <p>DDM System - Système Intégré de Gestion</p>
-                <p>Cet email a été envoyé automatiquement, merci de ne pas y répondre.</p>
+                <p>DDM System - Systeme Integre de Gestion</p>
+                <p>Cet email a ete envoye automatiquement, merci de ne pas y repondre.</p>
               </div>
             </div>
           </body>
         </html>
       `,
-      text: `Bonjour ${userName},\n\nVotre compte a été créé avec succès sur DDM System.\n\nVous pouvez maintenant vous connecter à ${process.env.NEXTAUTH_URL}/auth/login`,
+      text: `Bonjour ${userName},\n\nVotre compte a ete cree avec succes sur DDM System.\n\nVous pouvez maintenant vous connecter a ${process.env.NEXTAUTH_URL}/auth/login`,
     };
   }
 
@@ -236,7 +241,7 @@ export class EmailService {
     const amount = new Intl.NumberFormat('fr-FR', { style: 'currency', currency: 'XOF' }).format(data.amount);
 
     return {
-      subject: `Nouvelle ${typeLabel} enregistrée - ${data.recordNumber}`,
+      subject: `Nouvelle ${typeLabel} enregistree - ${data.recordNumber}`,
       html: `
         <!DOCTYPE html>
         <html>
@@ -258,13 +263,13 @@ export class EmailService {
               </div>
               <div class="content">
                 <h2>Bonjour ${data.userName},</h2>
-                <p>Une nouvelle ${typeLabel.toLowerCase()} a été enregistrée à votre nom.</p>
+                <p>Une nouvelle ${typeLabel.toLowerCase()} a ete enregistree a votre nom.</p>
                 <div class="info-box">
-                  <p><strong>Numéro:</strong> ${data.recordNumber}</p>
+                  <p><strong>Numero:</strong> ${data.recordNumber}</p>
                   <p><strong>Montant:</strong> ${amount}</p>
                   <p><strong>Motif:</strong> ${data.reason}</p>
                 </div>
-                <p>Vous pouvez consulter les détails et gérer les paiements depuis votre espace.</p>
+                <p>Vous pouvez consulter les details et gerer les paiements depuis votre espace.</p>
               </div>
               <div class="footer">
                 <p>DDM System - Module Avances & Dettes</p>
@@ -273,7 +278,7 @@ export class EmailService {
           </body>
         </html>
       `,
-      text: `Bonjour ${data.userName},\n\nUne nouvelle ${typeLabel.toLowerCase()} a été enregistrée:\n\nNuméro: ${data.recordNumber}\nMontant: ${amount}\nMotif: ${data.reason}`,
+      text: `Bonjour ${data.userName},\n\nUne nouvelle ${typeLabel.toLowerCase()} a ete enregistree:\n\nNumero: ${data.recordNumber}\nMontant: ${amount}\nMotif: ${data.reason}`,
     };
   }
 
@@ -289,14 +294,14 @@ export class EmailService {
   }): { subject: string; html: string; text: string } {
     const typeLabels = {
       income: 'Revenu',
-      expense: 'Dépense',
+      expense: 'Depense',
       transfer: 'Transfert',
     };
     const typeLabel = typeLabels[data.type];
     const amount = new Intl.NumberFormat('fr-FR', { style: 'currency', currency: 'XOF' }).format(data.amount);
 
     return {
-      subject: `${typeLabel} enregistré(e) - ${data.transactionNumber}`,
+      subject: `${typeLabel} enregistre(e) - ${data.transactionNumber}`,
       html: `
         <!DOCTYPE html>
         <html>
@@ -318,22 +323,22 @@ export class EmailService {
               </div>
               <div class="content">
                 <h2>Bonjour ${data.userName},</h2>
-                <p>Une nouvelle transaction a été enregistrée.</p>
+                <p>Une nouvelle transaction a ete enregistree.</p>
                 <div class="info-box">
                   <p><strong>Type:</strong> ${typeLabel}</p>
-                  <p><strong>Numéro:</strong> ${data.transactionNumber}</p>
+                  <p><strong>Numero:</strong> ${data.transactionNumber}</p>
                   <p><strong>Montant:</strong> ${amount}</p>
                   <p><strong>Description:</strong> ${data.description}</p>
                 </div>
               </div>
               <div class="footer">
-                <p>DDM System - Module Trésorerie</p>
+                <p>DDM System - Module Tresorerie</p>
               </div>
             </div>
           </body>
         </html>
       `,
-      text: `Bonjour ${data.userName},\n\n${typeLabel} enregistré(e):\n\nNuméro: ${data.transactionNumber}\nMontant: ${amount}\nDescription: ${data.description}`,
+      text: `Bonjour ${data.userName},\n\n${typeLabel} enregistre(e):\n\nNumero: ${data.transactionNumber}\nMontant: ${amount}\nDescription: ${data.description}`,
     };
   }
 }

@@ -3,11 +3,11 @@
  * Module Administration & Settings
  */
 
-import { AirtableClient } from '@/lib/airtable/client';
+import { getPostgresClient } from '@/lib/database/postgres-client';
 import { Workspace } from '@/types/modules';
 import { v4 as uuidv4 } from 'uuid';
 
-const airtableClient = new AirtableClient();
+const postgresClient = getPostgresClient();
 
 export interface CreateWorkspaceInput {
   name: string;
@@ -33,43 +33,43 @@ export class WorkspaceService {
     let filterByFormula = undefined;
 
     if (filters?.isActive !== undefined) {
-      filterByFormula = `{IsActive} = ${filters.isActive ? 'TRUE()' : 'FALSE()'}`;
+      filterByFormula = `is_active = ${filters.isActive}`;
     }
 
-    return await airtableClient.list<Workspace>('Workspace', {
+    return await postgresClient.list<Workspace>('workspaces', {
       filterByFormula,
       sort: [{ field: 'Name', direction: 'asc' }],
     });
   }
 
   /**
-   * Récupère un workspace par ID
+   * Recupere un workspace par ID
    */
   async getById(workspaceId: string): Promise<Workspace | null> {
-    const results = await airtableClient.list<Workspace>('Workspace', {
-      filterByFormula: `{WorkspaceId} = '${workspaceId}'`,
+    const results = await postgresClient.list<Workspace>('workspaces', {
+      filterByFormula: `workspace_id = '${workspaceId}'`,
     });
     return results[0] || null;
   }
 
   /**
-   * Récupère un workspace par slug
+   * Recupere un workspace par slug
    */
   async getBySlug(slug: string): Promise<Workspace | null> {
-    const results = await airtableClient.list<Workspace>('Workspace', {
-      filterByFormula: `{Slug} = '${slug}'`,
+    const results = await postgresClient.list<Workspace>('workspaces', {
+      filterByFormula: `slug = '${slug}'`,
     });
     return results[0] || null;
   }
 
   /**
-   * Crée un nouveau workspace
+   * Cree un nouveau workspace
    */
   async create(input: CreateWorkspaceInput): Promise<Workspace> {
-    // Vérifier si le slug existe déjà
+    // Verifier si le slug existe deja
     const existingWorkspace = await this.getBySlug(input.slug);
     if (existingWorkspace) {
-      throw new Error('Ce slug est déjà utilisé');
+      throw new Error('Ce slug est deja utilise');
     }
 
     const workspace: Partial<Workspace> = {
@@ -82,56 +82,57 @@ export class WorkspaceService {
       UpdatedAt: new Date().toISOString(),
     };
 
-    const created = await airtableClient.create<Workspace>('Workspace', workspace);
-
-    if (!created) {
-      throw new Error('Failed to create workspace - Airtable not configured');
-    }
+    const created = await postgresClient.create<Workspace>('workspaces', workspace);
 
     return created;
   }
 
   /**
-   * Met à jour un workspace
+   * Met a jour un workspace
    */
   async update(workspaceId: string, updates: UpdateWorkspaceInput): Promise<Workspace> {
     const workspace = await this.getById(workspaceId);
     if (!workspace) {
-      throw new Error('Workspace non trouvé');
+      throw new Error('Workspace non trouve');
     }
 
-    // Si le slug est modifié, vérifier qu'il n'existe pas déjà
+    // Si le slug est modifie, verifier qu'il n'existe pas deja
     if (updates.slug && updates.slug !== workspace.Slug) {
       const existingWorkspace = await this.getBySlug(updates.slug);
       if (existingWorkspace) {
-        throw new Error('Ce slug est déjà utilisé');
+        throw new Error('Ce slug est deja utilise');
       }
     }
 
-    const records = await airtableClient.list<Workspace>('Workspace', {
-      filterByFormula: `{WorkspaceId} = '${workspaceId}'`,
+    const records = await postgresClient.list<Workspace>('workspaces', {
+      filterByFormula: `workspace_id = '${workspaceId}'`,
     });
 
     if (records.length === 0) {
-      throw new Error('Workspace non trouvé');
+      throw new Error('Workspace non trouve');
     }
 
-    const recordId = (records[0] as any)._recordId;
+    const recordId = records[0].id;
+    if (!recordId) {
+      throw new Error('ID du workspace non trouve');
+    }
 
-    const updated = await airtableClient.update<Workspace>('Workspace', recordId, {
-      ...updates,
+    // Preparer les mises a jour avec les noms de champs PascalCase
+    const updateData: Record<string, any> = {
       UpdatedAt: new Date().toISOString(),
-    });
+    };
+    if (updates.name !== undefined) updateData.Name = updates.name;
+    if (updates.slug !== undefined) updateData.Slug = updates.slug;
+    if (updates.description !== undefined) updateData.Description = updates.description;
+    if (updates.isActive !== undefined) updateData.IsActive = updates.isActive;
 
-    if (!updated) {
-      throw new Error('Failed to update workspace - Airtable not configured');
-    }
+    const updated = await postgresClient.update<Workspace>('workspaces', recordId, updateData);
 
     return updated;
   }
 
   /**
-   * Désactive un workspace
+   * Desactive un workspace
    */
   async deactivate(workspaceId: string): Promise<Workspace> {
     return await this.update(workspaceId, { isActive: false });
@@ -153,17 +154,17 @@ export class WorkspaceService {
     totalRoles: number;
     totalModules: number;
   }> {
-    const users = await airtableClient.list('User', {
-      filterByFormula: `{WorkspaceId} = '${workspaceId}'`,
+    const users = await postgresClient.list('users', {
+      filterByFormula: `workspace_id = '${workspaceId}'`,
     });
 
-    const roles = await airtableClient.list('Role', {
-      filterByFormula: `{WorkspaceId} = '${workspaceId}'`,
+    const roles = await postgresClient.list('roles', {
+      filterByFormula: `workspace_id = '${workspaceId}'`,
     });
 
     return {
       totalUsers: users.length,
-      activeUsers: users.filter((u: any) => u.IsActive).length,
+      activeUsers: users.filter((u: any) => u.is_active).length,
       totalRoles: roles.length,
       totalModules: 9, // Nombre de modules DDM
     };

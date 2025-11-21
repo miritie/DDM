@@ -3,11 +3,11 @@
  * Module Comptabilité
  */
 
-import { AirtableClient } from '@/lib/airtable/client';
+import { getPostgresClient } from '@/lib/database/postgres-client';
 import { Journal } from '@/types/modules';
 import { v4 as uuidv4 } from 'uuid';
 
-const airtableClient = new AirtableClient();
+const postgresClient = getPostgresClient();
 
 export interface CreateJournalInput {
   code: string;
@@ -19,7 +19,7 @@ export interface CreateJournalInput {
 
 export class JournalService {
   async create(input: CreateJournalInput): Promise<Journal> {
-    const journal: Partial<Journal> = {
+    const journal = {
       JournalId: uuidv4(),
       Code: input.code,
       Label: input.label,
@@ -31,24 +31,18 @@ export class JournalService {
       UpdatedAt: new Date().toISOString(),
     };
 
-    const created = await airtableClient.create<Journal>('Journal', journal);
-
-    if (!created) {
-      throw new Error('Failed to create journal - Airtable not configured');
-    }
-
-    return created;
+    return await postgresClient.create<Journal>('journals', journal);
   }
 
   async getById(journalId: string): Promise<Journal | null> {
-    const journals = await airtableClient.list<Journal>('Journal', {
+    const journals = await postgresClient.list<Journal>('journals', {
       filterByFormula: `{JournalId} = '${journalId}'`,
     });
     return journals.length > 0 ? journals[0] : null;
   }
 
   async list(workspaceId: string): Promise<Journal[]> {
-    return await airtableClient.list<Journal>('Journal', {
+    return await postgresClient.list<Journal>('journals', {
       filterByFormula: `{WorkspaceId} = '${workspaceId}'`,
       sort: [{ field: 'Code', direction: 'asc' }],
     });

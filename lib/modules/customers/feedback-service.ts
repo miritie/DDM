@@ -3,11 +3,11 @@
  * Module Clients & Fidélité
  */
 
-import { AirtableClient } from '@/lib/airtable/client';
+import { getPostgresClient } from '@/lib/database/postgres-client';
 import { CustomerFeedback } from '@/types/modules';
 import { v4 as uuidv4 } from 'uuid';
 
-const airtableClient = new AirtableClient();
+const postgresClient = getPostgresClient();
 
 export type FeedbackSentiment = 'positive' | 'neutral' | 'negative';
 
@@ -36,7 +36,7 @@ export class FeedbackService {
     // Calculer le sentiment automatiquement si non fourni
     const sentiment = input.sentiment || this.calculateSentiment(input.rating);
 
-    const feedback: Partial<CustomerFeedback> = {
+    const feedback = {
       FeedbackId: uuidv4(),
       CustomerId: input.customerId,
       CustomerName: input.customerName,
@@ -57,10 +57,7 @@ export class FeedbackService {
       UpdatedAt: new Date().toISOString(),
     };
 
-    const created = await airtableClient.create<CustomerFeedback>('CustomerFeedback', feedback);
-    if (!created) {
-      throw new Error('Failed to create customer feedback - Airtable not configured');
-    }
+    const created = await postgresClient.create<CustomerFeedback>('customer_feedbacks', feedback);
     return created;
   }
 
@@ -77,9 +74,9 @@ export class FeedbackService {
    * Liste les feedbacks d'un client
    */
   async listByCustomer(customerId: string): Promise<CustomerFeedback[]> {
-    return await airtableClient.list<CustomerFeedback>('CustomerFeedback', {
-      filterByFormula: `{CustomerId} = '${customerId}'`,
-      sort: [{ field: 'CreatedAt', direction: 'desc' }],
+    return await postgresClient.list<CustomerFeedback>('customer_feedbacks', {
+      where: { customer_id: customerId },
+      orderBy: { field: 'created_at', direction: 'desc' },
     });
   }
 
@@ -98,33 +95,38 @@ export class FeedbackService {
       saleId?: string;
     }
   ): Promise<CustomerFeedback[]> {
-    const filterFormulas: string[] = [`{WorkspaceId} = '${workspaceId}'`];
+    const where: any = { workspace_id: workspaceId };
 
-    if (filters?.sentiment) filterFormulas.push(`{Sentiment} = '${filters.sentiment}'`);
-    if (filters?.isPublic !== undefined)
-      filterFormulas.push(`{IsPublic} = ${filters.isPublic ? 1 : 0}`);
-    if (filters?.isVerified !== undefined)
-      filterFormulas.push(`{IsVerified} = ${filters.isVerified ? 1 : 0}`);
-    if (filters?.minRating) filterFormulas.push(`{Rating} >= ${filters.minRating}`);
-    if (filters?.maxRating) filterFormulas.push(`{Rating} <= ${filters.maxRating}`);
-    if (filters?.productId) filterFormulas.push(`{ProductId} = '${filters.productId}'`);
-    if (filters?.saleId) filterFormulas.push(`{SaleId} = '${filters.saleId}'`);
+    if (filters?.sentiment) where.sentiment = filters.sentiment;
+    if (filters?.isPublic !== undefined) where.is_public = filters.isPublic;
+    if (filters?.isVerified !== undefined) where.is_verified = filters.isVerified;
+    if (filters?.productId) where.product_id = filters.productId;
+    if (filters?.saleId) where.sale_id = filters.saleId;
 
-    const filterByFormula =
-      filterFormulas.length > 1 ? `AND(${filterFormulas.join(', ')})` : filterFormulas[0];
-
-    return await airtableClient.list<CustomerFeedback>('CustomerFeedback', {
-      filterByFormula,
-      sort: [{ field: 'CreatedAt', direction: 'desc' }],
+    // Note: minRating and maxRating would need custom query handling
+    // For now, we'll filter in memory if needed
+    let feedbacks = await postgresClient.list<CustomerFeedback>('customer_feedbacks', {
+      where,
+      orderBy: { field: 'created_at', direction: 'desc' },
     });
+
+    // Apply rating filters in memory
+    if (filters?.minRating) {
+      feedbacks = feedbacks.filter(f => f.Rating >= filters.minRating!);
+    }
+    if (filters?.maxRating) {
+      feedbacks = feedbacks.filter(f => f.Rating <= filters.maxRating!);
+    }
+
+    return feedbacks;
   }
 
   /**
    * Récupère un feedback par ID
    */
   async getById(feedbackId: string): Promise<CustomerFeedback | null> {
-    const feedbacks = await airtableClient.list<CustomerFeedback>('CustomerFeedback', {
-      filterByFormula: `{FeedbackId} = '${feedbackId}'`,
+    const feedbacks = await postgresClient.list<CustomerFeedback>('customer_feedbacks', {
+      where: { feedback_id: feedbackId },
     });
 
     return feedbacks.length > 0 ? feedbacks[0] : null;
@@ -139,17 +141,20 @@ export class FeedbackService {
     respondedById: string,
     respondedByName: string
   ): Promise<CustomerFeedback> {
-    const feedbacks = await airtableClient.list<CustomerFeedback>('CustomerFeedback', {
-      filterByFormula: `{FeedbackId} = '${feedbackId}'`,
+    const feedbacks = await postgresClient.list<CustomerFeedback>('customer_feedbacks', {
+      where: { feedback_id: feedbackId },
     });
 
     if (feedbacks.length === 0) {
       throw new Error('Feedback non trouvé');
     }
 
-    const updated = await airtableClient.update<CustomerFeedback>(
-      'CustomerFeedback',
-      (feedbacks[0] as any)._recordId,
+    const feedback = feedbacks[0];
+    if (!feedback.id) throw new Error('Feedback ID is missing');
+
+    const updated = await postgresClient.update<CustomerFeedback>(
+      'customer_feedbacks',
+      feedback.id,
       {
         Response: response,
         RespondedById: respondedById,
@@ -158,9 +163,6 @@ export class FeedbackService {
         UpdatedAt: new Date().toISOString(),
       }
     );
-    if (!updated) {
-      throw new Error('Failed to update customer feedback - Airtable not configured');
-    }
     return updated;
   }
 
@@ -168,25 +170,25 @@ export class FeedbackService {
    * Vérifie un feedback
    */
   async verify(feedbackId: string): Promise<CustomerFeedback> {
-    const feedbacks = await airtableClient.list<CustomerFeedback>('CustomerFeedback', {
-      filterByFormula: `{FeedbackId} = '${feedbackId}'`,
+    const feedbacks = await postgresClient.list<CustomerFeedback>('customer_feedbacks', {
+      where: { feedback_id: feedbackId },
     });
 
     if (feedbacks.length === 0) {
       throw new Error('Feedback non trouvé');
     }
 
-    const updated = await airtableClient.update<CustomerFeedback>(
-      'CustomerFeedback',
-      (feedbacks[0] as any)._recordId,
+    const feedback = feedbacks[0];
+    if (!feedback.id) throw new Error('Feedback ID is missing');
+
+    const updated = await postgresClient.update<CustomerFeedback>(
+      'customer_feedbacks',
+      feedback.id,
       {
         IsVerified: true,
         UpdatedAt: new Date().toISOString(),
       }
     );
-    if (!updated) {
-      throw new Error('Failed to update customer feedback - Airtable not configured');
-    }
     return updated;
   }
 
@@ -194,25 +196,25 @@ export class FeedbackService {
    * Publie/Dépublie un feedback
    */
   async togglePublic(feedbackId: string, isPublic: boolean): Promise<CustomerFeedback> {
-    const feedbacks = await airtableClient.list<CustomerFeedback>('CustomerFeedback', {
-      filterByFormula: `{FeedbackId} = '${feedbackId}'`,
+    const feedbacks = await postgresClient.list<CustomerFeedback>('customer_feedbacks', {
+      where: { feedback_id: feedbackId },
     });
 
     if (feedbacks.length === 0) {
       throw new Error('Feedback non trouvé');
     }
 
-    const updated = await airtableClient.update<CustomerFeedback>(
-      'CustomerFeedback',
-      (feedbacks[0] as any)._recordId,
+    const feedback = feedbacks[0];
+    if (!feedback.id) throw new Error('Feedback ID is missing');
+
+    const updated = await postgresClient.update<CustomerFeedback>(
+      'customer_feedbacks',
+      feedback.id,
       {
         IsPublic: isPublic,
         UpdatedAt: new Date().toISOString(),
       }
     );
-    if (!updated) {
-      throw new Error('Failed to update customer feedback - Airtable not configured');
-    }
     return updated;
   }
 

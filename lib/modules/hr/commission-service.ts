@@ -3,11 +3,11 @@
  * Module RH & Rémunérations
  */
 
-import { AirtableClient } from '@/lib/airtable/client';
+import { getPostgresClient } from '@/lib/database/postgres-client';
 import { Commission, CommissionStatus, CommissionType } from '@/types/modules';
 import { v4 as uuidv4 } from 'uuid';
 
-const airtableClient = new AirtableClient();
+const postgresClient = getPostgresClient();
 
 export interface CreateCommissionInput {
   employeeId: string;
@@ -59,7 +59,7 @@ export class CommissionService {
       throw new Error('La période doit être au format YYYY-MM');
     }
 
-    const commission: Partial<Commission> = {
+    const commission: any = {
       CommissionId: uuidv4(),
       EmployeeId: input.employeeId,
       EmployeeName: input.employeeName,
@@ -79,10 +79,7 @@ export class CommissionService {
       UpdatedAt: new Date().toISOString(),
     };
 
-    const created = await airtableClient.create<Commission>('Commission', commission);
-    if (!created) {
-      throw new Error('Failed to create commission - Airtable not configured');
-    }
+    const created = await postgresClient.create<Commission>('commissions', commission);
     return created;
   }
 
@@ -90,8 +87,8 @@ export class CommissionService {
    * Récupérer une commission par son ID
    */
   async getById(commissionId: string): Promise<Commission | null> {
-    const commissions = await airtableClient.list<Commission>('Commission', {
-      filterByFormula: `{CommissionId} = '${commissionId}'`,
+    const commissions = await postgresClient.list<Commission>('commissions', {
+      filterByFormula: `commission_id = '${commissionId}'`,
     });
     return commissions.length > 0 ? commissions[0] : null;
   }
@@ -100,38 +97,38 @@ export class CommissionService {
    * Lister les commissions avec filtres
    */
   async list(workspaceId: string, filters: CommissionFilters = {}): Promise<Commission[]> {
-    const filterFormulas: string[] = [`{WorkspaceId} = '${workspaceId}'`];
+    const filterFormulas: string[] = [`workspace_id = '${workspaceId}'`];
 
     if (filters.employeeId) {
-      filterFormulas.push(`{EmployeeId} = '${filters.employeeId}'`);
+      filterFormulas.push(`employee_id = '${filters.employeeId}'`);
     }
     if (filters.status) {
-      filterFormulas.push(`{Status} = '${filters.status}'`);
+      filterFormulas.push(`status = '${filters.status}'`);
     }
     if (filters.type) {
-      filterFormulas.push(`{Type} = '${filters.type}'`);
+      filterFormulas.push(`type = '${filters.type}'`);
     }
     if (filters.period) {
-      filterFormulas.push(`{Period} = '${filters.period}'`);
+      filterFormulas.push(`period = '${filters.period}'`);
     }
     if (filters.startDate) {
-      filterFormulas.push(`{CreatedAt} >= '${filters.startDate}'`);
+      filterFormulas.push(`created_at >= '${filters.startDate}'`);
     }
     if (filters.endDate) {
-      filterFormulas.push(`{CreatedAt} <= '${filters.endDate}'`);
+      filterFormulas.push(`created_at <= '${filters.endDate}'`);
     }
     if (filters.paid !== undefined) {
       if (filters.paid) {
-        filterFormulas.push(`{Status} = 'paid'`);
+        filterFormulas.push(`status = 'paid'`);
       } else {
-        filterFormulas.push(`OR({Status} = 'pending', {Status} = 'calculated')`);
+        filterFormulas.push(`OR(status = 'pending', status = 'calculated')`);
       }
     }
 
     const filterByFormula =
       filterFormulas.length > 1 ? `AND(${filterFormulas.join(', ')})` : filterFormulas[0];
 
-    return await airtableClient.list<Commission>('Commission', {
+    return await postgresClient.list<Commission>('commissions', {
       filterByFormula,
       sort: [{ field: 'Period', direction: 'desc' }],
     });
@@ -141,8 +138,8 @@ export class CommissionService {
    * Mettre à jour une commission
    */
   async update(commissionId: string, updates: UpdateCommissionInput): Promise<Commission> {
-    const commissions = await airtableClient.list<Commission>('Commission', {
-      filterByFormula: `{CommissionId} = '${commissionId}'`,
+    const commissions = await postgresClient.list<Commission>('commissions', {
+      filterByFormula: `commission_id = '${commissionId}'`,
     });
 
     if (commissions.length === 0) {
@@ -167,14 +164,15 @@ export class CommissionService {
     if (updates.payrollId !== undefined) updateData.PayrollId = updates.payrollId;
     if (updates.notes !== undefined) updateData.Notes = updates.notes;
 
-    const updated = await airtableClient.update<Commission>(
-      'Commission',
-      (commission as any)._recordId,
+    if (!commission.id) {
+      throw new Error('Commission ID is missing');
+    }
+
+    const updated = await postgresClient.update<Commission>(
+      'commissions',
+      commission.id,
       updateData
     );
-    if (!updated) {
-      throw new Error('Failed to update commission - Airtable not configured');
-    }
     return updated;
   }
 
@@ -214,13 +212,13 @@ export class CommissionService {
     const endDate = new Date(parseInt(year), parseInt(month), 0, 23, 59, 59).toISOString();
 
     // Récupérer les ventes de l'employé
-    const sales = await airtableClient.list('Sale', {
-      filterByFormula: `AND({WorkspaceId} = '${workspaceId}', {SellerId} = '${employeeId}', {SaleDate} >= '${startDate}', {SaleDate} <= '${endDate}')`,
+    const sales = await postgresClient.list('sales', {
+      filterByFormula: `AND(workspace_id = '${workspaceId}', seller_id = '${employeeId}', sale_date >= '${startDate}', sale_date <= '${endDate}')`,
     });
 
     // Récupérer l'employé pour obtenir son taux de commission
-    const employees = await airtableClient.list('Employee', {
-      filterByFormula: `{EmployeeId} = '${employeeId}'`,
+    const employees = await postgresClient.list('employees', {
+      filterByFormula: `employee_id = '${employeeId}'`,
     });
 
     if (employees.length === 0) {
@@ -229,31 +227,31 @@ export class CommissionService {
 
     const employee = employees[0] as any;
 
-    if (!employee.CommissionEnabled) {
+    if (!employee.commission_enabled) {
       return [];
     }
 
-    const commissionRate = employee.CommissionRate || 0;
+    const commissionRate = employee.commission_rate || 0;
     const commissions: Commission[] = [];
 
     // Créer une commission pour chaque vente
     for (const sale of sales) {
       const saleData = sale as any;
-      const commissionAmount = (saleData.TotalAmount * commissionRate) / 100;
+      const commissionAmount = (saleData.total_amount * commissionRate) / 100;
 
       const commission = await this.create({
         employeeId,
-        employeeName: employee.FullName,
+        employeeName: employee.full_name,
         type: 'sales',
         period,
-        basedOnAmount: saleData.TotalAmount,
+        basedOnAmount: saleData.total_amount,
         commissionRate,
         calculatedAmount: commissionAmount,
-        currency: saleData.Currency,
-        referenceId: saleData.SaleId,
+        currency: saleData.currency,
+        referenceId: saleData.sale_id,
         referenceType: 'sale',
-        referenceNumber: saleData.SaleNumber,
-        notes: `Commission sur vente ${saleData.SaleNumber}`,
+        referenceNumber: saleData.sale_number,
+        notes: `Commission sur vente ${saleData.sale_number}`,
         workspaceId,
       });
 
@@ -268,8 +266,8 @@ export class CommissionService {
    */
   async calculateAllCommissions(period: string, workspaceId: string): Promise<Commission[]> {
     // Récupérer tous les employés actifs avec commission activée
-    const employees = await airtableClient.list('Employee', {
-      filterByFormula: `AND({WorkspaceId} = '${workspaceId}', {Status} = 'active', {CommissionEnabled} = 1)`,
+    const employees = await postgresClient.list('employees', {
+      filterByFormula: `AND(workspace_id = '${workspaceId}', status = 'active', commission_enabled = true)`,
     });
 
     const allCommissions: Commission[] = [];
@@ -277,7 +275,7 @@ export class CommissionService {
     for (const employee of employees) {
       const employeeData = employee as any;
       const commissions = await this.calculateSalesCommissions(
-        employeeData.EmployeeId,
+        employeeData.employee_id,
         period,
         workspaceId
       );
@@ -291,8 +289,8 @@ export class CommissionService {
    * Obtenir les commissions non payées d'un employé
    */
   async getUnpaidCommissions(employeeId: string): Promise<Commission[]> {
-    return await airtableClient.list<Commission>('Commission', {
-      filterByFormula: `AND({EmployeeId} = '${employeeId}', OR({Status} = 'pending', {Status} = 'calculated'))`,
+    return await postgresClient.list<Commission>('commissions', {
+      filterByFormula: `AND(employee_id = '${employeeId}', OR(status = 'pending', status = 'calculated'))`,
       sort: [{ field: 'Period', direction: 'asc' }],
     });
   }
@@ -394,8 +392,8 @@ export class CommissionService {
    * Supprimer une commission (seulement si pending)
    */
   async delete(commissionId: string): Promise<void> {
-    const commissions = await airtableClient.list<Commission>('Commission', {
-      filterByFormula: `{CommissionId} = '${commissionId}'`,
+    const commissions = await postgresClient.list<Commission>('commissions', {
+      filterByFormula: `commission_id = '${commissionId}'`,
     });
 
     if (commissions.length === 0) {
@@ -408,6 +406,10 @@ export class CommissionService {
       throw new Error('Seules les commissions en attente peuvent être supprimées');
     }
 
-    await airtableClient.delete('Commission', (commission as any)._recordId);
+    if (!commission.id) {
+      throw new Error('Commission ID is missing');
+    }
+
+    await postgresClient.delete('commissions', commission.id);
   }
 }

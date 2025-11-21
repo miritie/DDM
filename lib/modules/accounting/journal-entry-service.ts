@@ -3,11 +3,11 @@
  * Module Comptabilité
  */
 
-import { AirtableClient } from '@/lib/airtable/client';
+import { getPostgresClient } from '@/lib/database/postgres-client';
 import { JournalEntry, JournalEntryLine, AccountBalance, TrialBalance, Journal, ChartAccount } from '@/types/modules';
 import { v4 as uuidv4 } from 'uuid';
 
-const airtableClient = new AirtableClient();
+const postgresClient = getPostgresClient();
 
 export interface CreateJournalEntryInput {
   journalId: string;
@@ -28,7 +28,7 @@ export interface CreateJournalEntryInput {
 export class JournalEntryService {
   async generateEntryNumber(journalCode: string, workspaceId: string): Promise<string> {
     const year = new Date().getFullYear();
-    const entries = await airtableClient.list<JournalEntry>('JournalEntry', {
+    const entries = await postgresClient.list<JournalEntry>('journal_entries', {
       filterByFormula: `AND({WorkspaceId} = '${workspaceId}', YEAR({EntryDate}) = ${year})`,
     });
     return `${journalCode}-${year}-${String(entries.length + 1).padStart(4, '0')}`;
@@ -56,21 +56,21 @@ export class JournalEntryService {
     const fiscalPeriod = entryDate.getMonth() + 1;
 
     // Get journal code for entry number
-    const journal = await airtableClient.list<Journal>('Journal', {
+    const journal = await postgresClient.list<Journal>('journals', {
       filterByFormula: `{JournalId} = '${input.journalId}'`,
     });
     const journalCode = journal[0]?.Code || 'OD';
 
     const entryNumber = await this.generateEntryNumber(journalCode, input.workspaceId);
 
-    const entry: Partial<JournalEntry> = {
+    const entry = {
       EntryId: uuidv4(),
       EntryNumber: entryNumber,
       JournalId: input.journalId,
       EntryDate: input.entryDate,
       Description: input.description,
       Reference: input.reference,
-      Status: 'draft',
+      Status: 'draft' as const,
       FiscalYear: fiscalYear,
       FiscalPeriod: fiscalPeriod,
       WorkspaceId: input.workspaceId,
@@ -78,16 +78,12 @@ export class JournalEntryService {
       UpdatedAt: new Date().toISOString(),
     };
 
-    const createdEntry = await airtableClient.create<JournalEntry>('JournalEntry', entry);
-
-    if (!createdEntry) {
-      throw new Error('Failed to create journal entry - Airtable not configured');
-    }
+    const createdEntry = await postgresClient.create<JournalEntry>('journal_entries', entry);
 
     // Create lines
     for (let i = 0; i < input.lines.length; i++) {
       const line = input.lines[i];
-      const entryLine: Partial<JournalEntryLine> = {
+      const entryLine = {
         LineId: uuidv4(),
         EntryId: createdEntry.EntryId,
         LineNumber: i + 1,
@@ -101,21 +97,21 @@ export class JournalEntryService {
         UpdatedAt: new Date().toISOString(),
       };
 
-      await airtableClient.create<JournalEntryLine>('JournalEntryLine', entryLine);
+      await postgresClient.create<JournalEntryLine>('journal_entry_lines', entryLine);
     }
 
     return createdEntry;
   }
 
   async getById(entryId: string): Promise<JournalEntry | null> {
-    const entries = await airtableClient.list<JournalEntry>('JournalEntry', {
+    const entries = await postgresClient.list<JournalEntry>('journal_entries', {
       filterByFormula: `{EntryId} = '${entryId}'`,
     });
     return entries.length > 0 ? entries[0] : null;
   }
 
   async getLines(entryId: string): Promise<JournalEntryLine[]> {
-    return await airtableClient.list<JournalEntryLine>('JournalEntryLine', {
+    return await postgresClient.list<JournalEntryLine>('journal_entry_lines', {
       filterByFormula: `{EntryId} = '${entryId}'`,
       sort: [{ field: 'LineNumber', direction: 'asc' }],
     });
@@ -131,14 +127,14 @@ export class JournalEntryService {
 
     const filterByFormula = filterFormulas.length > 1 ? `AND(${filterFormulas.join(', ')})` : filterFormulas[0];
 
-    return await airtableClient.list<JournalEntry>('JournalEntry', {
+    return await postgresClient.list<JournalEntry>('journal_entries', {
       filterByFormula,
       sort: [{ field: 'EntryDate', direction: 'desc' }],
     });
   }
 
   async post(entryId: string, postedById: string): Promise<JournalEntry> {
-    const entries = await airtableClient.list<JournalEntry>('JournalEntry', {
+    const entries = await postgresClient.list<JournalEntry>('journal_entries', {
       filterByFormula: `{EntryId} = '${entryId}'`,
     });
 
@@ -150,22 +146,20 @@ export class JournalEntryService {
       throw new Error('Seules les écritures en brouillon peuvent être comptabilisées');
     }
 
-    const updated = await airtableClient.update<JournalEntry>('JournalEntry', (entries[0] as any)._recordId, {
+    if (!entries[0].id) {
+      throw new Error('ID de l\'écriture manquant');
+    }
+
+    return await postgresClient.update<JournalEntry>('journal_entries', entries[0].id, {
       Status: 'posted',
       PostedAt: new Date().toISOString(),
       PostedById: postedById,
       UpdatedAt: new Date().toISOString(),
     });
-
-    if (!updated) {
-      throw new Error('Failed to post journal entry - Airtable not configured');
-    }
-
-    return updated;
   }
 
   async validate(entryId: string, validatedById: string): Promise<JournalEntry> {
-    const entries = await airtableClient.list<JournalEntry>('JournalEntry', {
+    const entries = await postgresClient.list<JournalEntry>('journal_entries', {
       filterByFormula: `{EntryId} = '${entryId}'`,
     });
 
@@ -177,22 +171,20 @@ export class JournalEntryService {
       throw new Error('Seules les écritures comptabilisées peuvent être validées');
     }
 
-    const updated = await airtableClient.update<JournalEntry>('JournalEntry', (entries[0] as any)._recordId, {
+    if (!entries[0].id) {
+      throw new Error('ID de l\'écriture manquant');
+    }
+
+    return await postgresClient.update<JournalEntry>('journal_entries', entries[0].id, {
       Status: 'validated',
       ValidatedAt: new Date().toISOString(),
       ValidatedById: validatedById,
       UpdatedAt: new Date().toISOString(),
     });
-
-    if (!updated) {
-      throw new Error('Failed to validate journal entry - Airtable not configured');
-    }
-
-    return updated;
   }
 
   async cancel(entryId: string): Promise<JournalEntry> {
-    const entries = await airtableClient.list<JournalEntry>('JournalEntry', {
+    const entries = await postgresClient.list<JournalEntry>('journal_entries', {
       filterByFormula: `{EntryId} = '${entryId}'`,
     });
 
@@ -204,16 +196,14 @@ export class JournalEntryService {
       throw new Error('Une écriture validée ne peut pas être annulée');
     }
 
-    const updated = await airtableClient.update<JournalEntry>('JournalEntry', (entries[0] as any)._recordId, {
+    if (!entries[0].id) {
+      throw new Error('ID de l\'écriture manquant');
+    }
+
+    return await postgresClient.update<JournalEntry>('journal_entries', entries[0].id, {
       Status: 'cancelled',
       UpdatedAt: new Date().toISOString(),
     });
-
-    if (!updated) {
-      throw new Error('Failed to cancel journal entry - Airtable not configured');
-    }
-
-    return updated;
   }
 
   async getTrialBalance(workspaceId: string, fiscalYear: number, fiscalPeriod?: number): Promise<TrialBalance[]> {
@@ -232,7 +222,7 @@ export class JournalEntryService {
       const lines = await this.getLines(entry.EntryId);
 
       for (const line of lines) {
-        const account = await airtableClient.list<ChartAccount>('ChartAccount', {
+        const account = await postgresClient.list<ChartAccount>('chart_accounts', {
           filterByFormula: `{AccountId} = '${line.AccountId}'`,
         });
 

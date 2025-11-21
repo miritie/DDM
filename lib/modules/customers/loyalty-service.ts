@@ -3,12 +3,12 @@
  * Module Clients & Fidélité
  */
 
-import { AirtableClient } from '@/lib/airtable/client';
+import { getPostgresClient } from '@/lib/database/postgres-client';
 import { LoyaltyTransaction, LoyaltyReward, CustomerReward, LoyaltyTierConfig } from '@/types/modules';
 import { v4 as uuidv4 } from 'uuid';
 import { CustomerService } from './customer-service';
 
-const airtableClient = new AirtableClient();
+const postgresClient = getPostgresClient();
 const customerService = new CustomerService();
 
 export type ReferenceType = 'sale' | 'reward' | 'manual' | 'promotion';
@@ -25,12 +25,13 @@ export class LoyaltyService {
   ): Promise<LoyaltyTransaction> {
     const customer = await customerService.getById(customerId);
     if (!customer) throw new Error('Client non trouvé');
+    if (!customer.id) throw new Error('Customer ID is missing');
 
-    const transaction: Partial<LoyaltyTransaction> = {
+    const transaction = {
       TransactionId: uuidv4(),
       CustomerId: customerId,
       CustomerName: customer.FullName,
-      Type: 'earn',
+      Type: 'earn' as const,
       Points: points,
       BalanceBefore: customer.LoyaltyPoints,
       BalanceAfter: customer.LoyaltyPoints + points,
@@ -41,19 +42,16 @@ export class LoyaltyService {
       CreatedAt: new Date().toISOString(),
     };
 
-    const created = await airtableClient.create<LoyaltyTransaction>('LoyaltyTransaction', transaction);
-    if (!created) {
-      throw new Error('Failed to create loyalty transaction - Airtable not configured');
-    }
+    const created = await postgresClient.create<LoyaltyTransaction>('loyalty_transactions', transaction);
 
     // Mettre à jour le solde du client
-    await airtableClient.update('Customer', (customer as any)._recordId, {
+    await postgresClient.update('customers', customer.id, {
       LoyaltyPoints: transaction.BalanceAfter,
       TotalPointsEarned: customer.TotalPointsEarned + points,
       UpdatedAt: new Date().toISOString(),
     });
 
-    return transaction as LoyaltyTransaction;
+    return created;
   }
 
   async redeemPoints(
@@ -66,16 +64,17 @@ export class LoyaltyService {
   ): Promise<LoyaltyTransaction> {
     const customer = await customerService.getById(customerId);
     if (!customer) throw new Error('Client non trouvé');
+    if (!customer.id) throw new Error('Customer ID is missing');
 
     if (customer.LoyaltyPoints < points) {
       throw new Error('Solde de points insuffisant');
     }
 
-    const transaction: Partial<LoyaltyTransaction> = {
+    const transaction = {
       TransactionId: uuidv4(),
       CustomerId: customerId,
       CustomerName: customer.FullName,
-      Type: 'redeem',
+      Type: 'redeem' as const,
       Points: -points,
       BalanceBefore: customer.LoyaltyPoints,
       BalanceAfter: customer.LoyaltyPoints - points,
@@ -86,41 +85,35 @@ export class LoyaltyService {
       CreatedAt: new Date().toISOString(),
     };
 
-    const created = await airtableClient.create<LoyaltyTransaction>('LoyaltyTransaction', transaction);
-    if (!created) {
-      throw new Error('Failed to create loyalty transaction - Airtable not configured');
-    }
+    const created = await postgresClient.create<LoyaltyTransaction>('loyalty_transactions', transaction);
 
-    await airtableClient.update('Customer', (customer as any)._recordId, {
+    await postgresClient.update('customers', customer.id, {
       LoyaltyPoints: transaction.BalanceAfter,
       TotalPointsRedeemed: customer.TotalPointsRedeemed + points,
       UpdatedAt: new Date().toISOString(),
     });
 
-    return transaction as LoyaltyTransaction;
+    return created;
   }
 
   async getTransactionHistory(customerId: string): Promise<LoyaltyTransaction[]> {
-    return await airtableClient.list<LoyaltyTransaction>('LoyaltyTransaction', {
-      filterByFormula: `{CustomerId} = '${customerId}'`,
-      sort: [{ field: 'CreatedAt', direction: 'desc' }],
+    return await postgresClient.list<LoyaltyTransaction>('loyalty_transactions', {
+      where: { customer_id: customerId },
+      orderBy: { field: 'created_at', direction: 'desc' },
     });
   }
 
   // Récompenses
   async listRewards(workspaceId: string, filters: any = {}): Promise<LoyaltyReward[]> {
-    const filterFormulas: string[] = [`{WorkspaceId} = '${workspaceId}'`];
+    const where: any = { workspace_id: workspaceId };
 
-    if (filters.type) filterFormulas.push(`{Type} = '${filters.type}'`);
-    if (filters.isActive !== undefined) filterFormulas.push(`{IsActive} = ${filters.isActive ? '1' : '0'}`);
-    if (filters.minimumTier) filterFormulas.push(`{MinimumTier} = '${filters.minimumTier}'`);
+    if (filters.type) where.type = filters.type;
+    if (filters.isActive !== undefined) where.is_active = filters.isActive;
+    if (filters.minimumTier) where.minimum_tier = filters.minimumTier;
 
-    const filterByFormula =
-      filterFormulas.length > 1 ? `AND(${filterFormulas.join(', ')})` : filterFormulas[0];
-
-    return await airtableClient.list<LoyaltyReward>('LoyaltyReward', {
-      filterByFormula,
-      sort: [{ field: 'PointsCost', direction: 'asc' }],
+    return await postgresClient.list<LoyaltyReward>('loyalty_rewards', {
+      where,
+      orderBy: { field: 'points_cost', direction: 'asc' },
     });
   }
 
@@ -128,8 +121,8 @@ export class LoyaltyService {
     const customer = await customerService.getById(customerId);
     if (!customer) throw new Error('Client non trouvé');
 
-    const rewards = await airtableClient.list<LoyaltyReward>('LoyaltyReward', {
-      filterByFormula: `{RewardId} = '${rewardId}'`,
+    const rewards = await postgresClient.list<LoyaltyReward>('loyalty_rewards', {
+      where: { reward_id: rewardId },
     });
 
     if (rewards.length === 0) throw new Error('Récompense non trouvée');
@@ -163,7 +156,7 @@ export class LoyaltyService {
     );
 
     // Créer l'enregistrement de récompense client
-    const customerReward: Partial<CustomerReward> = {
+    const customerReward = {
       CustomerRewardId: uuidv4(),
       CustomerId: customerId,
       CustomerName: customer.FullName,
@@ -171,7 +164,7 @@ export class LoyaltyService {
       RewardName: reward.Name,
       RewardType: reward.Type,
       PointsSpent: reward.PointsCost,
-      Status: 'available',
+      Status: 'available' as const,
       RedeemedAt: new Date().toISOString(),
       ExpiresAt: reward.ValidUntil || undefined,
       WorkspaceId: workspaceId,
@@ -179,17 +172,14 @@ export class LoyaltyService {
       UpdatedAt: new Date().toISOString(),
     };
 
-    const created = await airtableClient.create<CustomerReward>('CustomerReward', customerReward);
-    if (!created) {
-      throw new Error('Failed to create customer reward - Airtable not configured');
-    }
+    const created = await postgresClient.create<CustomerReward>('customer_rewards', customerReward);
     return created;
   }
 
   async getCustomerRewards(customerId: string): Promise<CustomerReward[]> {
-    return await airtableClient.list<CustomerReward>('CustomerReward', {
-      filterByFormula: `{CustomerId} = '${customerId}'`,
-      sort: [{ field: 'RedeemedAt', direction: 'desc' }],
+    return await postgresClient.list<CustomerReward>('customer_rewards', {
+      where: { customer_id: customerId },
+      orderBy: { field: 'redeemed_at', direction: 'desc' },
     });
   }
 }

@@ -1,16 +1,15 @@
 /**
- * API Route - Vente Rapide ⚡
- * POST /api/sales/quick - Créer une vente en 1 clic avec paiement automatique
+ * API Route - Vente Rapide
+ * POST /api/sales/quick - Creer une vente en 1 clic avec paiement automatique
  */
 
 import { NextRequest, NextResponse } from 'next/server';
 import { getCurrentWorkspaceId, getCurrentUser } from '@/lib/auth/get-session';
-import { Sale, SaleItem, Product } from '@/types/modules';
-import { AirtableClient } from '@/lib/airtable/client';
+import { getPostgresClient } from '@/lib/database/postgres-client';
 import { requirePermission, PERMISSIONS } from '@/lib/rbac/server';
 import { v4 as uuidv4 } from 'uuid';
 
-const airtableClient = new AirtableClient();
+const postgresClient = getPostgresClient();
 
 export async function POST(request: NextRequest) {
   try {
@@ -21,15 +20,19 @@ export async function POST(request: NextRequest) {
 
     const { clientId, items, paymentMethod = 'cash', notes } = body;
 
-    // 1. Récupérer les produits pour calculer les prix
-    const productPromises = items.map((item: any) =>
-      airtableClient.list<Product>('Product', {
-        filterByFormula: `{ProductId} = '${item.productId}'`,
-      })
-    );
-
-    const productsResults = await Promise.all(productPromises);
-    const products = productsResults.map(result => result[0]).filter(Boolean);
+    // 1. Recuperer les produits pour calculer les prix
+    const products: any[] = [];
+    for (const item of items) {
+      const productResults = await postgresClient.query(
+        `SELECT * FROM products WHERE product_id = $1`,
+        [item.productId]
+      );
+      if (productResults.rows.length > 0) {
+        products.push(productResults.rows[0]);
+      } else {
+        products.push(null);
+      }
+    }
 
     // 2. Calculer les totaux
     let subtotal = 0;
@@ -37,9 +40,9 @@ export async function POST(request: NextRequest) {
 
     const linesData = items.map((item: any, index: number) => {
       const product = products[index];
-      if (!product) throw new Error(`Produit ${item.productId} non trouvé`);
+      if (!product) throw new Error(`Produit ${item.productId} non trouve`);
 
-      const unitPrice = item.unitPrice || product.UnitPrice;
+      const unitPrice = item.unitPrice || product.unit_price;
       const lineTotal = unitPrice * item.quantity;
       const lineDiscount = item.discount || 0;
       const lineTotalWithDiscount = lineTotal - lineDiscount;
@@ -58,55 +61,87 @@ export async function POST(request: NextRequest) {
 
     const totalAmount = subtotal - totalDiscount;
 
-    // 3. Générer le numéro de vente
+    // 3. Generer le numero de vente
     const year = new Date().getFullYear();
-    const sales = await airtableClient.list<Sale>('Sale', {
-      filterByFormula: `AND({WorkspaceId} = '${workspaceId}', YEAR({CreatedAt}) = ${year})`,
-    });
+    const sales = await postgresClient.query(
+      `SELECT COUNT(*) as count FROM sales WHERE workspace_id = $1 AND EXTRACT(YEAR FROM created_at) = $2`,
+      [workspaceId, year]
+    );
 
-    const saleNumber = `VT-${year}-${String(sales.length + 1).padStart(4, '0')}`;
+    const saleCount = parseInt(sales.rows[0]?.count || '0', 10);
+    const saleNumber = `VT-${year}-${String(saleCount + 1).padStart(4, '0')}`;
     const saleId = uuidv4();
 
-    // 4. Créer la vente CONFIRMÉE (vente directe!)
-    const sale: Partial<Sale> = {
-      SaleId: saleId,
-      SaleNumber: saleNumber,
-      ClientId: clientId,
-      TotalAmount: totalAmount,
-      AmountPaid: paymentMethod === 'credit' ? 0 : totalAmount,
-      Balance: paymentMethod === 'credit' ? totalAmount : 0,
-      Currency: 'XOF',
-      Status: 'confirmed', // ⚡ Vente confirmée instantanément
-      PaymentStatus: paymentMethod === 'credit' ? 'unpaid' : 'fully_paid',
-      SaleDate: new Date().toISOString().split('T')[0],
-      Notes: notes,
-      SalesPersonId: user.userId,
-      WorkspaceId: workspaceId,
-      CreatedAt: new Date().toISOString(),
-      UpdatedAt: new Date().toISOString(),
-    };
+    // 4. Creer la vente CONFIRMEE (vente directe!)
+    const now = new Date().toISOString();
+    const saleDate = new Date().toISOString().split('T')[0];
 
-    const createdSale = await airtableClient.create<Sale>('Sale', sale);
+    const createdSales = await postgresClient.query(
+      `INSERT INTO sales (sale_id, sale_number, client_id, total_amount, amount_paid, balance, currency, status, payment_status, sale_date, notes, sales_person_id, workspace_id, created_at, updated_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
+       RETURNING *`,
+      [
+        saleId,
+        saleNumber,
+        clientId,
+        totalAmount,
+        paymentMethod === 'credit' ? 0 : totalAmount,
+        paymentMethod === 'credit' ? totalAmount : 0,
+        'XOF',
+        'confirmed', // Vente confirmee instantanement
+        paymentMethod === 'credit' ? 'unpaid' : 'fully_paid',
+        saleDate,
+        notes,
+        user.userId,
+        workspaceId,
+        now,
+        now,
+      ]
+    );
+
+    const createdSale = createdSales.rows[0];
 
     // 5. Ajouter les lignes de vente
     for (const lineData of linesData) {
-      const saleLine: Partial<SaleItem> = {
-        SaleItemId: uuidv4(),
-        SaleId: saleId,
-        ProductId: lineData.product.ProductId,
-        ProductName: lineData.product.Name,
-        Quantity: lineData.quantity,
-        UnitPrice: lineData.unitPrice,
-        TotalPrice: lineData.totalPrice,
-        Currency: 'XOF',
-        CreatedAt: new Date().toISOString(),
-        UpdatedAt: new Date().toISOString(),
-      };
-
-      await airtableClient.create<SaleItem>('SaleItem', saleLine);
+      const saleItemId = uuidv4();
+      await postgresClient.query(
+        `INSERT INTO sale_items (sale_item_id, sale_id, product_id, product_name, quantity, unit_price, total_price, currency, created_at, updated_at)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+        [
+          saleItemId,
+          saleId,
+          lineData.product.product_id,
+          lineData.product.name,
+          lineData.quantity,
+          lineData.unitPrice,
+          lineData.totalPrice,
+          'XOF',
+          now,
+          now,
+        ]
+      );
     }
 
-    return NextResponse.json({ data: createdSale }, { status: 201 });
+    // Format response
+    const formattedSale = {
+      SaleId: createdSale.sale_id,
+      SaleNumber: createdSale.sale_number,
+      ClientId: createdSale.client_id,
+      TotalAmount: createdSale.total_amount,
+      AmountPaid: createdSale.amount_paid,
+      Balance: createdSale.balance,
+      Currency: createdSale.currency,
+      Status: createdSale.status,
+      PaymentStatus: createdSale.payment_status,
+      SaleDate: createdSale.sale_date,
+      Notes: createdSale.notes,
+      SalesPersonId: createdSale.sales_person_id,
+      WorkspaceId: createdSale.workspace_id,
+      CreatedAt: createdSale.created_at,
+      UpdatedAt: createdSale.updated_at,
+    };
+
+    return NextResponse.json({ data: formattedSale }, { status: 201 });
   } catch (error: any) {
     console.error('Quick sale error:', error);
     return NextResponse.json({ error: error.message }, { status: 500 });

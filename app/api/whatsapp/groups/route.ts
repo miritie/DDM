@@ -5,27 +5,37 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import { AirtableClient } from '@/lib/airtable/client';
+import { getPostgresClient } from '@/lib/database/postgres-client';
 
-const airtableClient = new AirtableClient();
+const postgresClient = getPostgresClient();
 
 export async function GET(request: NextRequest) {
   try {
-    const workspaceId = 'default'; // TODO: Récupérer depuis session
+    const workspaceId = 'default'; // TODO: Recuperer depuis session
 
-    // Récupérer les groupes depuis Airtable (table WhatsAppGroup)
-    // Pour l'instant, retourner liste vide
-    const groups: any[] = [];
+    // Recuperer les groupes depuis PostgreSQL
+    const groups = await postgresClient.query(
+      `SELECT * FROM whatsapp_groups WHERE workspace_id = $1 ORDER BY created_at DESC`,
+      [workspaceId]
+    );
+
+    const formattedGroups = (groups.rows || []).map((group: any) => ({
+      GroupId: group.id,
+      Name: group.name,
+      Description: group.description,
+      WorkspaceId: group.workspace_id,
+      CreatedAt: group.created_at,
+    }));
 
     return NextResponse.json(
       {
         success: true,
-        data: groups,
+        data: formattedGroups,
       },
       { status: 200 }
     );
   } catch (error) {
-    console.error('Erreur récupération groupes:', error);
+    console.error('Erreur recuperation groupes:', error);
 
     return NextResponse.json(
       {
@@ -39,7 +49,7 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
-    const workspaceId = 'default'; // TODO: Récupérer depuis session
+    const workspaceId = 'default'; // TODO: Recuperer depuis session
     const { groups } = await request.json();
 
     if (!Array.isArray(groups)) {
@@ -52,13 +62,20 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Sauvegarder dans Airtable (table WhatsAppGroup)
-    // TODO: Implémenter la sauvegarde
+    // Sauvegarder dans PostgreSQL
+    for (const group of groups) {
+      await postgresClient.query(
+        `INSERT INTO whatsapp_groups (name, description, workspace_id, created_at)
+         VALUES ($1, $2, $3, $4)
+         ON CONFLICT (name, workspace_id) DO UPDATE SET description = $2`,
+        [group.name, group.description, workspaceId, new Date().toISOString()]
+      );
+    }
 
     return NextResponse.json(
       {
         success: true,
-        message: 'Groupes sauvegardés avec succès',
+        message: 'Groupes sauvegardes avec succes',
       },
       { status: 200 }
     );
