@@ -1,13 +1,24 @@
 /**
  * Service - Gestion des Ventes
  * Module Ventes & Encaissements
+ *
+ * Toute vente est désormais rattachée à un outlet (point de vente) et — si possible —
+ * à une session POS. Le prix de chaque ligne est résolu via OutletService.resolvePrice
+ * (prix outlet > prix type d'outlet) ; la vente est bloquée si aucun prix valide.
+ * Le stock outlet est décrémenté à la création.
  */
 
 import { getPostgresClient } from '@/lib/database/postgres-client';
 import { Sale, SaleItem, SalePayment, SalesStatistics } from '@/types/modules';
 import { v4 as uuidv4 } from 'uuid';
+import { OutletService } from '@/lib/modules/outlets/outlet-service';
+import { PosSessionService } from '@/lib/modules/outlets/pos-session-service';
+import { StockService } from '@/lib/modules/stock/stock-service';
 
 const postgresClient = getPostgresClient();
+const outletService = new OutletService();
+const posSessionService = new PosSessionService();
+const stockService = new StockService();
 
 export interface CreateSaleInput {
   clientId?: string;
@@ -18,12 +29,17 @@ export interface CreateSaleInput {
   currency?: string;
   salesPersonId: string;
   workspaceId: string;
+  /** Outlet où la vente est faite. Requis. */
+  outletId?: string;
+  /** Session POS active (optionnel — si absent, ouverture implicite). */
+  posSessionId?: string;
   items: Array<{
     productId?: string;
     productName: string;
     description?: string;
     quantity: number;
-    unitPrice: number;
+    /** Si fourni, doit correspondre au prix résolu par l'outlet — sinon ignoré. */
+    unitPrice?: number;
   }>;
 }
 
@@ -98,70 +114,132 @@ export class SaleService {
   }
 
   /**
-   * Crée une nouvelle vente avec ses items
+   * Crée une nouvelle vente avec ses items.
+   *
+   * Pré-conditions :
+   *   - input.outletId requis
+   *   - chaque item.productId doit avoir un prix outlet/type valide à la date de la vente
+   *   - le stock outlet doit être suffisant pour chaque produit
    */
   async create(input: CreateSaleInput): Promise<Sale> {
-    // Calculate total
-    const totalAmount = input.items.reduce(
-      (sum, item) => sum + item.quantity * item.unitPrice,
-      0
-    );
-
-    // Generate sale number
-    const saleNumber = await this.generateSaleNumber(input.workspaceId);
-    const saleId = uuidv4();
-
-    // Create sale
-    const sale = {
-      SaleId: saleId,
-      SaleNumber: saleNumber,
-      ClientId: input.clientId,
-      ClientName: input.clientName,
-      TotalAmount: totalAmount,
-      AmountPaid: 0,
-      Balance: totalAmount,
-      Currency: input.currency || 'XOF',
-      Status: 'draft' as const,
-      PaymentStatus: 'unpaid' as const,
-      SaleDate: input.saleDate,
-      DueDate: input.dueDate,
-      Notes: input.notes,
-      SalesPersonId: input.salesPersonId,
-      WorkspaceId: input.workspaceId,
-      CreatedAt: new Date().toISOString(),
-      UpdatedAt: new Date().toISOString(),
-    };
-
-    const createdSale = await postgresClient.create<Sale>('sales', sale);
-
-    // Create sale items
-    for (const item of input.items) {
-      const saleItem = {
-        SaleItemId: uuidv4(),
-        SaleId: saleId,
-        ProductId: item.productId,
-        ProductName: item.productName,
-        Description: item.description,
-        Quantity: item.quantity,
-        UnitPrice: item.unitPrice,
-        TotalPrice: item.quantity * item.unitPrice,
-        Currency: input.currency || 'XOF',
-        CreatedAt: new Date().toISOString(),
-        UpdatedAt: new Date().toISOString(),
-      };
-
-      await postgresClient.create<SaleItem>('sale_items', saleItem);
+    if (!input.outletId) {
+      throw new Error('outletId est obligatoire — toute vente doit être rattachée à un point de vente.');
+    }
+    if (!input.items || input.items.length === 0) {
+      throw new Error('Au moins un article est requis');
     }
 
-    return createdSale;
+    // 1. Résoudre le prix de chaque ligne via OutletService (refuse si non listé)
+    const resolvedLines: Array<{
+      productId: string;
+      productName: string;
+      description?: string;
+      quantity: number;
+      unitPrice: number;
+    }> = [];
+
+    const saleDateForPrice = input.saleDate.slice(0, 10);
+    for (const item of input.items) {
+      if (!item.productId) {
+        throw new Error(`Article sans productId — un product_id est requis pour résoudre le prix`);
+      }
+      const price = await outletService.resolvePrice(item.productId, input.outletId, saleDateForPrice);
+      if (!price) {
+        throw new Error(
+          `Aucun prix défini pour ${item.productName} sur ce point de vente à la date du ${saleDateForPrice}`
+        );
+      }
+      resolvedLines.push({
+        productId: item.productId,
+        productName: item.productName,
+        description: item.description,
+        quantity: item.quantity,
+        unitPrice: Number(price.UnitPrice),
+      });
+    }
+
+    // 2. Garantir une session POS (implicite si absente)
+    let posSessionId = input.posSessionId;
+    if (!posSessionId) {
+      const session = await posSessionService.ensureForSale(
+        input.outletId, input.salesPersonId, input.workspaceId
+      );
+      posSessionId = session.id!;
+    }
+
+    // 3. Calcul du total
+    const totalAmount = resolvedLines.reduce((s, l) => s + l.quantity * l.unitPrice, 0);
+
+    // 4. Numéro de vente + insertion
+    const saleNumber = await this.generateSaleNumber(input.workspaceId);
+    const saleUuid = uuidv4();
+
+    const r = await postgresClient.query(
+      `INSERT INTO sales
+        (sale_id, sale_number, client_id, client_name,
+         total_amount, amount_paid, balance, currency,
+         status, payment_status, sale_date, due_date, notes,
+         sales_person_id, outlet_id, pos_session_id, workspace_id)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)
+       RETURNING *`,
+      [
+        saleUuid,
+        saleNumber,
+        input.clientId ?? null,
+        input.clientName ?? null,
+        totalAmount,
+        0,
+        totalAmount,
+        input.currency || 'XOF',
+        'draft',
+        'unpaid',
+        input.saleDate,
+        input.dueDate ?? null,
+        input.notes ?? null,
+        input.salesPersonId,
+        input.outletId,
+        posSessionId,
+        input.workspaceId,
+      ]
+    );
+    const saleRowId = r.rows[0].id as string;
+
+    // 5. Items + décrément stock outlet
+    for (const line of resolvedLines) {
+      await postgresClient.query(
+        `INSERT INTO sale_items
+          (sale_item_id, sale_id, product_id, product_name, description,
+           quantity, unit_price, total_price, currency)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
+        [
+          uuidv4(),
+          saleRowId,
+          line.productId,
+          line.productName,
+          line.description ?? null,
+          line.quantity,
+          line.unitPrice,
+          line.quantity * line.unitPrice,
+          input.currency || 'XOF',
+        ]
+      );
+
+      await stockService.decreaseStockOutlet(line.productId, input.outletId, line.quantity);
+    }
+
+    // 6. Renvoyer la vente créée (re-fetch pour mapper proprement)
+    const created = await postgresClient.list<Sale>('sales', { where: { id: saleRowId } });
+    return created[0];
   }
 
   /**
    * Récupère une vente par ID avec ses items
    */
-  async getById(saleId: string): Promise<(Sale & { items: SaleItem[] }) | null> {
+  async getById(saleIdOrUuid: string): Promise<(Sale & { items: SaleItem[] }) | null> {
+    // Accepte UUID PK ou slug `sale_id` VARCHAR
+    const isUuid = /^[0-9a-f-]{36}$/i.test(saleIdOrUuid);
     const sales = await postgresClient.list<Sale>('sales', {
-      where: { sale_id: saleId },
+      where: isUuid ? { id: saleIdOrUuid } : { sale_id: saleIdOrUuid },
     });
 
     if (sales.length === 0) {
@@ -170,9 +248,9 @@ export class SaleService {
 
     const sale = sales[0];
 
-    // Get items
+    // Get items via la PK UUID (même clé pour ce qui suit)
     const items = await postgresClient.list<SaleItem>('sale_items', {
-      where: { sale_id: saleId },
+      where: { sale_id: sale.id! },
     });
 
     return { ...sale, items };
@@ -286,6 +364,27 @@ export class SaleService {
     // Generate payment number
     const paymentNumber = await this.generatePaymentNumber(input.workspaceId);
 
+    // Résolution slug → UUID pour received_by_id (FK vers users.id)
+    let receivedByUuid: string = input.receivedById;
+    if (!/^[0-9a-f-]{36}$/i.test(input.receivedById)) {
+      const ur = await postgresClient.query(
+        `SELECT id FROM users WHERE user_id = $1 OR email = $1 LIMIT 1`,
+        [input.receivedById]
+      );
+      if (ur.rows.length === 0) throw new Error('Utilisateur receveur introuvable');
+      receivedByUuid = ur.rows[0].id;
+    }
+
+    // Résolution walletId si fourni en slug
+    let walletUuid = input.walletId;
+    if (walletUuid && !/^[0-9a-f-]{36}$/i.test(walletUuid)) {
+      const wr = await postgresClient.query(
+        `SELECT id FROM wallets WHERE wallet_id = $1 LIMIT 1`,
+        [walletUuid]
+      );
+      walletUuid = wr.rows[0]?.id ?? undefined;
+    }
+
     // Create payment
     const payment = {
       PaymentId: uuidv4(),
@@ -294,10 +393,10 @@ export class SaleService {
       Amount: input.amount,
       PaymentMethod: input.paymentMethod,
       PaymentDate: input.paymentDate,
-      WalletId: input.walletId,
+      WalletId: walletUuid,
       Reference: input.reference,
       Notes: input.notes,
-      ReceivedById: input.receivedById,
+      ReceivedById: receivedByUuid,
       WorkspaceId: input.workspaceId,
       CreatedAt: new Date().toISOString(),
       UpdatedAt: new Date().toISOString(),
@@ -308,31 +407,25 @@ export class SaleService {
       payment
     );
 
-    // Update sale amounts
-    const newAmountPaid = sale.AmountPaid + input.amount;
-    const newBalance = sale.Balance - input.amount;
+    // Update sale amounts via la PK UUID (sale.id), pas le slug
+    const newAmountPaid = Number(sale.AmountPaid) + Number(input.amount);
+    const newBalance = Number(sale.Balance) - Number(input.amount);
     const newPaymentStatus: 'unpaid' | 'partially_paid' | 'fully_paid' =
       newBalance === 0 ? 'fully_paid' : 'partially_paid';
 
-    await this.update(input.saleId, {
-      status: 'confirmed', // Auto-confirm on payment
-    });
-
-    // Update amounts in database
-    const sales = await postgresClient.list<Sale>('sales', {
-      where: { sale_id: input.saleId },
-    });
-
-    if (!sales[0].id) {
+    if (!sale.id) {
       throw new Error('Vente ID manquant');
     }
 
-    await postgresClient.update<Sale>('sales', sales[0].id, {
-      AmountPaid: newAmountPaid,
-      Balance: newBalance,
-      PaymentStatus: newPaymentStatus,
-      UpdatedAt: new Date().toISOString(),
-    });
+    // Mise à jour directe (status confirmé + montants en une requête)
+    await postgresClient.query(
+      `UPDATE sales
+       SET amount_paid = $2, balance = $3, payment_status = $4,
+           status = CASE WHEN status = 'draft' THEN 'confirmed' ELSE status END,
+           updated_at = CURRENT_TIMESTAMP
+       WHERE id = $1`,
+      [sale.id, newAmountPaid, newBalance, newPaymentStatus]
+    );
 
     return createdPayment;
   }

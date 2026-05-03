@@ -46,7 +46,7 @@ export class PostgresClient {
       connectionString: connString,
       max: 20, // Pool de 20 connexions max
       idleTimeoutMillis: 30000,
-      connectionTimeoutMillis: 2000,
+      connectionTimeoutMillis: 15000,
     };
 
     // Activer SSL pour les connexions Neon/production
@@ -351,49 +351,45 @@ export class PostgresClient {
    * Supporte les cas simples pour la migration
    */
   private parseFilterFormula(formula: string, params: any[]): string {
-    // Cas simple: {Field} = 'value'
-    const simpleMatch = formula.match(/\{(\w+)\}\s*=\s*['"]([^'"]+)['"]/);
-    if (simpleMatch) {
-      const [, field, value] = simpleMatch;
+    // Accepte {field} = 'value' OU {field} = "value" OU {field} = 0/1/true/false
+    const conditionRegex = /\{(\w+)\}\s*=\s*(?:['"]([^'"]*)['"]|(true|false|\d+(?:\.\d+)?))/i;
+
+    const buildClause = (condition: string): string => {
+      const match = condition.match(conditionRegex);
+      if (!match) return '';
+      const [, field, quotedValue, rawValue] = match;
+      let value: any;
+      if (quotedValue !== undefined) {
+        value = quotedValue;
+      } else if (/^(true|false)$/i.test(rawValue)) {
+        value = rawValue.toLowerCase() === 'true';
+      } else {
+        value = Number(rawValue);
+      }
       params.push(value);
       return `${this.toSnakeCase(field)} = $${params.length}`;
-    }
+    };
 
-    // Cas AND: AND({Field1} = 'value1', {Field2} = 'value2')
-    const andMatch = formula.match(/AND\((.*)\)/);
+    // Cas AND: AND({Field1} = 'value1', {Field2} = 0)
+    const andMatch = formula.match(/^AND\((.*)\)$/);
     if (andMatch) {
       const conditions = andMatch[1].split(/,\s*(?![^{}]*\})/);
-      const whereClauses = conditions.map(condition => {
-        const match = condition.match(/\{(\w+)\}\s*=\s*['"]([^'"]+)['"]/);
-        if (match) {
-          const [, field, value] = match;
-          params.push(value);
-          return `${this.toSnakeCase(field)} = $${params.length}`;
-        }
-        return '';
-      }).filter(Boolean);
-
+      const whereClauses = conditions.map(buildClause).filter(Boolean);
       return whereClauses.join(' AND ');
     }
 
     // Cas OR: OR({Field1} = 'value1', {Field2} = 'value2')
-    const orMatch = formula.match(/OR\((.*)\)/);
+    const orMatch = formula.match(/^OR\((.*)\)$/);
     if (orMatch) {
       const conditions = orMatch[1].split(/,\s*(?![^{}]*\})/);
-      const whereClauses = conditions.map(condition => {
-        const match = condition.match(/\{(\w+)\}\s*=\s*['"]([^'"]+)['"]/);
-        if (match) {
-          const [, field, value] = match;
-          params.push(value);
-          return `${this.toSnakeCase(field)} = $${params.length}`;
-        }
-        return '';
-      }).filter(Boolean);
-
+      const whereClauses = conditions.map(buildClause).filter(Boolean);
       return whereClauses.join(' OR ');
     }
 
-    // Par défaut, retourner la formule telle quelle (peut nécessiter un parsing plus avancé)
+    // Cas simple: {Field} = value
+    const simple = buildClause(formula);
+    if (simple) return simple;
+
     console.warn(`Formule Airtable non supportée: ${formula}`);
     return '';
   }

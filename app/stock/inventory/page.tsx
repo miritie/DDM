@@ -29,12 +29,21 @@ interface InventoryCount {
   difference: number;
 }
 
+interface LocationOption {
+  kind: 'warehouse' | 'outlet';
+  id: string;
+  name: string;
+}
+
 export default function InventoryPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const warehouseId = searchParams.get('warehouseId');
+  const outletId = searchParams.get('outletId');
+  const hasLocation = Boolean(warehouseId || outletId);
 
   const [warehouse, setWarehouse] = useState<Warehouse | null>(null);
+  const [locationName, setLocationName] = useState<string>('');
   const [products, setProducts] = useState<Product[]>([]);
   const [stockItems, setStockItems] = useState<StockItem[]>([]);
   const [inventoryCounts, setInventoryCounts] = useState<
@@ -42,25 +51,65 @@ export default function InventoryPage() {
   >(new Map());
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
   const [countValue, setCountValue] = useState<string>('');
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(hasLocation); // ne tourne que si on charge réellement
   const [saving, setSaving] = useState(false);
   const [showSummary, setShowSummary] = useState(false);
 
+  // Écran de sélection si pas de location dans l'URL
+  const [locations, setLocations] = useState<LocationOption[] | null>(null);
+  const [loadingLocations, setLoadingLocations] = useState(false);
+
   useEffect(() => {
-    if (warehouseId) {
+    if (hasLocation) {
       loadData();
+    } else {
+      void loadLocations();
     }
-  }, [warehouseId]);
+  }, [warehouseId, outletId]);
+
+  async function loadLocations() {
+    setLoadingLocations(true);
+    try {
+      const [whRes, outRes] = await Promise.all([
+        fetch('/api/stock/warehouses?isActive=true'),
+        fetch('/api/outlets?isActive=true'),
+      ]);
+      const list: LocationOption[] = [];
+      if (whRes.ok) {
+        const { data } = await whRes.json();
+        // L'API warehouses passe par postgres-client.list → PascalCase
+        // Id (PK UUID) est ce qu'on veut pour le FK ; WarehouseId est juste un slug
+        for (const w of (data || [])) list.push({ kind: 'warehouse', id: w.Id || w.id, name: w.Name || w.name });
+      }
+      if (outRes.ok) {
+        const { data } = await outRes.json();
+        // L'API outlets utilise un mapper manuel → id minuscule
+        for (const o of (data || [])) list.push({ kind: 'outlet', id: o.id, name: o.Name });
+      }
+      setLocations(list);
+    } finally {
+      setLoadingLocations(false);
+    }
+  }
 
   async function loadData() {
     try {
       setLoading(true);
 
-      // Charger l'entrepôt
-      const warehouseRes = await fetch(`/api/stock/warehouses/${warehouseId}`);
-      if (warehouseRes.ok) {
-        const warehouseData = await warehouseRes.json();
-        setWarehouse(warehouseData.data);
+      // Charger l'emplacement (warehouse ou outlet) pour le titre
+      if (warehouseId) {
+        const r = await fetch(`/api/stock/warehouses/${warehouseId}`);
+        if (r.ok) {
+          const { data } = await r.json();
+          setWarehouse(data);
+          setLocationName(data?.Name || data?.name || 'Entrepôt');
+        }
+      } else if (outletId) {
+        const r = await fetch(`/api/outlets/${outletId}`);
+        if (r.ok) {
+          const { data } = await r.json();
+          setLocationName(data?.Name || 'Point de vente');
+        }
       }
 
       // Charger les produits actifs
@@ -70,10 +119,9 @@ export default function InventoryPage() {
         setProducts(productsData.data || []);
       }
 
-      // Charger les stocks actuels pour cet entrepôt
-      const stockRes = await fetch(
-        `/api/stock/items?warehouseId=${warehouseId}`
-      );
+      // Charger les stocks pour l'emplacement choisi
+      const param = warehouseId ? `warehouseId=${warehouseId}` : `outletId=${outletId}`;
+      const stockRes = await fetch(`/api/stock/items?${param}`);
       if (stockRes.ok) {
         const stockData = await stockRes.json();
         setStockItems(stockData.data || []);
@@ -153,7 +201,8 @@ export default function InventoryPage() {
         .filter((count) => count.difference !== 0)
         .map((count) => ({
           productId: count.productId,
-          warehouseId,
+          warehouseId: warehouseId || undefined,
+          outletId: outletId || undefined,
           currentQuantity: count.currentStock,
           countedQuantity: count.countedStock,
           difference: count.difference,
@@ -163,17 +212,27 @@ export default function InventoryPage() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          warehouseId,
+          warehouseId: warehouseId || undefined,
+          outletId: outletId || undefined,
           adjustments,
           notes: `Inventaire mobile ${new Date().toLocaleDateString('fr-FR')}`,
         }),
       });
 
+      const result = await response.json().catch(() => ({} as any));
       if (response.ok) {
-        alert('Inventaire enregistré avec succès!');
-        router.push(`/stock?warehouseId=${warehouseId}`);
+        const processed = result?.data?.processed ?? adjustments.length;
+        const errCount = result?.data?.errorCount ?? 0;
+        if (errCount > 0) {
+          alert(`Inventaire partiellement enregistré : ${processed} OK, ${errCount} en erreur.\n\n` +
+            (result.data.errors || []).map((e: any) => `• ${e.productId}: ${e.message}`).join('\n'));
+        } else {
+          alert(`Inventaire enregistré avec succès (${processed} ajustement${processed > 1 ? 's' : ''})`);
+        }
+        const back = warehouseId ? `warehouseId=${warehouseId}` : `outletId=${outletId}`;
+        router.push(`/stock?${back}`);
       } else {
-        alert('Erreur lors de l\'enregistrement');
+        alert(`Erreur : ${result?.error || `HTTP ${response.status}`}`);
       }
     } catch (error) {
       console.error('Erreur sauvegarde:', error);
@@ -194,12 +253,52 @@ export default function InventoryPage() {
     0
   );
 
+  // Pas d'emplacement choisi → écran de sélection
+  if (!hasLocation) {
+    return (
+      <div className="min-h-screen bg-gray-50 p-6 flex items-center justify-center">
+        <div className="bg-white rounded-2xl shadow-md p-6 max-w-md w-full">
+          <div className="flex items-center gap-2 mb-4">
+            <Package className="w-6 h-6 text-blue-600" />
+            <h1 className="text-xl font-bold">Choisir l'emplacement à inventorier</h1>
+          </div>
+          <p className="text-sm text-gray-600 mb-4">
+            Sélectionnez l'entrepôt ou le point de vente sur lequel vous voulez compter le stock.
+          </p>
+          {loadingLocations ? (
+            <div className="text-center py-8"><RefreshCw className="w-6 h-6 text-blue-600 animate-spin mx-auto" /></div>
+          ) : !locations || locations.length === 0 ? (
+            <p className="text-sm text-gray-500 italic text-center py-6">Aucun entrepôt ni point de vente actif.</p>
+          ) : (
+            <div className="space-y-2 max-h-96 overflow-auto">
+              {locations.map(l => (
+                <button
+                  key={`${l.kind}-${l.id}`}
+                  onClick={() => router.push(`/stock/inventory?${l.kind === 'warehouse' ? 'warehouseId' : 'outletId'}=${l.id}`)}
+                  className="w-full text-left p-3 rounded-lg border-2 border-gray-200 hover:border-blue-400 hover:bg-blue-50 flex items-center justify-between"
+                >
+                  <span className="font-medium">{l.name}</span>
+                  <span className={`text-xs px-2 py-0.5 rounded-full ${l.kind === 'warehouse' ? 'bg-violet-100 text-violet-700' : 'bg-amber-100 text-amber-700'}`}>
+                    {l.kind === 'warehouse' ? 'Entrepôt' : 'Point de vente'}
+                  </span>
+                </button>
+              ))}
+            </div>
+          )}
+          <div className="mt-4 pt-3 border-t text-right">
+            <button onClick={() => router.push('/stock')} className="text-sm text-blue-600 hover:underline">← Retour aux stocks</button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   if (loading) {
     return (
       <div className="flex items-center justify-center min-h-screen bg-gray-50">
         <div className="text-center">
           <RefreshCw className="w-12 h-12 text-blue-600 animate-spin mx-auto" />
-          <p className="mt-4 text-gray-600">Chargement...</p>
+          <p className="mt-4 text-gray-600">Chargement de l'inventaire…</p>
         </div>
       </div>
     );
@@ -225,7 +324,7 @@ export default function InventoryPage() {
                 Inventaire Rapide
               </h1>
               <p className="text-sm opacity-90 mt-1">
-                {warehouse?.Name || 'Entrepôt'}
+                {locationName || warehouse?.Name || 'Emplacement'}
               </p>
             </div>
 

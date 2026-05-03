@@ -113,6 +113,17 @@ export const PERMISSIONS = {
   // Notifications
   NOTIFICATION_VIEW: 'notification:view',
   NOTIFICATION_SEND: 'notification:send',
+
+  // Module 7.10 - Points de vente (Outlets)
+  OUTLET_VIEW: 'outlet:view',
+  OUTLET_CREATE: 'outlet:create',
+  OUTLET_EDIT: 'outlet:edit',
+  OUTLET_DELETE: 'outlet:delete',
+  OUTLET_ASSIGN: 'outlet:assign',          // Manager : planning hebdo + overrides
+  OUTLET_INVOICE_VIEW: 'outlet:invoice:view',
+  OUTLET_INVOICE_MANAGE: 'outlet:invoice:manage',
+  OUTLET_PRICE_MANAGE: 'outlet:price:manage',
+  POS_SESSION_OPEN: 'pos:session:open',     // Commercial peut ouvrir/fermer sa session
 } as const;
 
 export type Permission = (typeof PERMISSIONS)[keyof typeof PERMISSIONS];

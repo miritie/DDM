@@ -21,6 +21,7 @@ import {
   Zap,
   ChevronRight,
   Eye,
+  BarChart3,
 } from 'lucide-react';
 import { StockItem, StockStatistics, StockAlert, Warehouse, Product } from '@/types/modules';
 import { ProductVisualCard } from '@/components/stock/product-visual-card';
@@ -33,59 +34,53 @@ export default function StockPage() {
   const [warehouses, setWarehouses] = useState<Warehouse[]>([]);
   const [products, setProducts] = useState<Product[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<{ status: number; message: string } | null>(null);
   const [filter, setFilter] = useState<'all' | 'low_stock' | 'out_of_stock'>('all');
 
   useEffect(() => {
     loadData();
   }, [filter]);
 
+  async function fetchOrFail(url: string) {
+    const res = await fetch(url);
+    if (!res.ok) {
+      let message = `Erreur ${res.status}`;
+      try {
+        const body = await res.json();
+        if (body?.error) message = body.error;
+      } catch {}
+      const err: any = new Error(message);
+      err.status = res.status;
+      throw err;
+    }
+    return res.json();
+  }
+
   async function loadData() {
     try {
       setLoading(true);
+      setLoadError(null);
 
-      // Load statistics
-      const statsRes = await fetch('/api/stock/statistics');
-      if (statsRes.ok) {
-        const statsData = await statsRes.json();
-        setStatistics(statsData.data);
-      }
-
-      // Load alerts
-      const alertsRes = await fetch('/api/stock/alerts');
-      if (alertsRes.ok) {
-        const alertsData = await alertsRes.json();
-        setAlerts(alertsData.data || []);
-      }
-
-      // Load warehouses
-      const warehousesRes = await fetch('/api/stock/warehouses?isActive=true');
-      if (warehousesRes.ok) {
-        const warehousesData = await warehousesRes.json();
-        setWarehouses(warehousesData.data || []);
-      }
-
-      // Load products
-      const productsRes = await fetch('/api/products?isActive=true');
-      if (productsRes.ok) {
-        const productsData = await productsRes.json();
-        setProducts(productsData.data || []);
-      }
-
-      // Load stock items
       const params = new URLSearchParams();
-      if (filter === 'low_stock') {
-        params.append('lowStock', 'true');
-      } else if (filter === 'out_of_stock') {
-        params.append('outOfStock', 'true');
-      }
+      if (filter === 'low_stock') params.append('lowStock', 'true');
+      else if (filter === 'out_of_stock') params.append('outOfStock', 'true');
 
-      const itemsRes = await fetch(`/api/stock/items?${params.toString()}`);
-      if (itemsRes.ok) {
-        const itemsData = await itemsRes.json();
-        setStockItems(itemsData.data || []);
-      }
-    } catch (error) {
+      const [stats, alertsRes, warehousesRes, productsRes, itemsRes] = await Promise.all([
+        fetchOrFail('/api/stock/statistics'),
+        fetchOrFail('/api/stock/alerts'),
+        fetchOrFail('/api/stock/warehouses?isActive=true'),
+        fetchOrFail('/api/products?isActive=true'),
+        fetchOrFail(`/api/stock/items?${params.toString()}`),
+      ]);
+
+      setStatistics(stats.data);
+      setAlerts(alertsRes.data || []);
+      setWarehouses(warehousesRes.data || []);
+      setProducts(productsRes.data || []);
+      setStockItems(itemsRes.data || []);
+    } catch (error: any) {
       console.error('Error loading data:', error);
+      setLoadError({ status: error.status || 500, message: error.message });
     } finally {
       setLoading(false);
     }
@@ -127,6 +122,35 @@ export default function StockPage() {
     );
   }
 
+  if (loadError) {
+    const isPermissionError = loadError.status === 403;
+    return (
+      <ProtectedPage permission={PERMISSIONS.STOCK_VIEW}>
+        <div className="min-h-screen bg-gray-50 flex items-center justify-center px-4">
+          <div className="max-w-md w-full bg-white rounded-2xl shadow-md p-6 text-center">
+            <AlertTriangle className="w-12 h-12 mx-auto text-orange-500 mb-3" />
+            <h2 className="text-xl font-bold text-gray-900 mb-2">
+              {isPermissionError ? 'Accès au stock refusé' : 'Impossible de charger le stock'}
+            </h2>
+            <p className="text-sm text-gray-600 mb-4">
+              {isPermissionError
+                ? 'Votre rôle actif n\'a pas la permission « stock:view ». Demandez à un administrateur d\'attribuer cette permission à votre rôle.'
+                : loadError.message}
+            </p>
+            <div className="flex gap-2 justify-center">
+              <Button onClick={() => router.push('/dashboard')} variant="outline">
+                Retour à l'accueil
+              </Button>
+              {!isPermissionError && (
+                <Button onClick={() => loadData()}>Réessayer</Button>
+              )}
+            </div>
+          </div>
+        </div>
+      </ProtectedPage>
+    );
+  }
+
   const enrichedItems = getEnrichedStockItems();
 
   return (
@@ -135,10 +159,18 @@ export default function StockPage() {
         {/* Header */}
         <div className="bg-gradient-to-r from-blue-600 to-cyan-600 text-white p-6 pb-8">
           <div className="max-w-7xl mx-auto">
-            <h1 className="text-2xl font-bold flex items-center gap-2 mb-6">
-              <Package className="w-7 h-7" />
-              Stocks & Mouvements
-            </h1>
+            <div className="flex items-center justify-between mb-6 gap-3 flex-wrap">
+              <h1 className="text-2xl font-bold flex items-center gap-2">
+                <Package className="w-7 h-7" />
+                Stocks & Mouvements
+              </h1>
+              <button
+                onClick={() => router.push('/stock/overview')}
+                className="px-4 py-2 bg-white/90 hover:bg-white text-blue-700 font-semibold rounded-lg shadow-md inline-flex items-center gap-2"
+              >
+                <Eye className="w-4 h-4" /> État des stocks (cumul + détail)
+              </button>
+            </div>
 
             {/* KPIs */}
             {statistics && (

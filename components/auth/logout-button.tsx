@@ -24,7 +24,7 @@ export function LogoutButton({
 }: LogoutButtonProps) {
   const handleLogout = async () => {
     await signOut({
-      callbackUrl: '/auth/signin',
+      callbackUrl: '/auth/login',
       redirect: true,
     });
   };

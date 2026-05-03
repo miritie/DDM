@@ -69,6 +69,7 @@ export interface Product {
   Currency: string;
   Category?: string;
   Unit?: string; // kg, piece, liter, etc.
+  ImageUrl?: string;
   IsActive: boolean;
   WorkspaceId: string;
   CreatedAt: string;
@@ -112,6 +113,8 @@ export interface Sale {
   DueDate?: string;
   Notes?: string;
   SalesPersonId: string;
+  OutletId: string;
+  PosSessionId?: string;
   WorkspaceId: string;
   CreatedAt: string;
   UpdatedAt: string;
@@ -199,7 +202,8 @@ export interface StockItem {
   id?: string;
   StockItemId: string;
   ProductId: string;
-  WarehouseId: string;
+  WarehouseId?: string;
+  OutletId?: string;
   Quantity: number;
   MinimumStock: number;
   MaximumStock?: number;
@@ -228,6 +232,8 @@ export interface StockMovement {
   ProductId: string;
   SourceWarehouseId?: string;
   DestinationWarehouseId?: string;
+  SourceOutletId?: string;
+  DestinationOutletId?: string;
   Quantity: number;
   UnitCost?: number;
   TotalCost?: number;
@@ -249,7 +255,8 @@ export interface StockAlert {
   AlertId: string;
   StockItemId: string;
   ProductId: string;
-  WarehouseId: string;
+  WarehouseId?: string;
+  OutletId?: string;
   AlertType: 'low_stock' | 'out_of_stock' | 'overstock';
   CurrentQuantity: number;
   ThresholdQuantity: number;
@@ -2668,4 +2675,151 @@ export interface AIConfiguration {
   LastUpdatedByName: string;
   UpdatedAt: string;
   CreatedAt: string;
+}
+
+
+// ============================================================================
+// MODULE 7.10 - Points de Vente (Outlets)
+// ============================================================================
+
+export interface OutletType {
+  id?: string;
+  Code: string;
+  Name: string;
+  Description?: string;
+  WorkspaceId: string;
+  CreatedAt: string;
+  UpdatedAt: string;
+}
+
+export interface Outlet {
+  id?: string;
+  Code: string;
+  Name: string;
+  OutletTypeId?: string;
+  Address?: string;
+  City?: string;
+  GpsLat?: number;
+  GpsLng?: number;
+  QrToken: string;
+  ManagerId?: string;
+  IsActive: boolean;
+  WorkspaceId: string;
+  CreatedAt: string;
+  UpdatedAt: string;
+}
+
+export type OutletFeePeriod = 'weekly' | 'monthly' | 'quarterly' | 'yearly' | 'one_off';
+
+export interface OutletPeriod {
+  id?: string;
+  OutletId: string;
+  StartDate: string;
+  EndDate?: string;
+  IsActive: boolean;
+  IsPaid: boolean;
+  FeeAmount: number;
+  FeePeriod: OutletFeePeriod;
+  Notes?: string;
+  WorkspaceId: string;
+  CreatedAt: string;
+  UpdatedAt: string;
+}
+
+export interface OutletPrice {
+  id?: string;
+  ProductId: string;
+  OutletId?: string;
+  OutletTypeId?: string;
+  UnitPrice: number;
+  Currency: string;
+  ValidFrom: string;
+  ValidTo?: string;
+  WorkspaceId: string;
+  CreatedAt: string;
+  UpdatedAt: string;
+}
+
+export interface OutletAssignment {
+  id?: string;
+  OutletId: string;
+  UserId: string;
+  WeekStart: string; // YYYY-MM-DD (lundi)
+  WeekEnd: string;   // YYYY-MM-DD (dimanche)
+  AssignedById?: string;
+  Notes?: string;
+  WorkspaceId: string;
+  CreatedAt: string;
+  UpdatedAt: string;
+}
+
+export interface OutletAssignmentOverride {
+  id?: string;
+  OutletId: string;
+  UserId: string;
+  DateFrom: string;
+  DateTo: string;
+  Reason?: string;
+  OverridesAssignmentId?: string;
+  AssignedById?: string;
+  WorkspaceId: string;
+  CreatedAt: string;
+  UpdatedAt: string;
+}
+
+export type PosSessionStartMethod = 'explicit' | 'implicit';
+
+export interface PosSession {
+  id?: string;
+  OutletId: string;
+  UserId: string;
+  StartedAt: string;
+  EndedAt?: string;
+  StartMethod: PosSessionStartMethod;
+  DeviceId?: string;
+  GpsLat?: number;
+  GpsLng?: number;
+  GpsAccuracy?: number;
+  GpsCapturedAt?: string;
+  Notes?: string;
+  WorkspaceId: string;
+  CreatedAt: string;
+  UpdatedAt: string;
+}
+
+export interface PendingClientScan {
+  id?: string;
+  OutletId: string;
+  ClientId?: string;
+  ClientName?: string;
+  ClientPhone?: string;
+  ScannedAt: string;
+  ExpiresAt: string;
+  ConsumedAt?: string;
+  ConsumedBySaleId?: string;
+  WorkspaceId: string;
+  CreatedAt: string;
+}
+
+export type OutletInvoiceStatus = 'pending' | 'paid' | 'overdue' | 'cancelled';
+
+export interface OutletInvoice {
+  id?: string;
+  OutletId: string;
+  InvoiceNumber: string;
+  PeriodYear: number;
+  PeriodMonth: number;
+  Amount: number;
+  Currency: string;
+  IssueDate: string;
+  DueDate: string;
+  Status: OutletInvoiceStatus;
+  PaidAt?: string;
+  PaidAmount: number;
+  ExpenseId?: string;
+  Notes?: string;
+  AttachmentUrl?: string;
+  WorkspaceId: string;
+  CreatedAt: string;
+  UpdatedAt: string;
 }

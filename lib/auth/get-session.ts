@@ -42,6 +42,22 @@ export async function getCurrentWorkspaceId(): Promise<string> {
 }
 
 /**
+ * Récupère le rôle actif (UUID) de l'utilisateur courant
+ */
+export async function getCurrentActiveRoleId(): Promise<string> {
+  const user = await getCurrentUser();
+  return (user as any).activeRoleId || user.roleId;
+}
+
+/**
+ * Récupère la liste des UUIDs de rôles disponibles pour l'utilisateur courant
+ */
+export async function getCurrentUserRoleIds(): Promise<string[]> {
+  const user = await getCurrentUser();
+  return (user as any).roleIds || [];
+}
+
+/**
  * Vérifie si l'utilisateur est authentifié
  */
 export async function isAuthenticated(): Promise<boolean> {

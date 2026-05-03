@@ -53,8 +53,9 @@ export default function UsersPage() {
     }
   }
 
-  function getRoleName(roleId: string): string {
-    const role = roles.find((r) => r.RoleId === roleId);
+  function getRoleName(user: User): string {
+    if ((user as any).RoleName) return (user as any).RoleName;
+    const role = roles.find((r) => (r as any).id === user.RoleId);
     return role?.Name || 'Rôle inconnu';
   }
 
@@ -230,7 +231,7 @@ export default function UsersPage() {
                         <td className="px-4 py-3">
                           <span className="inline-flex items-center gap-1 text-sm">
                             <Shield className="h-3 w-3 text-gray-400" />
-                            {getRoleName(user.RoleId)}
+                            {getRoleName(user)}
                           </span>
                         </td>
                         <td className="px-4 py-3 text-center">{getStatusBadge(user.IsActive)}</td>

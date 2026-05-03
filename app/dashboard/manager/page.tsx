@@ -21,6 +21,11 @@ import {
   RefreshCw,
   Plus,
   ArrowRight,
+  MapPin,
+  Calendar,
+  PowerSquare,
+  BarChart3,
+  ClipboardList,
 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -328,6 +333,66 @@ export default function ManagerDashboardPage() {
             >
               Gérer les clients <ArrowRight className="w-4 h-4 ml-2" />
             </Button>
+          </CardContent>
+        </Card>
+
+        {/* Bloc Commandes clients */}
+        <Card className="border-2 border-cyan-200 bg-gradient-to-br from-cyan-50 to-blue-50">
+          <CardHeader className="pb-3">
+            <CardTitle className="flex items-center gap-2">
+              <ClipboardList className="w-6 h-6 text-cyan-600" />
+              Commandes clients négociées
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <p className="text-sm text-gray-600 mb-3">
+              Saisissez les commandes clients négociées (multi-produits, prix négociés, avance).
+              Elles déclenchent — après validation admin — une production et un transfert vers l'entrepôt destination.
+            </p>
+            <div className="grid grid-cols-2 gap-3">
+              <Button onClick={() => router.push('/orders/new')}
+                className="h-16 bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-700 hover:to-blue-700 text-white font-bold">
+                <Plus className="w-5 h-5 mr-1" /> Nouvelle commande
+              </Button>
+              <Button onClick={() => router.push('/orders')} variant="outline"
+                className="h-16 border-2 border-cyan-300 font-semibold">
+                <ClipboardList className="w-5 h-5 mr-1" /> Toutes les commandes
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Bloc Points de vente — accès direct manager commercial */}
+        <Card className="border-2 border-amber-200 bg-gradient-to-br from-amber-50 to-orange-50">
+          <CardHeader className="pb-3">
+            <CardTitle className="flex items-center gap-2">
+              <MapPin className="w-6 h-6 text-amber-600" />
+              Points de vente
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+              <Button onClick={() => router.push('/admin/outlets')}
+                className="h-20 bg-white hover:bg-amber-100 text-amber-800 border-2 border-amber-200 flex flex-col items-center justify-center gap-1">
+                <MapPin className="w-5 h-5" />
+                <span className="text-sm font-semibold">Liste outlets</span>
+              </Button>
+              <Button onClick={() => router.push('/admin/outlets/planning')}
+                className="h-20 bg-white hover:bg-amber-100 text-amber-800 border-2 border-amber-200 flex flex-col items-center justify-center gap-1">
+                <Calendar className="w-5 h-5" />
+                <span className="text-sm font-semibold">Planning commerciaux</span>
+              </Button>
+              <Button onClick={() => router.push('/admin/outlets/activation')}
+                className="h-20 bg-white hover:bg-amber-100 text-amber-800 border-2 border-amber-200 flex flex-col items-center justify-center gap-1">
+                <PowerSquare className="w-5 h-5" />
+                <span className="text-sm font-semibold">Activation mensuelle</span>
+              </Button>
+              <Button onClick={() => router.push('/admin/outlets/reporting')}
+                className="h-20 bg-white hover:bg-amber-100 text-amber-800 border-2 border-amber-200 flex flex-col items-center justify-center gap-1">
+                <BarChart3 className="w-5 h-5" />
+                <span className="text-sm font-semibold">Reporting</span>
+              </Button>
+            </div>
           </CardContent>
         </Card>
 

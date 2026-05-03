@@ -25,7 +25,7 @@ export async function GET(request: NextRequest) {
     console.error('Error fetching statistics:', error);
     return NextResponse.json(
       { error: error.message || 'Erreur lors de la récupération des statistiques' },
-      { status: 500 }
+      { status: error.message?.includes('Permission') ? 403 : 500 }
     );
   }
 }

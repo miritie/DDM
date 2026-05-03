@@ -25,6 +25,7 @@ import {
   RefreshCw,
   ArrowRight,
   Gift,
+  ClipboardList,
 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -321,13 +322,23 @@ export default function SalesDashboardPage() {
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-3">
-            <Button
-              onClick={() => router.push('/sales/quick')}
-              className="w-full h-16 bg-gradient-to-r from-pink-600 to-rose-600 hover:from-pink-700 hover:to-rose-700 text-white font-bold text-lg"
-            >
-              <Plus className="w-6 h-6 mr-2" />
-              Nouvelle Vente Rapide
-            </Button>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <Button
+                onClick={() => router.push('/sales/quick')}
+                className="h-16 bg-gradient-to-r from-pink-600 to-rose-600 hover:from-pink-700 hover:to-rose-700 text-white font-bold text-lg"
+              >
+                <Plus className="w-6 h-6 mr-2" />
+                Nouvelle Vente
+              </Button>
+
+              <Button
+                onClick={() => router.push('/sales')}
+                className="h-16 bg-gradient-to-r from-emerald-600 to-green-600 hover:from-emerald-700 hover:to-green-700 text-white font-bold text-lg"
+              >
+                <ClipboardList className="w-6 h-6 mr-2" />
+                Journal de caisse
+              </Button>
+            </div>
 
             <div className="grid grid-cols-2 gap-3">
               <Button
@@ -347,16 +358,8 @@ export default function SalesDashboardPage() {
               </Button>
 
               <Button
-                onClick={() => router.push('/sales')}
-                className="h-14 bg-gradient-to-br from-green-500 to-emerald-600 hover:from-green-600 hover:to-emerald-700 text-white font-semibold"
-              >
-                <ShoppingCart className="w-5 h-5 mr-2" />
-                Mes Ventes
-              </Button>
-
-              <Button
                 onClick={() => router.push('/customers/loyalty')}
-                className="h-14 bg-gradient-to-br from-yellow-500 to-amber-600 hover:from-yellow-600 hover:to-amber-700 text-white font-semibold"
+                className="h-14 bg-gradient-to-br from-yellow-500 to-amber-600 hover:from-yellow-600 hover:to-amber-700 text-white font-semibold col-span-2"
               >
                 <Gift className="w-5 h-5 mr-2" />
                 Fidélité

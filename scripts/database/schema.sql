@@ -33,6 +33,15 @@ CREATE TABLE workspaces (
     name VARCHAR(255) NOT NULL,
     slug VARCHAR(100) UNIQUE NOT NULL,
     description TEXT,
+    -- Identité visuelle / en-têtes imprimables
+    slogan VARCHAR(255),
+    address TEXT,
+    phone VARCHAR(50),
+    email VARCHAR(255),
+    logo_url TEXT,
+    -- Devise et localisation
+    currency VARCHAR(10) DEFAULT 'XOF' NOT NULL,
+    timezone VARCHAR(50) DEFAULT 'Africa/Abidjan' NOT NULL,
     is_active BOOLEAN DEFAULT true NOT NULL,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL
@@ -86,10 +95,25 @@ CREATE TRIGGER update_roles_updated_at BEFORE UPDATE ON roles
     FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
 -- ============================================================================
+-- Liaison rôles ↔ permissions (M:N)
+
+CREATE TABLE role_permissions (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    role_id UUID NOT NULL REFERENCES roles(id) ON DELETE CASCADE,
+    permission_id UUID NOT NULL REFERENCES permissions(id) ON DELETE CASCADE,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL,
+    UNIQUE (role_id, permission_id)
+);
+
+CREATE INDEX idx_role_permissions_role ON role_permissions(role_id);
+CREATE INDEX idx_role_permissions_permission ON role_permissions(permission_id);
+
+-- ============================================================================
 
 CREATE TABLE users (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     user_id VARCHAR(50) UNIQUE NOT NULL,
+    username VARCHAR(50) UNIQUE, -- Identifiant simple (prénom). NULL = login par email uniquement.
     email VARCHAR(255) UNIQUE NOT NULL,
     password_hash VARCHAR(255),
     full_name VARCHAR(255) NOT NULL,
@@ -105,6 +129,7 @@ CREATE TABLE users (
 );
 
 CREATE INDEX idx_users_email ON users(email);
+CREATE INDEX idx_users_username ON users(username) WHERE username IS NOT NULL;
 CREATE INDEX idx_users_workspace_id ON users(workspace_id);
 CREATE INDEX idx_users_role_id ON users(role_id);
 CREATE INDEX idx_users_is_active ON users(is_active);
@@ -113,35 +138,24 @@ CREATE TRIGGER update_users_updated_at BEFORE UPDATE ON users
     FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
 -- ============================================================================
--- MODULE 7.1 - Ventes & Encaissements
+-- Multi-rôles : un utilisateur peut être assigné à plusieurs rôles.
+-- Le rôle marqué is_primary=true est utilisé par défaut à la connexion et
+-- correspond à users.role_id.
 -- ============================================================================
 
-CREATE TABLE products (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    product_id VARCHAR(50) UNIQUE NOT NULL,
-    name VARCHAR(255) NOT NULL,
-    code VARCHAR(100) NOT NULL,
-    description TEXT,
-    unit_price DECIMAL(15, 2) NOT NULL,
-    currency VARCHAR(10) DEFAULT 'XOF' NOT NULL,
-    category VARCHAR(100),
-    unit VARCHAR(50), -- kg, piece, liter, etc.
-    is_active BOOLEAN DEFAULT true NOT NULL,
-    workspace_id UUID NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+CREATE TABLE user_roles (
+    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    role_id UUID NOT NULL REFERENCES roles(id) ON DELETE CASCADE,
+    is_primary BOOLEAN DEFAULT false NOT NULL,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL,
-
-    UNIQUE(code, workspace_id)
+    PRIMARY KEY (user_id, role_id)
 );
 
-CREATE INDEX idx_products_workspace_id ON products(workspace_id);
-CREATE INDEX idx_products_code ON products(code);
-CREATE INDEX idx_products_category ON products(category);
-CREATE INDEX idx_products_is_active ON products(is_active);
+CREATE INDEX idx_user_roles_user_id ON user_roles(user_id);
+CREATE INDEX idx_user_roles_role_id ON user_roles(role_id);
 
-CREATE TRIGGER update_products_updated_at BEFORE UPDATE ON products
-    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
-
+-- ============================================================================
+-- Clients (créée tôt car référencée par checkin_sessions, sales, etc.)
 -- ============================================================================
 
 CREATE TABLE clients (
@@ -160,7 +174,6 @@ CREATE TABLE clients (
     workspace_id UUID NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL,
-
     UNIQUE(code, workspace_id)
 );
 
@@ -170,6 +183,336 @@ CREATE INDEX idx_clients_phone ON clients(phone);
 CREATE INDEX idx_clients_is_active ON clients(is_active);
 
 CREATE TRIGGER update_clients_updated_at BEFORE UPDATE ON clients
+    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+
+-- ============================================================================
+-- Sessions de check-in client (pairing QR ↔ POS).
+-- TTL court (~10min). Le caissier crée une session, affiche le QR.
+-- Le client scanne, soumet ses infos, la session passe à 'completed'.
+-- ============================================================================
+
+CREATE TABLE checkin_sessions (
+    token VARCHAR(64) PRIMARY KEY,
+    workspace_id UUID NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+    status VARCHAR(20) DEFAULT 'pending' NOT NULL,
+    client_id UUID REFERENCES clients(id) ON DELETE SET NULL,
+    client_name VARCHAR(255),
+    client_phone VARCHAR(50),
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL,
+    completed_at TIMESTAMP,
+    expires_at TIMESTAMP NOT NULL
+);
+
+CREATE INDEX idx_checkin_workspace ON checkin_sessions(workspace_id);
+CREATE INDEX idx_checkin_expires ON checkin_sessions(expires_at);
+
+-- ============================================================================
+-- Programme de fidélisation paramétrique.
+-- Les règles définissent des conditions (tous optionnels, en ET) et une
+-- récompense (% ou montant fixe). Évaluées à chaque vente.
+-- ============================================================================
+
+CREATE TABLE loyalty_rules (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    workspace_id UUID NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+    name VARCHAR(150) NOT NULL,
+    description TEXT,
+
+    -- Triggers
+    every_nth_purchase INT,            -- (count_in_window + 1) % N === 0
+    min_cart_total NUMERIC(15,2),      -- panier ≥ X
+    min_item_count INT,                -- nb articles ≥ N
+    min_total_spent NUMERIC(15,2),     -- montant cumulé client ≥ X
+    min_total_purchases INT,           -- nb cumulé d'achats ≥ N (sur la fenêtre)
+    window_days INT,                   -- fenêtre temporelle (NULL = lifetime)
+
+    -- Reward
+    reward_type VARCHAR(20) NOT NULL CHECK (reward_type IN ('percentage', 'fixed_amount')),
+    reward_value NUMERIC(10,2) NOT NULL,
+
+    -- Méta
+    priority INT DEFAULT 0 NOT NULL,
+    is_active BOOLEAN DEFAULT true NOT NULL,
+    starts_at TIMESTAMP,
+    ends_at TIMESTAMP,
+
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL
+);
+
+CREATE INDEX idx_loyalty_rules_workspace ON loyalty_rules(workspace_id);
+CREATE INDEX idx_loyalty_rules_active ON loyalty_rules(is_active, priority DESC);
+
+-- (Les colonnes loyalty_rule_id / discount_amount sont ajoutées sur sales
+--  juste après la création de cette table, plus bas.)
+
+-- ============================================================================
+-- MODULE 7.1 - Ventes & Encaissements
+-- ============================================================================
+
+CREATE TABLE product_categories (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    workspace_id UUID NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+    name VARCHAR(100) NOT NULL,
+    color VARCHAR(20) DEFAULT '#3b82f6',
+    sort_order INTEGER DEFAULT 0,
+    is_active BOOLEAN DEFAULT true NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL,
+    UNIQUE (workspace_id, name)
+);
+CREATE INDEX idx_product_categories_workspace ON product_categories(workspace_id);
+
+CREATE TABLE products (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    product_id VARCHAR(50) UNIQUE NOT NULL,
+    name VARCHAR(255) NOT NULL,
+    code VARCHAR(100) NOT NULL,
+    description TEXT,
+    unit_price DECIMAL(15, 2) NOT NULL,
+    currency VARCHAR(10) DEFAULT 'XOF' NOT NULL,
+    category VARCHAR(100), -- nom de catégorie (référence par nom à product_categories)
+    unit VARCHAR(50), -- kg, piece, liter, etc.
+    image_url TEXT,
+    is_active BOOLEAN DEFAULT true NOT NULL,
+    workspace_id UUID NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL,
+
+    UNIQUE(code, workspace_id)
+);
+
+CREATE INDEX idx_products_workspace_id ON products(workspace_id);
+CREATE INDEX idx_products_code ON products(code);
+CREATE INDEX idx_products_category ON products(category);
+CREATE INDEX idx_products_is_active ON products(is_active);
+
+CREATE TRIGGER update_products_updated_at BEFORE UPDATE ON products
+    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+
+-- ============================================================================
+
+-- (clients est créée plus haut, avant checkin_sessions)
+
+-- ============================================================================
+-- MODULE 7.10 - Points de Vente (Outlets)
+-- ============================================================================
+
+CREATE TABLE outlet_types (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    code VARCHAR(50) NOT NULL,
+    name VARCHAR(255) NOT NULL,
+    description TEXT,
+    workspace_id UUID NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL,
+    UNIQUE (workspace_id, code)
+);
+
+CREATE INDEX idx_outlet_types_workspace ON outlet_types(workspace_id);
+
+CREATE TRIGGER update_outlet_types_updated_at BEFORE UPDATE ON outlet_types
+    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+
+-- ----------------------------------------------------------------------------
+
+CREATE TABLE outlets (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    code VARCHAR(50) NOT NULL,
+    name VARCHAR(255) NOT NULL,
+    outlet_type_id UUID REFERENCES outlet_types(id) ON DELETE SET NULL,
+    address TEXT,
+    city VARCHAR(100),
+    gps_lat DECIMAL(10, 7),
+    gps_lng DECIMAL(10, 7),
+    qr_token UUID DEFAULT uuid_generate_v4() NOT NULL,
+    manager_id UUID REFERENCES users(id) ON DELETE SET NULL,
+    is_active BOOLEAN DEFAULT true NOT NULL,
+    workspace_id UUID NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL,
+    UNIQUE (workspace_id, code),
+    UNIQUE (qr_token)
+);
+
+CREATE INDEX idx_outlets_workspace ON outlets(workspace_id);
+CREATE INDEX idx_outlets_type ON outlets(outlet_type_id);
+CREATE INDEX idx_outlets_qr_token ON outlets(qr_token);
+CREATE INDEX idx_outlets_is_active ON outlets(is_active);
+
+CREATE TRIGGER update_outlets_updated_at BEFORE UPDATE ON outlets
+    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+
+-- ----------------------------------------------------------------------------
+-- Périodes d'activité d'un outlet (active/inactif, payant/non payant, frais)
+
+CREATE TYPE outlet_fee_period AS ENUM ('weekly', 'monthly', 'quarterly', 'yearly', 'one_off');
+
+CREATE TABLE outlet_periods (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    outlet_id UUID NOT NULL REFERENCES outlets(id) ON DELETE CASCADE,
+    start_date DATE NOT NULL,
+    end_date DATE,
+    is_active BOOLEAN DEFAULT true NOT NULL,
+    is_paid BOOLEAN DEFAULT false NOT NULL,
+    fee_amount DECIMAL(15, 2) DEFAULT 0 NOT NULL,
+    fee_period outlet_fee_period DEFAULT 'monthly' NOT NULL,
+    notes TEXT,
+    workspace_id UUID NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL,
+    CHECK (end_date IS NULL OR end_date >= start_date)
+);
+
+CREATE INDEX idx_outlet_periods_outlet ON outlet_periods(outlet_id);
+CREATE INDEX idx_outlet_periods_dates ON outlet_periods(start_date, end_date);
+
+CREATE TRIGGER update_outlet_periods_updated_at BEFORE UPDATE ON outlet_periods
+    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+
+-- ----------------------------------------------------------------------------
+-- Prix par outlet ou par type d'outlet (mutuellement exclusifs)
+
+CREATE TABLE outlet_prices (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    product_id UUID NOT NULL REFERENCES products(id) ON DELETE CASCADE,
+    outlet_id UUID REFERENCES outlets(id) ON DELETE CASCADE,
+    outlet_type_id UUID REFERENCES outlet_types(id) ON DELETE CASCADE,
+    unit_price DECIMAL(15, 2) NOT NULL,
+    currency VARCHAR(10) DEFAULT 'XOF' NOT NULL,
+    valid_from DATE NOT NULL DEFAULT CURRENT_DATE,
+    valid_to DATE,
+    workspace_id UUID NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL,
+    CHECK ((outlet_id IS NULL) <> (outlet_type_id IS NULL)),
+    CHECK (valid_to IS NULL OR valid_to >= valid_from)
+);
+
+CREATE INDEX idx_outlet_prices_product ON outlet_prices(product_id);
+CREATE INDEX idx_outlet_prices_outlet ON outlet_prices(outlet_id) WHERE outlet_id IS NOT NULL;
+CREATE INDEX idx_outlet_prices_type ON outlet_prices(outlet_type_id) WHERE outlet_type_id IS NOT NULL;
+CREATE INDEX idx_outlet_prices_dates ON outlet_prices(valid_from, valid_to);
+
+CREATE TRIGGER update_outlet_prices_updated_at BEFORE UPDATE ON outlet_prices
+    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+
+-- ----------------------------------------------------------------------------
+-- Planning hebdomadaire des commerciaux par outlet
+
+CREATE TABLE outlet_assignments (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    outlet_id UUID NOT NULL REFERENCES outlets(id) ON DELETE CASCADE,
+    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    week_start DATE NOT NULL, -- lundi
+    week_end DATE NOT NULL,   -- dimanche
+    assigned_by_id UUID REFERENCES users(id) ON DELETE SET NULL,
+    notes TEXT,
+    workspace_id UUID NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL,
+    UNIQUE (outlet_id, user_id, week_start),
+    CHECK (week_end >= week_start)
+);
+
+CREATE INDEX idx_outlet_assignments_outlet ON outlet_assignments(outlet_id);
+CREATE INDEX idx_outlet_assignments_user ON outlet_assignments(user_id);
+CREATE INDEX idx_outlet_assignments_week ON outlet_assignments(week_start, week_end);
+
+CREATE TRIGGER update_outlet_assignments_updated_at BEFORE UPDATE ON outlet_assignments
+    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+
+-- ----------------------------------------------------------------------------
+-- Exceptions ponctuelles au planning (déplacement ad-hoc par un manager)
+
+CREATE TABLE outlet_assignment_overrides (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    outlet_id UUID NOT NULL REFERENCES outlets(id) ON DELETE CASCADE,
+    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    date_from DATE NOT NULL,
+    date_to DATE NOT NULL,
+    reason TEXT,
+    overrides_assignment_id UUID REFERENCES outlet_assignments(id) ON DELETE SET NULL,
+    assigned_by_id UUID REFERENCES users(id) ON DELETE SET NULL,
+    workspace_id UUID NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL,
+    CHECK (date_to >= date_from)
+);
+
+CREATE INDEX idx_outlet_overrides_outlet ON outlet_assignment_overrides(outlet_id);
+CREATE INDEX idx_outlet_overrides_user ON outlet_assignment_overrides(user_id);
+CREATE INDEX idx_outlet_overrides_dates ON outlet_assignment_overrides(date_from, date_to);
+
+CREATE TRIGGER update_outlet_overrides_updated_at BEFORE UPDATE ON outlet_assignment_overrides
+    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+
+-- ----------------------------------------------------------------------------
+-- Sessions POS (un commercial actif sur un outlet à un moment T)
+
+CREATE TYPE pos_session_start_method AS ENUM ('explicit', 'implicit');
+
+CREATE TABLE pos_sessions (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    outlet_id UUID NOT NULL REFERENCES outlets(id) ON DELETE CASCADE,
+    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    started_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL,
+    ended_at TIMESTAMP,
+    start_method pos_session_start_method DEFAULT 'explicit' NOT NULL,
+    device_id VARCHAR(255),
+    gps_lat DECIMAL(10, 7),
+    gps_lng DECIMAL(10, 7),
+    gps_accuracy DECIMAL(10, 2),
+    gps_captured_at TIMESTAMP,
+    notes TEXT,
+    workspace_id UUID NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL,
+    CHECK (ended_at IS NULL OR ended_at >= started_at)
+);
+
+CREATE INDEX idx_pos_sessions_outlet ON pos_sessions(outlet_id);
+CREATE INDEX idx_pos_sessions_user ON pos_sessions(user_id);
+CREATE INDEX idx_pos_sessions_active ON pos_sessions(outlet_id, user_id) WHERE ended_at IS NULL;
+CREATE INDEX idx_pos_sessions_started ON pos_sessions(started_at);
+
+CREATE TRIGGER update_pos_sessions_updated_at BEFORE UPDATE ON pos_sessions
+    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+
+-- (pending_client_scans est créée plus bas, après la table sales)
+
+-- ----------------------------------------------------------------------------
+-- Factures mensuelles reçues de l'outlet (qu'on doit payer)
+
+CREATE TYPE outlet_invoice_status AS ENUM ('pending', 'paid', 'overdue', 'cancelled');
+
+CREATE TABLE outlet_invoices (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    outlet_id UUID NOT NULL REFERENCES outlets(id) ON DELETE CASCADE,
+    invoice_number VARCHAR(100) NOT NULL,
+    period_year INTEGER NOT NULL,
+    period_month INTEGER NOT NULL CHECK (period_month BETWEEN 1 AND 12),
+    amount DECIMAL(15, 2) NOT NULL,
+    currency VARCHAR(10) DEFAULT 'XOF' NOT NULL,
+    issue_date DATE NOT NULL,
+    due_date DATE NOT NULL,
+    status outlet_invoice_status DEFAULT 'pending' NOT NULL,
+    paid_at TIMESTAMP,
+    paid_amount DECIMAL(15, 2) DEFAULT 0 NOT NULL,
+    expense_id UUID, -- lien vers la dépense qui matérialise le paiement
+    notes TEXT,
+    attachment_url TEXT,
+    workspace_id UUID NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL,
+    UNIQUE (outlet_id, invoice_number)
+);
+
+CREATE INDEX idx_outlet_invoices_outlet ON outlet_invoices(outlet_id);
+CREATE INDEX idx_outlet_invoices_status ON outlet_invoices(status);
+CREATE INDEX idx_outlet_invoices_period ON outlet_invoices(period_year, period_month);
+
+CREATE TRIGGER update_outlet_invoices_updated_at BEFORE UPDATE ON outlet_invoices
     FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
 -- ============================================================================
@@ -193,6 +536,8 @@ CREATE TABLE sales (
     due_date TIMESTAMP,
     notes TEXT,
     sales_person_id UUID NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
+    outlet_id UUID NOT NULL REFERENCES outlets(id) ON DELETE RESTRICT,
+    pos_session_id UUID REFERENCES pos_sessions(id) ON DELETE SET NULL,
     workspace_id UUID NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL
@@ -202,12 +547,37 @@ CREATE INDEX idx_sales_workspace_id ON sales(workspace_id);
 CREATE INDEX idx_sales_sale_number ON sales(sale_number);
 CREATE INDEX idx_sales_client_id ON sales(client_id);
 CREATE INDEX idx_sales_sales_person_id ON sales(sales_person_id);
+CREATE INDEX idx_sales_outlet_id ON sales(outlet_id);
+CREATE INDEX idx_sales_pos_session_id ON sales(pos_session_id);
 CREATE INDEX idx_sales_status ON sales(status);
 CREATE INDEX idx_sales_payment_status ON sales(payment_status);
 CREATE INDEX idx_sales_sale_date ON sales(sale_date);
 
 CREATE TRIGGER update_sales_updated_at BEFORE UPDATE ON sales
     FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+
+-- Colonnes côté ventes pour historiser la remise fidélité appliquée
+ALTER TABLE sales ADD COLUMN IF NOT EXISTS loyalty_rule_id UUID REFERENCES loyalty_rules(id) ON DELETE SET NULL;
+ALTER TABLE sales ADD COLUMN IF NOT EXISTS discount_amount NUMERIC(15,2) DEFAULT 0 NOT NULL;
+
+-- File de scans clients en attente d'attribution par un commercial
+-- (référence sales — donc créée APRÈS la table sales)
+CREATE TABLE pending_client_scans (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    outlet_id UUID NOT NULL REFERENCES outlets(id) ON DELETE CASCADE,
+    client_id UUID REFERENCES clients(id) ON DELETE CASCADE,
+    client_name VARCHAR(255),
+    client_phone VARCHAR(50),
+    scanned_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL,
+    expires_at TIMESTAMP NOT NULL,
+    consumed_at TIMESTAMP,
+    consumed_by_sale_id UUID REFERENCES sales(id) ON DELETE SET NULL,
+    workspace_id UUID NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL
+);
+
+CREATE INDEX idx_scans_outlet_pending ON pending_client_scans(outlet_id, expires_at) WHERE consumed_at IS NULL;
+CREATE INDEX idx_scans_client ON pending_client_scans(client_id);
 
 -- ============================================================================
 
@@ -292,7 +662,8 @@ CREATE TABLE stock_items (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     stock_item_id VARCHAR(50) UNIQUE NOT NULL,
     product_id UUID NOT NULL REFERENCES products(id) ON DELETE CASCADE,
-    warehouse_id UUID NOT NULL REFERENCES warehouses(id) ON DELETE CASCADE,
+    warehouse_id UUID REFERENCES warehouses(id) ON DELETE CASCADE,
+    outlet_id UUID REFERENCES outlets(id) ON DELETE CASCADE,
     quantity DECIMAL(10, 3) DEFAULT 0 NOT NULL,
     minimum_stock DECIMAL(10, 3) DEFAULT 0 NOT NULL,
     maximum_stock DECIMAL(10, 3),
@@ -303,12 +674,22 @@ CREATE TABLE stock_items (
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL,
 
-    UNIQUE(product_id, warehouse_id)
+    -- exactement une localisation
+    CHECK ((warehouse_id IS NULL) <> (outlet_id IS NULL))
 );
+
+-- Unicité (product, location) : index partiels distincts pour outlet et warehouse
+CREATE UNIQUE INDEX idx_stock_items_unique_warehouse
+    ON stock_items(product_id, warehouse_id)
+    WHERE warehouse_id IS NOT NULL;
+CREATE UNIQUE INDEX idx_stock_items_unique_outlet
+    ON stock_items(product_id, outlet_id)
+    WHERE outlet_id IS NOT NULL;
 
 CREATE INDEX idx_stock_items_workspace_id ON stock_items(workspace_id);
 CREATE INDEX idx_stock_items_product_id ON stock_items(product_id);
-CREATE INDEX idx_stock_items_warehouse_id ON stock_items(warehouse_id);
+CREATE INDEX idx_stock_items_warehouse_id ON stock_items(warehouse_id) WHERE warehouse_id IS NOT NULL;
+CREATE INDEX idx_stock_items_outlet_id ON stock_items(outlet_id) WHERE outlet_id IS NOT NULL;
 
 CREATE TRIGGER update_stock_items_updated_at BEFORE UPDATE ON stock_items
     FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
@@ -326,6 +707,8 @@ CREATE TABLE stock_movements (
     product_id UUID NOT NULL REFERENCES products(id) ON DELETE RESTRICT,
     source_warehouse_id UUID REFERENCES warehouses(id) ON DELETE SET NULL,
     destination_warehouse_id UUID REFERENCES warehouses(id) ON DELETE SET NULL,
+    source_outlet_id UUID REFERENCES outlets(id) ON DELETE SET NULL,
+    destination_outlet_id UUID REFERENCES outlets(id) ON DELETE SET NULL,
     quantity DECIMAL(10, 3) NOT NULL,
     unit_cost DECIMAL(15, 2),
     total_cost DECIMAL(15, 2),
@@ -360,7 +743,8 @@ CREATE TABLE stock_alerts (
     alert_id VARCHAR(50) UNIQUE NOT NULL,
     stock_item_id UUID NOT NULL REFERENCES stock_items(id) ON DELETE CASCADE,
     product_id UUID NOT NULL REFERENCES products(id) ON DELETE CASCADE,
-    warehouse_id UUID NOT NULL REFERENCES warehouses(id) ON DELETE CASCADE,
+    warehouse_id UUID REFERENCES warehouses(id) ON DELETE CASCADE,
+    outlet_id UUID REFERENCES outlets(id) ON DELETE CASCADE,
     alert_type stock_alert_type NOT NULL,
     current_quantity DECIMAL(10, 3) NOT NULL,
     threshold_quantity DECIMAL(10, 3) NOT NULL,

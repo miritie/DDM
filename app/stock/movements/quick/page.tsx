@@ -163,11 +163,19 @@ export default function QuickMovementPage() {
         }),
       });
 
+      const result = await response.json().catch(() => ({} as any));
       if (response.ok) {
-        alert('Mouvement enregistré avec succès!');
+        const created = result?.data?.created ?? lines.length;
+        const errCount = result?.data?.errors?.length ?? 0;
+        if (errCount > 0) {
+          alert(`Mouvement partiellement enregistré : ${created} OK, ${errCount} en erreur.\n\n` +
+            (result.data.errors || []).map((e: any) => `• ${e.productId} : ${e.message}`).join('\n'));
+        } else {
+          alert(`Mouvement enregistré avec succès (${created} ligne${created > 1 ? 's' : ''})`);
+        }
         router.push('/stock/movements');
       } else {
-        alert("Erreur lors de l'enregistrement");
+        alert(`Erreur : ${result?.error || `HTTP ${response.status}`}`);
       }
     } catch (error) {
       console.error('Erreur sauvegarde:', error);

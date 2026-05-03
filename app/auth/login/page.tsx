@@ -15,12 +15,12 @@ import { Input } from '@/components/ui/input';
 function LoginForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const [email, setEmail] = React.useState('');
+  const [identifier, setIdentifier] = React.useState('');
   const [password, setPassword] = React.useState('');
   const [error, setError] = React.useState('');
   const [isLoading, setIsLoading] = React.useState(false);
 
-  const callbackUrl = searchParams.get('callbackUrl') || '/';
+  const callbackUrl = searchParams.get('callbackUrl') || '/dashboard';
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -28,20 +28,21 @@ function LoginForm() {
     setIsLoading(true);
 
     try {
+      // Le champ "email" du provider accepte aussi un username (prénom)
       const result = await signIn('credentials', {
-        email,
+        email: identifier,
         password,
         redirect: false,
       });
 
       if (result?.error) {
-        setError('Email ou mot de passe incorrect');
+        setError('Identifiant ou mot de passe incorrect');
         setIsLoading(false);
         return;
       }
 
-      // Rediriger vers la page demandée ou le dashboard
-      router.push(callbackUrl);
+      // Toujours passer par le sélecteur de rôle ; il auto-redirige si un seul rôle.
+      router.push(`/auth/select-role?next=${encodeURIComponent(callbackUrl)}`);
       router.refresh();
     } catch (err) {
       setError('Une erreur est survenue lors de la connexion');
@@ -52,7 +53,7 @@ function LoginForm() {
   async function handleGoogleSignIn() {
     setIsLoading(true);
     try {
-      await signIn('google', { callbackUrl });
+      await signIn('google', { callbackUrl: `/auth/select-role?next=${encodeURIComponent(callbackUrl)}` });
     } catch (err) {
       setError('Erreur lors de la connexion avec Google');
       setIsLoading(false);
@@ -90,15 +91,18 @@ function LoginForm() {
             )}
 
             <div className="space-y-2">
-              <label htmlFor="email" className="text-sm font-semibold text-brown-800">
-                Adresse email
+              <label htmlFor="identifier" className="text-sm font-semibold text-brown-800">
+                Identifiant
               </label>
               <Input
-                id="email"
-                type="email"
-                placeholder="votre.email@exemple.com"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
+                id="identifier"
+                type="text"
+                placeholder="prénom ou email"
+                value={identifier}
+                onChange={(e) => setIdentifier(e.target.value)}
+                autoComplete="username"
+                autoCapitalize="none"
+                spellCheck={false}
                 required
                 disabled={isLoading}
               />

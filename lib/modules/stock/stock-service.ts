@@ -1,22 +1,26 @@
 /**
  * Service - Gestion des Stocks
- * Module Stocks & Mouvements
+ *
+ * Un stock_item est rattaché soit à un warehouse, soit à un outlet (mutuellement exclusifs).
+ * Les warehouses sont des dépôts centraux. Les outlets sont les points de vente.
+ * Les transferts (warehouse↔outlet, outlet↔outlet) alimentent les stocks d'outlet.
  */
 
 import { getPostgresClient } from '@/lib/database/postgres-client';
 import { StockItem, StockAlert, Product, Warehouse, StockStatistics } from '@/types/modules';
 import { v4 as uuidv4 } from 'uuid';
 
-const postgresClient = getPostgresClient();
+const db = getPostgresClient();
 
-export interface CreateStockItemInput {
+export interface UpsertStockItemInput {
+  workspaceId: string;
   productId: string;
-  warehouseId: string;
+  warehouseId?: string;
+  outletId?: string;
   quantity: number;
-  minimumStock: number;
+  minimumStock?: number;
   maximumStock?: number;
   unitCost: number;
-  workspaceId: string;
 }
 
 export interface UpdateStockItemInput {
@@ -33,484 +37,301 @@ export interface AdjustStockInput {
   unitCost?: number;
 }
 
-/**
- * Service de gestion des stocks
- */
+export interface StockListFilters {
+  warehouseId?: string;
+  outletId?: string;
+  productId?: string;
+  lowStock?: boolean;
+  outOfStock?: boolean;
+}
+
 export class StockService {
-  /**
-   * Crée ou met à jour un article en stock
-   */
-  async upsertStockItem(input: CreateStockItemInput): Promise<StockItem> {
-    // Check if stock item already exists
-    const existing = await postgresClient.list<StockItem>('stock_items', {
-      filterByFormula: `AND({product_id} = '${input.productId}', {warehouse_id} = '${input.warehouseId}')`,
-    });
+  /** Crée ou met à jour un article en stock (warehouse OU outlet, exclusif). */
+  async upsertStockItem(input: UpsertStockItemInput): Promise<StockItem> {
+    if (!input.warehouseId === !input.outletId) {
+      throw new Error('Un stock doit être rattaché soit à un entrepôt, soit à un point de vente (exclusif).');
+    }
 
-    if (existing.length > 0) {
-      // Update existing
-      const currentItem = existing[0];
-      const newQuantity = currentItem.Quantity + input.quantity;
+    const existing = input.warehouseId
+      ? await this.getByProductAndWarehouse(input.productId, input.warehouseId)
+      : await this.getByProductAndOutlet(input.productId, input.outletId!);
+
+    if (existing) {
+      const newQuantity = Number(existing.Quantity) + input.quantity;
       const newTotalValue = newQuantity * input.unitCost;
-
-      const updated = await postgresClient.update<StockItem>(
-        'stock_items',
-        existing[0].id!,
-        {
-          Quantity: newQuantity,
-          UnitCost: input.unitCost,
-          TotalValue: newTotalValue,
-          LastRestockDate: new Date().toISOString(),
-          UpdatedAt: new Date().toISOString(),
-        }
+      const r = await db.query(
+        `UPDATE stock_items
+         SET quantity = $2, unit_cost = $3, total_value = $4,
+             last_restock_date = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
+         WHERE id = $1 RETURNING *`,
+        [existing.id, newQuantity, input.unitCost, newTotalValue]
       );
-
+      const updated = mapStockRow(r.rows[0]);
       await this.checkAndCreateAlert(updated);
       return updated;
-    } else {
-      // Create new
-      const stockItem: Partial<StockItem> = {
-        StockItemId: uuidv4(),
-        ProductId: input.productId,
-        WarehouseId: input.warehouseId,
-        Quantity: input.quantity,
-        MinimumStock: input.minimumStock,
-        MaximumStock: input.maximumStock,
-        UnitCost: input.unitCost,
-        TotalValue: input.quantity * input.unitCost,
-        LastRestockDate: new Date().toISOString(),
-        WorkspaceId: input.workspaceId,
-        CreatedAt: new Date().toISOString(),
-        UpdatedAt: new Date().toISOString(),
-      };
-
-      const created = await postgresClient.create<StockItem>('stock_items', stockItem);
-      await this.checkAndCreateAlert(created);
-      return created;
-    }
-  }
-
-  /**
-   * Récupère un article en stock par ID
-   */
-  async getById(stockItemId: string): Promise<StockItem | null> {
-    const items = await postgresClient.list<StockItem>('stock_items', {
-      filterByFormula: `{stock_item_id} = '${stockItemId}'`,
-    });
-
-    return items.length > 0 ? items[0] : null;
-  }
-
-  /**
-   * Récupère un article en stock par produit et entrepôt
-   */
-  async getByProductAndWarehouse(
-    productId: string,
-    warehouseId: string
-  ): Promise<StockItem | null> {
-    const items = await postgresClient.list<StockItem>('stock_items', {
-      filterByFormula: `AND({product_id} = '${productId}', {warehouse_id} = '${warehouseId}')`,
-    });
-
-    return items.length > 0 ? items[0] : null;
-  }
-
-  /**
-   * Liste les articles en stock d'un workspace
-   */
-  async list(
-    workspaceId: string,
-    filters: {
-      warehouseId?: string;
-      productId?: string;
-      lowStock?: boolean;
-      outOfStock?: boolean;
-    } = {}
-  ): Promise<StockItem[]> {
-    const filterFormulas: string[] = [`{workspace_id} = '${workspaceId}'`];
-
-    if (filters.warehouseId) {
-      filterFormulas.push(`{warehouse_id} = '${filters.warehouseId}'`);
     }
 
-    if (filters.productId) {
-      filterFormulas.push(`{product_id} = '${filters.productId}'`);
-    }
-
-    const filterByFormula =
-      filterFormulas.length > 1
-        ? `AND(${filterFormulas.join(', ')})`
-        : filterFormulas[0];
-
-    let items = await postgresClient.list<StockItem>('stock_items', {
-      filterByFormula,
-      sort: [{ field: 'CreatedAt', direction: 'desc' }],
-    });
-
-    // Apply client-side filters
-    if (filters.lowStock) {
-      items = items.filter(
-        (item) => item.Quantity > 0 && item.Quantity <= item.MinimumStock
-      );
-    }
-
-    if (filters.outOfStock) {
-      items = items.filter((item) => item.Quantity === 0);
-    }
-
-    return items;
-  }
-
-  /**
-   * Met à jour un article en stock
-   */
-  async update(stockItemId: string, input: UpdateStockItemInput): Promise<StockItem> {
-    const items = await postgresClient.list<StockItem>('stock_items', {
-      filterByFormula: `{stock_item_id} = '${stockItemId}'`,
-    });
-
-    if (items.length === 0) {
-      throw new Error('Article en stock non trouvé');
-    }
-
-    const currentItem = items[0];
-    const updates: Partial<StockItem> = {
-      Quantity: input.quantity,
-      MinimumStock: input.minimumStock,
-      MaximumStock: input.maximumStock,
-      UnitCost: input.unitCost,
-      UpdatedAt: new Date().toISOString(),
-    };
-
-    // Recalculate total value if quantity or unit cost changed
-    const newQuantity = input.quantity !== undefined ? input.quantity : currentItem.Quantity;
-    const newUnitCost = input.unitCost !== undefined ? input.unitCost : currentItem.UnitCost;
-    updates.TotalValue = newQuantity * newUnitCost;
-
-    const updated = await postgresClient.update<StockItem>(
-      'stock_items',
-      items[0].id!,
-      updates
+    const r = await db.query(
+      `INSERT INTO stock_items
+        (stock_item_id, product_id, warehouse_id, outlet_id,
+         quantity, minimum_stock, maximum_stock, unit_cost, total_value,
+         last_restock_date, workspace_id)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9, CURRENT_TIMESTAMP, $10)
+       RETURNING *`,
+      [
+        uuidv4(),
+        input.productId,
+        input.warehouseId ?? null,
+        input.outletId ?? null,
+        input.quantity,
+        input.minimumStock ?? 0,
+        input.maximumStock ?? null,
+        input.unitCost,
+        input.quantity * input.unitCost,
+        input.workspaceId,
+      ]
     );
+    const created = mapStockRow(r.rows[0]);
+    await this.checkAndCreateAlert(created);
+    return created;
+  }
 
+  async getById(stockItemId: string): Promise<StockItem | null> {
+    const r = await db.query(
+      `SELECT * FROM stock_items WHERE id = $1 OR stock_item_id = $1 LIMIT 1`,
+      [stockItemId]
+    );
+    return r.rows.length > 0 ? mapStockRow(r.rows[0]) : null;
+  }
+
+  async getByProductAndWarehouse(productId: string, warehouseId: string): Promise<StockItem | null> {
+    const r = await db.query(
+      `SELECT * FROM stock_items WHERE product_id = $1 AND warehouse_id = $2 LIMIT 1`,
+      [productId, warehouseId]
+    );
+    return r.rows.length > 0 ? mapStockRow(r.rows[0]) : null;
+  }
+
+  async getByProductAndOutlet(productId: string, outletId: string): Promise<StockItem | null> {
+    const r = await db.query(
+      `SELECT * FROM stock_items WHERE product_id = $1 AND outlet_id = $2 LIMIT 1`,
+      [productId, outletId]
+    );
+    return r.rows.length > 0 ? mapStockRow(r.rows[0]) : null;
+  }
+
+  async list(workspaceId: string, filters: StockListFilters = {}): Promise<StockItem[]> {
+    const params: any[] = [workspaceId];
+    let sql = `SELECT * FROM stock_items WHERE workspace_id = $1`;
+    if (filters.warehouseId) { params.push(filters.warehouseId); sql += ` AND warehouse_id = $${params.length}`; }
+    if (filters.outletId)    { params.push(filters.outletId);    sql += ` AND outlet_id = $${params.length}`; }
+    if (filters.productId)   { params.push(filters.productId);   sql += ` AND product_id = $${params.length}`; }
+    if (filters.lowStock)    { sql += ` AND quantity > 0 AND quantity <= minimum_stock`; }
+    if (filters.outOfStock)  { sql += ` AND quantity = 0`; }
+    sql += ` ORDER BY created_at DESC`;
+    const r = await db.query(sql, params);
+    return r.rows.map(mapStockRow);
+  }
+
+  async update(stockItemId: string, input: UpdateStockItemInput): Promise<StockItem> {
+    const existing = await this.getById(stockItemId);
+    if (!existing) throw new Error('Article en stock non trouvé');
+
+    const newQuantity = input.quantity !== undefined ? input.quantity : existing.Quantity;
+    const newUnitCost = input.unitCost !== undefined ? input.unitCost : existing.UnitCost;
+    const newTotalValue = newQuantity * newUnitCost;
+
+    const r = await db.query(
+      `UPDATE stock_items
+       SET quantity = $2,
+           minimum_stock = COALESCE($3, minimum_stock),
+           maximum_stock = COALESCE($4, maximum_stock),
+           unit_cost = $5,
+           total_value = $6,
+           updated_at = CURRENT_TIMESTAMP
+       WHERE id = $1 RETURNING *`,
+      [
+        existing.id,
+        newQuantity,
+        input.minimumStock ?? null,
+        input.maximumStock ?? null,
+        newUnitCost,
+        newTotalValue,
+      ]
+    );
+    const updated = mapStockRow(r.rows[0]);
     await this.checkAndCreateAlert(updated);
     return updated;
   }
 
-  /**
-   * Ajuste la quantité en stock
-   */
   async adjustStock(input: AdjustStockInput): Promise<StockItem> {
     const item = await this.getById(input.stockItemId);
-    if (!item) {
-      throw new Error('Article en stock non trouvé');
-    }
+    if (!item) throw new Error('Article en stock non trouvé');
 
     let newQuantity: number;
     switch (input.operation) {
-      case 'add':
-        newQuantity = item.Quantity + input.quantity;
-        break;
+      case 'add':      newQuantity = item.Quantity + input.quantity; break;
       case 'subtract':
         newQuantity = item.Quantity - input.quantity;
-        if (newQuantity < 0) {
-          throw new Error('La quantité ne peut pas être négative');
-        }
+        if (newQuantity < 0) throw new Error('La quantité ne peut pas être négative');
         break;
-      case 'set':
-        newQuantity = input.quantity;
-        break;
-      default:
-        throw new Error('Opération invalide');
+      case 'set':      newQuantity = input.quantity; break;
+      default: throw new Error('Opération invalide');
     }
+    return await this.update(item.id!, { quantity: newQuantity, unitCost: input.unitCost });
+  }
 
-    return await this.update(input.stockItemId, {
-      quantity: newQuantity,
-      unitCost: input.unitCost,
+  // ===== Helpers utilisés par les ventes / mouvements =====
+
+  /** Augmente le stock pour (produit, outlet). Crée la ligne si elle n'existe pas. */
+  async increaseStockOutlet(productId: string, outletId: string, workspaceId: string, quantity: number, unitCost: number): Promise<StockItem> {
+    return this.upsertStockItem({
+      workspaceId, productId, outletId, quantity, unitCost,
     });
   }
 
-  /**
-   * Augmente le stock (entrée de production)
-   */
-  async increaseStock(
-    productId: string,
-    warehouseId: string,
-    quantity: number,
-    unitCost?: number
-  ): Promise<StockItem> {
-    const existingStock = await this.getByProductAndWarehouse(productId, warehouseId);
-
-    if (existingStock) {
-      // Update existing stock
-      const newQuantity = existingStock.Quantity + quantity;
-      const newUnitCost = unitCost !== undefined ? unitCost : existingStock.UnitCost;
-
-      const items = await postgresClient.list<StockItem>('stock_items', {
-        filterByFormula: `{stock_item_id} = '${existingStock.StockItemId}'`,
-      });
-
-      if (items.length === 0) {
-        throw new Error('Article en stock non trouvé');
-      }
-
-      const updated = await postgresClient.update<StockItem>(
-        'stock_items',
-        items[0].id!,
-        {
-          Quantity: newQuantity,
-          UnitCost: newUnitCost,
-          TotalValue: newQuantity * newUnitCost,
-          LastRestockDate: new Date().toISOString(),
-          UpdatedAt: new Date().toISOString(),
-        }
-      );
-
-      await this.checkAndCreateAlert(updated);
-      return updated;
-    } else {
-      // Create new stock item
-      if (unitCost === undefined) {
-        throw new Error('Le coût unitaire est requis pour créer un nouvel article en stock');
-      }
-
-      // Get product to set default minimums
-      const products = await postgresClient.list<Product>('products', {
-        filterByFormula: `{product_id} = '${productId}'`,
-      });
-
-      if (products.length === 0) {
-        throw new Error('Produit non trouvé');
-      }
-
-      const product = products[0];
-
-      const stockItem: Partial<StockItem> = {
-        StockItemId: uuidv4(),
-        ProductId: productId,
-        WarehouseId: warehouseId,
-        Quantity: quantity,
-        MinimumStock: 10, // Default minimum
-        MaximumStock: undefined,
-        UnitCost: unitCost,
-        TotalValue: quantity * unitCost,
-        LastRestockDate: new Date().toISOString(),
-        WorkspaceId: product.WorkspaceId,
-        CreatedAt: new Date().toISOString(),
-        UpdatedAt: new Date().toISOString(),
-      };
-
-      const created = await postgresClient.create<StockItem>('stock_items', stockItem);
-      await this.checkAndCreateAlert(created);
-      return created;
-    }
+  /** Augmente le stock pour (produit, warehouse). */
+  async increaseStockWarehouse(productId: string, warehouseId: string, workspaceId: string, quantity: number, unitCost: number): Promise<StockItem> {
+    return this.upsertStockItem({
+      workspaceId, productId, warehouseId, quantity, unitCost,
+    });
   }
 
-  /**
-   * Diminue le stock (sortie pour vente/distribution)
-   */
-  async decreaseStock(
-    productId: string,
-    warehouseId: string,
-    quantity: number
-  ): Promise<StockItem> {
-    const existingStock = await this.getByProductAndWarehouse(productId, warehouseId);
-
-    if (!existingStock) {
-      throw new Error('Article en stock non trouvé');
+  /** Décrément stock outlet (vente). Throw si insuffisant. */
+  async decreaseStockOutlet(productId: string, outletId: string, quantity: number): Promise<StockItem> {
+    const existing = await this.getByProductAndOutlet(productId, outletId);
+    if (!existing) throw new Error(`Aucun stock pour ce produit sur ce point de vente`);
+    if (existing.Quantity < quantity) {
+      throw new Error(`Stock insuffisant : ${existing.Quantity} disponible(s), ${quantity} demandé(s)`);
     }
+    return this.update(existing.id!, { quantity: existing.Quantity - quantity });
+  }
 
-    if (existingStock.Quantity < quantity) {
-      throw new Error(
-        `Stock insuffisant: ${existingStock.Quantity} disponible(s), ${quantity} demandé(s)`
-      );
+  /** Décrément stock entrepôt. */
+  async decreaseStockWarehouse(productId: string, warehouseId: string, quantity: number): Promise<StockItem> {
+    const existing = await this.getByProductAndWarehouse(productId, warehouseId);
+    if (!existing) throw new Error(`Aucun stock pour ce produit dans cet entrepôt`);
+    if (existing.Quantity < quantity) {
+      throw new Error(`Stock insuffisant : ${existing.Quantity} disponible(s), ${quantity} demandé(s)`);
     }
+    return this.update(existing.id!, { quantity: existing.Quantity - quantity });
+  }
 
-    const newQuantity = existingStock.Quantity - quantity;
-
-    const items = await postgresClient.list<StockItem>('stock_items', {
-      filterByFormula: `{stock_item_id} = '${existingStock.StockItemId}'`,
-    });
-
-    if (items.length === 0) {
-      throw new Error('Article en stock non trouvé');
+  /** @deprecated alias rétro-compat — utilise increaseStockWarehouse explicitement. */
+  async increaseStock(productId: string, warehouseId: string, quantity: number, unitCost?: number): Promise<StockItem> {
+    if (unitCost === undefined) {
+      const existing = await this.getByProductAndWarehouse(productId, warehouseId);
+      if (!existing) throw new Error('Coût unitaire requis pour créer un nouvel article en stock');
+      unitCost = existing.UnitCost;
     }
+    return this.increaseStockWarehouse(productId, warehouseId, await this.workspaceIdForWarehouse(warehouseId), quantity, unitCost);
+  }
 
-    const updated = await postgresClient.update<StockItem>(
-      'stock_items',
-      items[0].id!,
-      {
-        Quantity: newQuantity,
-        TotalValue: newQuantity * existingStock.UnitCost,
-        UpdatedAt: new Date().toISOString(),
-      }
+  /** @deprecated alias rétro-compat — utilise decreaseStockWarehouse explicitement. */
+  async decreaseStock(productId: string, warehouseId: string, quantity: number): Promise<StockItem> {
+    return this.decreaseStockWarehouse(productId, warehouseId, quantity);
+  }
+
+  private async workspaceIdForWarehouse(warehouseId: string): Promise<string> {
+    const r = await db.query(`SELECT workspace_id FROM warehouses WHERE id = $1`, [warehouseId]);
+    if (r.rows.length === 0) throw new Error('Entrepôt introuvable');
+    return r.rows[0].workspace_id;
+  }
+
+  // ===== Alertes =====
+
+  async checkAndCreateAlert(stockItem: StockItem): Promise<void> {
+    const existingAlerts = await db.query(
+      `SELECT * FROM stock_alerts WHERE stock_item_id = $1 AND is_resolved = false`,
+      [stockItem.id]
     );
 
-    await this.checkAndCreateAlert(updated);
-    return updated;
-  }
-
-  /**
-   * Vérifie et crée des alertes si nécessaire
-   */
-  async checkAndCreateAlert(stockItem: StockItem): Promise<void> {
-    // Check if alert already exists and is not resolved
-    const existingAlerts = await postgresClient.list<StockAlert>('stock_alerts', {
-      filterByFormula: `AND({stock_item_id} = '${stockItem.StockItemId}', {is_resolved} = 0)`,
-    });
-
     let alertType: 'low_stock' | 'out_of_stock' | 'overstock' | null = null;
-    let thresholdQuantity = 0;
-
-    if (stockItem.Quantity === 0) {
-      alertType = 'out_of_stock';
-      thresholdQuantity = 0;
-    } else if (stockItem.Quantity <= stockItem.MinimumStock) {
-      alertType = 'low_stock';
-      thresholdQuantity = stockItem.MinimumStock;
-    } else if (stockItem.MaximumStock && stockItem.Quantity > stockItem.MaximumStock) {
-      alertType = 'overstock';
-      thresholdQuantity = stockItem.MaximumStock;
+    let threshold = 0;
+    if (stockItem.Quantity === 0) { alertType = 'out_of_stock'; threshold = 0; }
+    else if (stockItem.Quantity <= stockItem.MinimumStock) { alertType = 'low_stock'; threshold = stockItem.MinimumStock; }
+    else if (stockItem.MaximumStock && stockItem.Quantity > stockItem.MaximumStock) {
+      alertType = 'overstock'; threshold = stockItem.MaximumStock;
     }
 
     if (alertType) {
-      // Create alert if doesn't exist
-      if (existingAlerts.length === 0) {
-        const alert: Partial<StockAlert> = {
-          AlertId: uuidv4(),
-          StockItemId: stockItem.StockItemId,
-          ProductId: stockItem.ProductId,
-          WarehouseId: stockItem.WarehouseId,
-          AlertType: alertType,
-          CurrentQuantity: stockItem.Quantity,
-          ThresholdQuantity: thresholdQuantity,
-          IsResolved: false,
-          WorkspaceId: stockItem.WorkspaceId,
-          CreatedAt: new Date().toISOString(),
-          UpdatedAt: new Date().toISOString(),
-        };
-
-        await postgresClient.create<StockAlert>('stock_alerts', alert);
+      if (existingAlerts.rows.length === 0) {
+        await db.query(
+          `INSERT INTO stock_alerts
+            (alert_id, stock_item_id, product_id, warehouse_id, outlet_id,
+             alert_type, current_quantity, threshold_quantity, workspace_id)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
+          [
+            uuidv4(), stockItem.id, stockItem.ProductId,
+            stockItem.WarehouseId ?? null, stockItem.OutletId ?? null,
+            alertType, stockItem.Quantity, threshold, stockItem.WorkspaceId,
+          ]
+        );
       }
     } else {
-      // Resolve existing alerts if stock is back to normal
-      for (const alert of existingAlerts) {
-        await postgresClient.update<StockAlert>(
-          'stock_alerts',
-          alert.id!,
-          {
-            IsResolved: true,
-            ResolvedAt: new Date().toISOString(),
-            UpdatedAt: new Date().toISOString(),
-          }
+      // Résoudre les alertes existantes si stock revenu à la normale
+      for (const alert of existingAlerts.rows) {
+        await db.query(
+          `UPDATE stock_alerts SET is_resolved = true, resolved_at = CURRENT_TIMESTAMP WHERE id = $1`,
+          [alert.id]
         );
       }
     }
   }
 
-  /**
-   * Récupère les alertes actives
-   */
-  async getActiveAlerts(
-    workspaceId: string,
-    filters: { alertType?: string; warehouseId?: string } = {}
-  ): Promise<StockAlert[]> {
-    const filterFormulas: string[] = [
-      `AND({workspace_id} = '${workspaceId}', {is_resolved} = 0)`,
-    ];
-
-    if (filters.alertType) {
-      filterFormulas.push(`{alert_type} = '${filters.alertType}'`);
-    }
-
-    if (filters.warehouseId) {
-      filterFormulas.push(`{warehouse_id} = '${filters.warehouseId}'`);
-    }
-
-    const filterByFormula =
-      filterFormulas.length > 1
-        ? `AND(${filterFormulas.join(', ')})`
-        : filterFormulas[0];
-
-    return await postgresClient.list<StockAlert>('stock_alerts', {
-      filterByFormula,
-      sort: [{ field: 'CreatedAt', direction: 'desc' }],
-    });
+  async getActiveAlerts(workspaceId: string, filters: { alertType?: string; warehouseId?: string; outletId?: string } = {}): Promise<StockAlert[]> {
+    const params: any[] = [workspaceId];
+    let sql = `SELECT * FROM stock_alerts WHERE workspace_id = $1 AND is_resolved = false`;
+    if (filters.alertType)   { params.push(filters.alertType);   sql += ` AND alert_type = $${params.length}`; }
+    if (filters.warehouseId) { params.push(filters.warehouseId); sql += ` AND warehouse_id = $${params.length}`; }
+    if (filters.outletId)    { params.push(filters.outletId);    sql += ` AND outlet_id = $${params.length}`; }
+    sql += ` ORDER BY created_at DESC`;
+    const r = await db.query(sql, params);
+    return r.rows.map(mapAlertRow);
   }
 
-  /**
-   * Récupère les statistiques des stocks
-   */
+  // ===== Statistiques =====
+
   async getStatistics(workspaceId: string): Promise<StockStatistics> {
     const items = await this.list(workspaceId);
-    const warehouses = await postgresClient.list<Warehouse>('warehouses', {
-      filterByFormula: `{workspace_id} = '${workspaceId}'`,
-    });
-    const products = await postgresClient.list<Product>('products', {
-      filterByFormula: `{workspace_id} = '${workspaceId}'`,
-    });
+    const warehousesRes = await db.query(
+      `SELECT * FROM warehouses WHERE workspace_id = $1`,
+      [workspaceId]
+    );
+    const warehouses: Warehouse[] = warehousesRes.rows.map(mapWarehouseRow);
+    const productsRes = await db.query(
+      `SELECT * FROM products WHERE workspace_id = $1`,
+      [workspaceId]
+    );
+    const products: Product[] = productsRes.rows.map(mapProductRow);
 
-    const totalValue = items.reduce((sum, item) => sum + item.TotalValue, 0);
-    const lowStockItems = items.filter(
-      (item) => item.Quantity > 0 && item.Quantity <= item.MinimumStock
-    ).length;
-    const outOfStockItems = items.filter((item) => item.Quantity === 0).length;
+    const totalValue = items.reduce((s, i) => s + Number(i.TotalValue || 0), 0);
+    const lowStockItems = items.filter(i => i.Quantity > 0 && i.Quantity <= i.MinimumStock).length;
+    const outOfStockItems = items.filter(i => i.Quantity === 0).length;
 
-    // Calculate top products
-    const productMap = new Map<
-      string,
-      { totalQuantity: number; totalValue: number; warehouses: Set<string> }
-    >();
-
+    const productMap = new Map<string, { totalQuantity: number; totalValue: number; warehouses: Set<string> }>();
     for (const item of items) {
-      const existing = productMap.get(item.ProductId) || {
-        totalQuantity: 0,
-        totalValue: 0,
-        warehouses: new Set<string>(),
-      };
-      existing.totalQuantity += item.Quantity;
-      existing.totalValue += item.TotalValue;
-      existing.warehouses.add(item.WarehouseId);
-      productMap.set(item.ProductId, existing);
+      const key = item.ProductId;
+      const e = productMap.get(key) ?? { totalQuantity: 0, totalValue: 0, warehouses: new Set<string>() };
+      e.totalQuantity += Number(item.Quantity);
+      e.totalValue += Number(item.TotalValue);
+      if (item.WarehouseId) e.warehouses.add(item.WarehouseId);
+      if (item.OutletId)    e.warehouses.add(item.OutletId);
+      productMap.set(key, e);
     }
-
     const topProducts = Array.from(productMap.entries())
-      .map(([productId, stats]) => {
-        const product = products.find((p) => p.ProductId === productId);
+      .map(([productId, s]) => {
+        const product = products.find((p: any) => p.ProductId === productId || p.id === productId);
         return {
           productId,
           productName: product?.Name || 'Produit inconnu',
-          totalQuantity: stats.totalQuantity,
-          totalValue: stats.totalValue,
-          warehouses: stats.warehouses.size,
+          totalQuantity: s.totalQuantity,
+          totalValue: s.totalValue,
+          warehouses: s.warehouses.size,
         };
       })
       .sort((a, b) => b.totalValue - a.totalValue)
       .slice(0, 10);
-
-    // Calculate warehouse stats
-    const warehouseMap = new Map<string, { itemsCount: number; totalValue: number }>();
-
-    for (const item of items) {
-      const existing = warehouseMap.get(item.WarehouseId) || {
-        itemsCount: 0,
-        totalValue: 0,
-      };
-      existing.itemsCount += 1;
-      existing.totalValue += item.TotalValue;
-      warehouseMap.set(item.WarehouseId, existing);
-    }
-
-    const warehouseStats = Array.from(warehouseMap.entries()).map(
-      ([warehouseId, stats]) => {
-        const warehouse = warehouses.find((w) => w.WarehouseId === warehouseId);
-        return {
-          warehouseId,
-          warehouseName: warehouse?.Name || 'Entrepôt inconnu',
-          itemsCount: stats.itemsCount,
-          totalValue: stats.totalValue,
-        };
-      }
-    );
 
     return {
       totalItems: items.length,
@@ -518,10 +339,85 @@ export class StockService {
       lowStockItems,
       outOfStockItems,
       warehousesCount: warehouses.length,
-      movementsCount: 0, // Will be calculated by movement service
+      movementsCount: 0,
       topProducts,
-      warehouseStats,
-      movementsByType: [], // Will be calculated by movement service
+      warehouseStats: [],
+      movementsByType: [],
     };
   }
+}
+
+// ---------------------------------------------------------------------------
+// Mappers
+
+function mapStockRow(r: any): StockItem {
+  return {
+    id: r.id,
+    StockItemId: r.stock_item_id,
+    ProductId: r.product_id,
+    WarehouseId: r.warehouse_id ?? undefined,
+    OutletId: r.outlet_id ?? undefined,
+    Quantity: Number(r.quantity),
+    MinimumStock: Number(r.minimum_stock),
+    MaximumStock: r.maximum_stock !== null ? Number(r.maximum_stock) : undefined,
+    UnitCost: Number(r.unit_cost),
+    TotalValue: Number(r.total_value),
+    LastRestockDate: r.last_restock_date ? (r.last_restock_date.toISOString?.() ?? r.last_restock_date) : undefined,
+    WorkspaceId: r.workspace_id,
+    CreatedAt: r.created_at?.toISOString?.() ?? r.created_at,
+    UpdatedAt: r.updated_at?.toISOString?.() ?? r.updated_at,
+  };
+}
+
+function mapAlertRow(r: any): StockAlert {
+  return {
+    id: r.id,
+    AlertId: r.alert_id,
+    StockItemId: r.stock_item_id,
+    ProductId: r.product_id,
+    WarehouseId: r.warehouse_id ?? undefined,
+    OutletId: r.outlet_id ?? undefined,
+    AlertType: r.alert_type,
+    CurrentQuantity: Number(r.current_quantity),
+    ThresholdQuantity: Number(r.threshold_quantity),
+    IsResolved: r.is_resolved,
+    ResolvedAt: r.resolved_at ? (r.resolved_at.toISOString?.() ?? r.resolved_at) : undefined,
+    WorkspaceId: r.workspace_id,
+    CreatedAt: r.created_at?.toISOString?.() ?? r.created_at,
+    UpdatedAt: r.updated_at?.toISOString?.() ?? r.updated_at,
+  };
+}
+
+function mapWarehouseRow(r: any): Warehouse {
+  return {
+    id: r.id,
+    WarehouseId: r.warehouse_id,
+    Name: r.name,
+    Code: r.code,
+    Location: r.location ?? undefined,
+    Address: r.address ?? undefined,
+    ManagerId: r.manager_id ?? undefined,
+    IsActive: r.is_active,
+    WorkspaceId: r.workspace_id,
+    CreatedAt: r.created_at?.toISOString?.() ?? r.created_at,
+    UpdatedAt: r.updated_at?.toISOString?.() ?? r.updated_at,
+  } as Warehouse;
+}
+
+function mapProductRow(r: any): Product {
+  return {
+    id: r.id,
+    ProductId: r.product_id,
+    Code: r.code,
+    Name: r.name,
+    Description: r.description ?? undefined,
+    Category: r.category ?? undefined,
+    UnitPrice: Number(r.unit_price ?? 0),
+    Currency: r.currency,
+    IsActive: r.is_active,
+    ImageUrl: r.image_url ?? undefined,
+    WorkspaceId: r.workspace_id,
+    CreatedAt: r.created_at?.toISOString?.() ?? r.created_at,
+    UpdatedAt: r.updated_at?.toISOString?.() ?? r.updated_at,
+  } as Product;
 }

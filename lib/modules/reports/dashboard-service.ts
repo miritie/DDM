@@ -17,6 +17,16 @@ import {
 
 const postgresClient = getPostgresClient();
 
+/**
+ * Pg renvoie les TIMESTAMP en `Date`, l'ancien code Airtable s'attendait à des strings ISO.
+ * Renvoie la forme `YYYY-MM-DD[THH:mm:ss...]` pour pouvoir appeler .substring() dessus.
+ */
+function toIsoString(value: Date | string | null | undefined): string {
+  if (!value) return '';
+  if (value instanceof Date) return value.toISOString();
+  return String(value);
+}
+
 export class DashboardService {
   /**
    * Generate global dashboard with KPIs and charts
@@ -152,19 +162,21 @@ export class DashboardService {
     const monthlyData = new Map<string, { revenue: number; expenses: number }>();
 
     sales.forEach(sale => {
-      const month = sale.SaleDate.substring(0, 7); // YYYY-MM
+      const month = toIsoString(sale.SaleDate).substring(0, 7); // YYYY-MM
+      if (!month) return;
       if (!monthlyData.has(month)) {
         monthlyData.set(month, { revenue: 0, expenses: 0 });
       }
-      monthlyData.get(month)!.revenue += sale.TotalAmount;
+      monthlyData.get(month)!.revenue += Number(sale.TotalAmount) || 0;
     });
 
     expenses.forEach(expense => {
-      const month = expense.CreatedAt.substring(0, 7);
+      const month = toIsoString(expense.CreatedAt).substring(0, 7);
+      if (!month) return;
       if (!monthlyData.has(month)) {
         monthlyData.set(month, { revenue: 0, expenses: 0 });
       }
-      monthlyData.get(month)!.expenses += expense.Amount;
+      monthlyData.get(month)!.expenses += Number(expense.Amount) || 0;
     });
 
     const sortedMonths = Array.from(monthlyData.keys()).sort();
@@ -195,8 +207,9 @@ export class DashboardService {
     const dailyData = new Map<string, number>();
 
     sales.forEach(sale => {
-      const day = sale.SaleDate;
-      dailyData.set(day, (dailyData.get(day) || 0) + sale.TotalAmount);
+      const day = toIsoString(sale.SaleDate).substring(0, 10);
+      if (!day) return;
+      dailyData.set(day, (dailyData.get(day) || 0) + (Number(sale.TotalAmount) || 0));
     });
 
     const sortedDays = Array.from(dailyData.keys()).sort();
@@ -221,14 +234,16 @@ export class DashboardService {
     const monthlyData = new Map<string, { income: number; expense: number }>();
 
     transactions.forEach(tx => {
-      const month = tx.ProcessedAt.substring(0, 7);
+      const month = toIsoString(tx.ProcessedAt).substring(0, 7);
+      if (!month) return;
       if (!monthlyData.has(month)) {
         monthlyData.set(month, { income: 0, expense: 0 });
       }
+      const amount = Number(tx.Amount) || 0;
       if (tx.Type === 'income') {
-        monthlyData.get(month)!.income += tx.Amount;
+        monthlyData.get(month)!.income += amount;
       } else if (tx.Type === 'expense') {
-        monthlyData.get(month)!.expense += tx.Amount;
+        monthlyData.get(month)!.expense += amount;
       }
     });
 

@@ -254,7 +254,7 @@ export default function NewUserPage() {
                 >
                   <option value="">Sélectionner un rôle</option>
                   {roles.map((role) => (
-                    <option key={role.RoleId} value={role.RoleId}>
+                    <option key={role.RoleId} value={(role as any).id}>
                       {role.Name}
                     </option>
                   ))}

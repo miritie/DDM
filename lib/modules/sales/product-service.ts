@@ -7,7 +7,7 @@ import { getPostgresClient } from '@/lib/database/postgres-client';
 import { Product } from '@/types/modules';
 import { v4 as uuidv4 } from 'uuid';
 
-const postgresClient = getPostgresClient();
+const getDb = () => getPostgresClient();
 
 export interface CreateProductInput {
   name: string;
@@ -16,6 +16,7 @@ export interface CreateProductInput {
   currency?: string;
   category?: string;
   unit?: string;
+  imageUrl?: string;
   workspaceId: string;
 }
 
@@ -25,6 +26,7 @@ export interface UpdateProductInput {
   unitPrice?: number;
   category?: string;
   unit?: string;
+  imageUrl?: string | null;
   isActive?: boolean;
 }
 
@@ -36,7 +38,7 @@ export class ProductService {
    * Génère un code produit unique
    */
   async generateProductCode(workspaceId: string): Promise<string> {
-    const products = await postgresClient.list<Product>('products', {
+    const products = await getDb().list<Product>('products', {
       where: { workspace_id: workspaceId },
     });
 
@@ -59,13 +61,14 @@ export class ProductService {
       Currency: input.currency || 'XOF',
       Category: input.category,
       Unit: input.unit || 'piece',
+      ImageUrl: input.imageUrl,
       IsActive: true,
       WorkspaceId: input.workspaceId,
       CreatedAt: new Date().toISOString(),
       UpdatedAt: new Date().toISOString(),
     };
 
-    const created = await postgresClient.create<Product>('products', product);
+    const created = await getDb().create<Product>('products', product);
     return created;
   }
 
@@ -73,7 +76,7 @@ export class ProductService {
    * Récupère un produit par ID
    */
   async getById(productId: string): Promise<Product | null> {
-    const products = await postgresClient.list<Product>('products', {
+    const products = await getDb().list<Product>('products', {
       where: { product_id: productId },
     });
 
@@ -97,7 +100,7 @@ export class ProductService {
       where.category = filters.category;
     }
 
-    return await postgresClient.list<Product>('products', {
+    return await getDb().list<Product>('products', {
       where,
       orderBy: { field: 'name', direction: 'asc' },
     });
@@ -107,7 +110,7 @@ export class ProductService {
    * Met à jour un produit
    */
   async update(productId: string, input: UpdateProductInput): Promise<Product> {
-    const products = await postgresClient.list<Product>('products', {
+    const products = await getDb().list<Product>('products', {
       where: { product_id: productId },
     });
 
@@ -115,7 +118,9 @@ export class ProductService {
       throw new Error('Produit non trouvé');
     }
 
-    if (!products[0].id) {
+    // Le wrapper PostgresClient renvoie les colonnes en PascalCase (Id, ProductId, ...)
+    const rowUuid = (products[0] as any).Id || products[0].id;
+    if (!rowUuid) {
       throw new Error('Produit ID manquant');
     }
 
@@ -128,13 +133,10 @@ export class ProductService {
     if (input.unitPrice !== undefined) updates.UnitPrice = input.unitPrice;
     if (input.category !== undefined) updates.Category = input.category;
     if (input.unit !== undefined) updates.Unit = input.unit;
+    if (input.imageUrl !== undefined) updates.ImageUrl = input.imageUrl;
     if (input.isActive !== undefined) updates.IsActive = input.isActive;
 
-    const updated = await postgresClient.update<Product>(
-      'products',
-      products[0].id,
-      updates
-    );
+    const updated = await getDb().update<Product>('products', rowUuid, updates);
     return updated;
   }
 

@@ -3,6 +3,9 @@
 /**
  * Page - Paramètres Système
  * Module Administration & Settings
+ *
+ * Centralise les liens vers les espaces de paramétrage opérationnels :
+ * catalogue produits, utilisateurs, rôles, workspaces, etc.
  */
 
 import { useEffect, useState } from 'react';
@@ -20,9 +23,93 @@ import {
   Database,
   Bell,
   Lock,
-  Palette,
-  Plus,
+  Package,
+  Tag,
+  Users as UsersIcon,
+  Shield,
+  ShoppingCart,
+  Award,
+  ChevronRight,
 } from 'lucide-react';
+
+interface SettingsLink {
+  title: string;
+  description: string;
+  href: string;
+  icon: any;
+  color: string;
+  available: boolean;
+  badge?: string;
+}
+
+const SETTINGS_GROUPS: Array<{ title: string; items: SettingsLink[] }> = [
+  {
+    title: 'Données métier',
+    items: [
+      {
+        title: 'Vente rapide (POS)',
+        description: 'Caisse — grille produits, panier, encaissement',
+        href: '/sales/quick',
+        icon: ShoppingCart,
+        color: 'text-emerald-600',
+        available: true,
+      },
+      {
+        title: 'Catalogue produits',
+        description: 'Définir, modifier et activer/désactiver les produits du workspace',
+        href: '/products',
+        icon: Package,
+        color: 'text-blue-600',
+        available: true,
+      },
+      {
+        title: 'Catégories de produits',
+        description: 'Liste configurable utilisée dans les formulaires produits',
+        href: '/admin/product-categories',
+        icon: Tag,
+        color: 'text-amber-600',
+        available: true,
+      },
+      {
+        title: 'Programme de fidélisation',
+        description: 'Règles paramétriques de remise (Nième achat, seuils, fenêtres)',
+        href: '/admin/loyalty-rules',
+        icon: Award,
+        color: 'text-amber-600',
+        available: true,
+      },
+      {
+        title: 'Clients',
+        description: 'Gérer le carnet clients (B2B et particuliers)',
+        href: '/customers',
+        icon: UsersIcon,
+        color: 'text-green-600',
+        available: true,
+      },
+    ],
+  },
+  {
+    title: 'Sécurité & accès',
+    items: [
+      {
+        title: 'Utilisateurs',
+        description: 'Comptes utilisateurs, rôles, mots de passe',
+        href: '/admin/users',
+        icon: UsersIcon,
+        color: 'text-purple-600',
+        available: true,
+      },
+      {
+        title: 'Rôles & permissions',
+        description: 'Définition des rôles et leurs permissions associées',
+        href: '/admin/roles',
+        icon: Shield,
+        color: 'text-red-600',
+        available: true,
+      },
+    ],
+  },
+];
 
 export default function SettingsPage() {
   const router = useRouter();
@@ -30,7 +117,7 @@ export default function SettingsPage() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    loadWorkspaces();
+    void loadWorkspaces();
   }, []);
 
   async function loadWorkspaces() {
@@ -56,29 +143,16 @@ export default function SettingsPage() {
     }).format(new Date(dateString));
   }
 
-  function getStatusBadge(isActive: boolean) {
-    return (
-      <span
-        className={`px-2 py-1 rounded-full text-xs font-medium ${
-          isActive ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'
-        }`}
-      >
-        {isActive ? 'Actif' : 'Inactif'}
-      </span>
-    );
-  }
-
   return (
     <ProtectedPage permission={PERMISSIONS.ADMIN_SETTINGS_VIEW}>
       <div className="p-8 max-w-7xl mx-auto">
-        {/* Header */}
         <div className="flex items-center justify-between mb-8">
           <div>
             <h1 className="text-3xl font-bold flex items-center gap-2">
               <Settings className="h-8 w-8 text-purple-600" />
-              Paramètres Système
+              Paramètres système
             </h1>
-            <p className="text-gray-600">Configuration et paramètres généraux de l'application</p>
+            <p className="text-gray-600">Configuration et paramétrage de l'application</p>
           </div>
           <Button variant="outline" onClick={() => router.push('/admin')}>
             <ArrowLeft className="h-4 w-4 mr-2" />
@@ -86,30 +160,46 @@ export default function SettingsPage() {
           </Button>
         </div>
 
-        {/* Settings Sections */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
-          {/* Workspaces */}
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <Building2 className="h-5 w-5 text-purple-600" />
-                Workspaces
-              </CardTitle>
-              <CardDescription>Gérer les espaces de travail</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <Button
-                variant="outline"
-                className="w-full"
-                onClick={() => alert('Fonctionnalité à venir')}
-              >
-                <Plus className="h-4 w-4 mr-2" />
-                Gérer les workspaces
-              </Button>
-            </CardContent>
-          </Card>
+        {SETTINGS_GROUPS.map((group) => (
+          <div key={group.title} className="mb-8">
+            <h2 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">
+              {group.title}
+            </h2>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {group.items.map((item) => {
+                const Icon = item.icon;
+                return (
+                  <button
+                    key={item.title}
+                    onClick={() => item.available && router.push(item.href)}
+                    disabled={!item.available}
+                    className="text-left bg-white border border-gray-200 rounded-lg p-4 hover:border-blue-400 hover:shadow-sm transition-all flex items-center justify-between gap-3 disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    <div className="flex items-center gap-3 min-w-0">
+                      <div className={`flex-shrink-0 p-2 rounded-lg bg-gray-50`}>
+                        <Icon className={`h-5 w-5 ${item.color}`} />
+                      </div>
+                      <div className="min-w-0">
+                        <p className="font-semibold text-gray-900 flex items-center gap-2">
+                          {item.title}
+                          {item.badge && (
+                            <span className="text-xs bg-amber-100 text-amber-800 px-2 py-0.5 rounded-full font-medium">
+                              {item.badge}
+                            </span>
+                          )}
+                        </p>
+                        <p className="text-sm text-gray-600 truncate">{item.description}</p>
+                      </div>
+                    </div>
+                    <ChevronRight className="h-5 w-5 text-gray-400 flex-shrink-0" />
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        ))}
 
-          {/* Localisation */}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
           <Card>
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
@@ -136,116 +226,74 @@ export default function SettingsPage() {
             </CardContent>
           </Card>
 
-          {/* Database */}
           <Card>
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
                 <Database className="h-5 w-5 text-green-600" />
-                Base de Données
+                Base de données
               </CardTitle>
-              <CardDescription>Informations de connexion</CardDescription>
+              <CardDescription>Connexion en cours d'utilisation</CardDescription>
             </CardHeader>
             <CardContent>
               <div className="space-y-2 text-sm">
                 <div className="flex justify-between">
                   <span className="text-gray-600">Provider</span>
-                  <span className="font-medium">Airtable</span>
+                  <span className="font-medium">PostgreSQL (Neon)</span>
                 </div>
                 <div className="flex justify-between">
-                  <span className="text-gray-600">Status</span>
+                  <span className="text-gray-600">Statut</span>
                   <span className="text-green-600 font-medium">Connecté</span>
                 </div>
               </div>
             </CardContent>
           </Card>
 
-          {/* Notifications */}
           <Card>
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
                 <Bell className="h-5 w-5 text-orange-600" />
                 Notifications
               </CardTitle>
-              <CardDescription>Paramètres de notifications</CardDescription>
+              <CardDescription>Préférences (lecture seule)</CardDescription>
             </CardHeader>
             <CardContent>
-              <div className="space-y-2">
-                <label className="flex items-center gap-2">
-                  <input type="checkbox" className="rounded" defaultChecked />
-                  <span className="text-sm">Notifications email</span>
-                </label>
-                <label className="flex items-center gap-2">
-                  <input type="checkbox" className="rounded" defaultChecked />
-                  <span className="text-sm">Alertes stocks faibles</span>
-                </label>
-                <label className="flex items-center gap-2">
-                  <input type="checkbox" className="rounded" defaultChecked />
-                  <span className="text-sm">Alertes dettes en retard</span>
-                </label>
+              <div className="space-y-2 text-sm text-gray-600">
+                <p>📧 Notifications email — actif</p>
+                <p>📦 Alertes stock faible — actif</p>
+                <p>💰 Alertes dettes en retard — actif</p>
+                <p className="text-xs text-gray-500 pt-2 border-t">
+                  La gestion fine des notifications sera disponible prochainement.
+                </p>
               </div>
             </CardContent>
           </Card>
 
-          {/* Security */}
           <Card>
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
                 <Lock className="h-5 w-5 text-red-600" />
                 Sécurité
               </CardTitle>
-              <CardDescription>Paramètres de sécurité</CardDescription>
+              <CardDescription>Politique d'authentification</CardDescription>
             </CardHeader>
             <CardContent>
-              <div className="space-y-2">
-                <label className="flex items-center gap-2">
-                  <input type="checkbox" className="rounded" defaultChecked />
-                  <span className="text-sm">Authentification à deux facteurs</span>
-                </label>
-                <label className="flex items-center gap-2">
-                  <input type="checkbox" className="rounded" defaultChecked />
-                  <span className="text-sm">Expiration de session (30 min)</span>
-                </label>
-                <label className="flex items-center gap-2">
-                  <input type="checkbox" className="rounded" />
-                  <span className="text-sm">Logs d'audit détaillés</span>
-                </label>
-              </div>
-            </CardContent>
-          </Card>
-
-          {/* Appearance */}
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <Palette className="h-5 w-5 text-pink-600" />
-                Apparence
-              </CardTitle>
-              <CardDescription>Thème et interface</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <div className="space-y-2">
-                <label className="flex items-center gap-2">
-                  <input type="radio" name="theme" className="rounded-full" defaultChecked />
-                  <span className="text-sm">Thème clair</span>
-                </label>
-                <label className="flex items-center gap-2">
-                  <input type="radio" name="theme" className="rounded-full" />
-                  <span className="text-sm">Thème sombre</span>
-                </label>
-                <label className="flex items-center gap-2">
-                  <input type="radio" name="theme" className="rounded-full" />
-                  <span className="text-sm">Automatique</span>
-                </label>
+              <div className="space-y-2 text-sm text-gray-600">
+                <p>🔐 Hash mot de passe : bcrypt (10 rounds)</p>
+                <p>⏱️ Durée session : 30 jours (JWT)</p>
+                <p>🛡️ RBAC : permissions par rôle</p>
+                <p>👥 Multi-rôles : actif</p>
               </div>
             </CardContent>
           </Card>
         </div>
 
-        {/* Workspaces List */}
-        <Card>
+        <Card className="mb-6">
           <CardHeader>
-            <CardTitle>Workspaces Configurés</CardTitle>
-            <CardDescription>{workspaces.length} workspace(s)</CardDescription>
+            <CardTitle className="flex items-center gap-2">
+              <Building2 className="h-5 w-5 text-purple-600" />
+              Workspaces configurés
+            </CardTitle>
+            <CardDescription>{workspaces.length} workspace(s) actif(s)</CardDescription>
           </CardHeader>
           <CardContent>
             {loading ? (
@@ -258,36 +306,41 @@ export default function SettingsPage() {
             ) : (
               <div className="space-y-3">
                 {workspaces.map((workspace) => (
-                  <Card key={workspace.WorkspaceId} className="hover:shadow-md transition-shadow">
-                    <CardContent className="pt-4">
-                      <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-3">
-                          <Building2 className="h-5 w-5 text-purple-600" />
-                          <div>
-                            <p className="font-semibold">{workspace.Name}</p>
-                            <p className="text-xs text-gray-500">
-                              Slug: {workspace.Slug} • Créé le {formatDate(workspace.CreatedAt)}
-                            </p>
-                          </div>
-                        </div>
-                        {getStatusBadge(workspace.IsActive)}
+                  <div
+                    key={workspace.WorkspaceId}
+                    className="border border-gray-200 rounded-lg p-4 flex items-center justify-between gap-3"
+                  >
+                    <div className="flex items-center gap-3 min-w-0">
+                      <Building2 className="h-5 w-5 text-purple-600 flex-shrink-0" />
+                      <div className="min-w-0">
+                        <p className="font-semibold truncate">{workspace.Name}</p>
+                        <p className="text-xs text-gray-500 truncate">
+                          Slug : {workspace.Slug} · Créé le {formatDate(workspace.CreatedAt)}
+                        </p>
+                        {workspace.Description && (
+                          <p className="text-sm text-gray-600 mt-1">{workspace.Description}</p>
+                        )}
                       </div>
-                      {workspace.Description && (
-                        <p className="text-sm text-gray-600 mt-2 ml-8">{workspace.Description}</p>
-                      )}
-                    </CardContent>
-                  </Card>
+                    </div>
+                    <span
+                      className={`px-2 py-1 rounded-full text-xs font-medium flex-shrink-0 ${
+                        workspace.IsActive
+                          ? 'bg-green-100 text-green-800'
+                          : 'bg-gray-100 text-gray-800'
+                      }`}
+                    >
+                      {workspace.IsActive ? 'Actif' : 'Inactif'}
+                    </span>
+                  </div>
                 ))}
               </div>
             )}
           </CardContent>
         </Card>
 
-        {/* System Info */}
-        <Card className="mt-6">
+        <Card>
           <CardHeader>
-            <CardTitle className="text-lg">Informations Système</CardTitle>
-            <CardDescription>Détails de l'application</CardDescription>
+            <CardTitle className="text-lg">Informations système</CardTitle>
           </CardHeader>
           <CardContent>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm">
@@ -297,11 +350,11 @@ export default function SettingsPage() {
               </div>
               <div>
                 <p className="text-gray-600">Environnement</p>
-                <p className="font-medium">Production</p>
+                <p className="font-medium capitalize">{process.env.NODE_ENV || 'development'}</p>
               </div>
               <div>
                 <p className="text-gray-600">Framework</p>
-                <p className="font-medium">Next.js 16.0.2</p>
+                <p className="font-medium">Next.js 16</p>
               </div>
             </div>
           </CardContent>

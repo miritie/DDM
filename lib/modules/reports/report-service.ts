@@ -22,6 +22,12 @@ import { v4 as uuidv4 } from 'uuid';
 
 const postgresClient = getPostgresClient();
 
+function toIsoString(value: Date | string | null | undefined): string {
+  if (!value) return '';
+  if (value instanceof Date) return value.toISOString();
+  return String(value);
+}
+
 export interface CreateReportInput {
   reportName: string;
   reportType: 'sales' | 'expenses' | 'inventory' | 'cashflow' | 'hr' | 'accounting' | 'custom';
@@ -147,13 +153,14 @@ export class ReportService {
     // Group by period
     const salesByPeriod = new Map<string, { revenue: number; count: number }>();
     sales.forEach(sale => {
+      const iso = toIsoString(sale.SaleDate);
       let period: string;
       if (groupBy === 'day') {
-        period = sale.SaleDate;
+        period = iso.substring(0, 10);
       } else if (groupBy === 'month') {
-        period = sale.SaleDate.substring(0, 7);
+        period = iso.substring(0, 7);
       } else {
-        period = sale.SaleDate.substring(0, 4);
+        period = iso.substring(0, 4);
       }
 
       if (!salesByPeriod.has(period)) {
@@ -279,11 +286,12 @@ export class ReportService {
     // Group by period
     const expensesByPeriod = new Map<string, { amount: number; count: number }>();
     expenses.forEach(expense => {
-      const period = expense.CreatedAt.substring(0, 7); // Month
+      const period = toIsoString(expense.CreatedAt).substring(0, 7); // Month
+      if (!period) return;
       if (!expensesByPeriod.has(period)) {
         expensesByPeriod.set(period, { amount: 0, count: 0 });
       }
-      expensesByPeriod.get(period)!.amount += expense.Amount;
+      expensesByPeriod.get(period)!.amount += Number(expense.Amount) || 0;
       expensesByPeriod.get(period)!.count += 1;
     });
 
@@ -340,14 +348,16 @@ export class ReportService {
     // Group by period
     const cashflowByPeriod = new Map<string, { inflow: number; outflow: number; net: number }>();
     transactions.forEach(tx => {
-      const period = tx.ProcessedAt.substring(0, 7);
+      const period = toIsoString(tx.ProcessedAt).substring(0, 7);
+      if (!period) return;
       if (!cashflowByPeriod.has(period)) {
         cashflowByPeriod.set(period, { inflow: 0, outflow: 0, net: 0 });
       }
+      const amount = Number(tx.Amount) || 0;
       if (tx.Type === 'income') {
-        cashflowByPeriod.get(period)!.inflow += tx.Amount;
+        cashflowByPeriod.get(period)!.inflow += amount;
       } else if (tx.Type === 'expense') {
-        cashflowByPeriod.get(period)!.outflow += tx.Amount;
+        cashflowByPeriod.get(period)!.outflow += amount;
       }
       cashflowByPeriod.get(period)!.net =
         cashflowByPeriod.get(period)!.inflow - cashflowByPeriod.get(period)!.outflow;

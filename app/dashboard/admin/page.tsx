@@ -21,6 +21,17 @@ import {
   Zap,
   RefreshCw,
   Loader2,
+  MapPin,
+  Layers,
+  Gift,
+  BarChart3,
+  Package,
+  Building2,
+  Boxes,
+  Briefcase,
+  Calculator,
+  ShoppingBag,
+  Eye,
 } from 'lucide-react';
 import Link from 'next/link';
 import { LogoutButton } from '@/components/auth/logout-button';
@@ -196,6 +207,50 @@ export default function AdminDashboardPage() {
           </div>
         </div>
 
+        {/* Navigation entre dashboards (vue par profil) */}
+        <div>
+          <h2 className="text-2xl font-display font-bold text-brown-900 mb-4 flex items-center gap-2">
+            <Eye className="w-6 h-6 text-indigo-600" />
+            Voir par profil
+          </h2>
+          <p className="text-sm text-brown-600 mb-4">
+            En tant qu'Administrateur multi-profils, vous pouvez accéder directement aux dashboards des autres rôles
+            sans changer de session — vos permissions admin restent actives partout.
+          </p>
+          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3">
+            <Link href="/dashboard/dg" className="block">
+              <div className="p-4 rounded-xl border-2 border-emerald-200 hover:border-emerald-400 bg-white hover:shadow-md transition text-center">
+                <Briefcase className="w-7 h-7 text-emerald-600 mx-auto mb-2" />
+                <p className="font-semibold text-sm">Direction (DG/PCA)</p>
+              </div>
+            </Link>
+            <Link href="/dashboard/manager" className="block">
+              <div className="p-4 rounded-xl border-2 border-orange-200 hover:border-orange-400 bg-white hover:shadow-md transition text-center">
+                <Building2 className="w-7 h-7 text-orange-600 mx-auto mb-2" />
+                <p className="font-semibold text-sm">Manager Commercial</p>
+              </div>
+            </Link>
+            <Link href="/dashboard/accountant" className="block">
+              <div className="p-4 rounded-xl border-2 border-blue-200 hover:border-blue-400 bg-white hover:shadow-md transition text-center">
+                <Calculator className="w-7 h-7 text-blue-600 mx-auto mb-2" />
+                <p className="font-semibold text-sm">Comptabilité</p>
+              </div>
+            </Link>
+            <Link href="/dashboard/sales" className="block">
+              <div className="p-4 rounded-xl border-2 border-pink-200 hover:border-pink-400 bg-white hover:shadow-md transition text-center">
+                <ShoppingBag className="w-7 h-7 text-pink-600 mx-auto mb-2" />
+                <p className="font-semibold text-sm">Agent Commercial</p>
+              </div>
+            </Link>
+            <Link href="/stock" className="block">
+              <div className="p-4 rounded-xl border-2 border-purple-200 hover:border-purple-400 bg-white hover:shadow-md transition text-center">
+                <Boxes className="w-7 h-7 text-purple-600 mx-auto mb-2" />
+                <p className="font-semibold text-sm">Vue Stock</p>
+              </div>
+            </Link>
+          </div>
+        </div>
+
         {/* Actions Rapides Admin */}
         <div>
           <h2 className="text-2xl font-display font-bold text-brown-900 mb-4 flex items-center gap-2">
@@ -203,6 +258,25 @@ export default function AdminDashboardPage() {
             Actions Rapides
           </h2>
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            <Link href="/sales/quick">
+              <Card className="h-full border-2 border-emerald-200 hover:border-emerald-400 cursor-pointer transform hover:-translate-y-1 transition-all duration-200 group">
+                <CardHeader className="pb-4">
+                  <div className="w-14 h-14 rounded-xl bg-gradient-to-br from-emerald-500 to-emerald-600 flex items-center justify-center mb-3 shadow-medium group-hover:scale-110 transition-transform">
+                    <Zap className="w-8 h-8 text-white" />
+                  </div>
+                  <CardTitle className="text-xl">Vente rapide</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <p className="text-sm text-brown-600 mb-4">
+                    Caisse POS — produits en grille, panier, encaissement
+                  </p>
+                  <div className="flex items-center gap-2 text-emerald-600 font-semibold text-sm group-hover:gap-3 transition-all">
+                    Ouvrir →
+                  </div>
+                </CardContent>
+              </Card>
+            </Link>
+
             <Link href="/admin/users">
               <Card className="h-full border-2 border-purple-200 hover:border-purple-400 cursor-pointer transform hover:-translate-y-1 transition-all duration-200 group">
                 <CardHeader className="pb-4">
@@ -298,17 +372,188 @@ export default function AdminDashboardPage() {
               </Card>
             </Link>
 
-            <Link href="/admin/backup">
+            <Link href="/admin/outlets">
+              <Card className="h-full border-2 border-amber-200 hover:border-amber-400 cursor-pointer transform hover:-translate-y-1 transition-all duration-200 group">
+                <CardHeader className="pb-4">
+                  <div className="w-14 h-14 rounded-xl bg-gradient-to-br from-amber-500 to-amber-600 flex items-center justify-center mb-3 shadow-medium group-hover:scale-110 transition-transform">
+                    <MapPin className="w-8 h-8 text-white" />
+                  </div>
+                  <CardTitle className="text-xl">Points de vente</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <p className="text-sm text-brown-600 mb-4">
+                    Outlets, types, prix, factures, planning, QR
+                  </p>
+                  <div className="flex items-center gap-2 text-amber-600 font-semibold text-sm group-hover:gap-3 transition-all">
+                    Accéder →
+                  </div>
+                </CardContent>
+              </Card>
+            </Link>
+
+            <Link href="/admin/outlets/reporting">
+              <Card className="h-full border-2 border-cyan-200 hover:border-cyan-400 cursor-pointer transform hover:-translate-y-1 transition-all duration-200 group">
+                <CardHeader className="pb-4">
+                  <div className="w-14 h-14 rounded-xl bg-gradient-to-br from-cyan-500 to-cyan-600 flex items-center justify-center mb-3 shadow-medium group-hover:scale-110 transition-transform">
+                    <BarChart3 className="w-8 h-8 text-white" />
+                  </div>
+                  <CardTitle className="text-xl">Reporting outlets</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <p className="text-sm text-brown-600 mb-4">
+                    P&L par stand, perf commerciaux, journaux de caisse
+                  </p>
+                  <div className="flex items-center gap-2 text-cyan-600 font-semibold text-sm group-hover:gap-3 transition-all">
+                    Accéder →
+                  </div>
+                </CardContent>
+              </Card>
+            </Link>
+
+            <Link href="/admin/product-categories">
+              <Card className="h-full border-2 border-pink-200 hover:border-pink-400 cursor-pointer transform hover:-translate-y-1 transition-all duration-200 group">
+                <CardHeader className="pb-4">
+                  <div className="w-14 h-14 rounded-xl bg-gradient-to-br from-pink-500 to-pink-600 flex items-center justify-center mb-3 shadow-medium group-hover:scale-110 transition-transform">
+                    <Layers className="w-8 h-8 text-white" />
+                  </div>
+                  <CardTitle className="text-xl">Catégories produits</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <p className="text-sm text-brown-600 mb-4">
+                    Organiser les produits du catalogue
+                  </p>
+                  <div className="flex items-center gap-2 text-pink-600 font-semibold text-sm group-hover:gap-3 transition-all">
+                    Accéder →
+                  </div>
+                </CardContent>
+              </Card>
+            </Link>
+
+            <Link href="/admin/loyalty-rules">
+              <Card className="h-full border-2 border-yellow-200 hover:border-yellow-400 cursor-pointer transform hover:-translate-y-1 transition-all duration-200 group">
+                <CardHeader className="pb-4">
+                  <div className="w-14 h-14 rounded-xl bg-gradient-to-br from-yellow-500 to-yellow-600 flex items-center justify-center mb-3 shadow-medium group-hover:scale-110 transition-transform">
+                    <Gift className="w-8 h-8 text-white" />
+                  </div>
+                  <CardTitle className="text-xl">Règles fidélité</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <p className="text-sm text-brown-600 mb-4">
+                    Programme de fidélisation client
+                  </p>
+                  <div className="flex items-center gap-2 text-yellow-600 font-semibold text-sm group-hover:gap-3 transition-all">
+                    Accéder →
+                  </div>
+                </CardContent>
+              </Card>
+            </Link>
+
+            <Link href="/products">
+              <Card className="h-full border-2 border-teal-200 hover:border-teal-400 cursor-pointer transform hover:-translate-y-1 transition-all duration-200 group">
+                <CardHeader className="pb-4">
+                  <div className="w-14 h-14 rounded-xl bg-gradient-to-br from-teal-500 to-teal-600 flex items-center justify-center mb-3 shadow-medium group-hover:scale-110 transition-transform">
+                    <Package className="w-8 h-8 text-white" />
+                  </div>
+                  <CardTitle className="text-xl">Catalogue produits</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <p className="text-sm text-brown-600 mb-4">
+                    Liste, prix de référence, images
+                  </p>
+                  <div className="flex items-center gap-2 text-teal-600 font-semibold text-sm group-hover:gap-3 transition-all">
+                    Accéder →
+                  </div>
+                </CardContent>
+              </Card>
+            </Link>
+
+            <Link href="/stock/warehouses">
+              <Card className="h-full border-2 border-violet-200 hover:border-violet-400 cursor-pointer transform hover:-translate-y-1 transition-all duration-200 group">
+                <CardHeader className="pb-4">
+                  <div className="w-14 h-14 rounded-xl bg-gradient-to-br from-violet-500 to-violet-600 flex items-center justify-center mb-3 shadow-medium group-hover:scale-110 transition-transform">
+                    <Building2 className="w-8 h-8 text-white" />
+                  </div>
+                  <CardTitle className="text-xl">Entrepôts</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <p className="text-sm text-brown-600 mb-4">
+                    Créer / gérer les dépôts centraux (alimentent les outlets)
+                  </p>
+                  <div className="flex items-center gap-2 text-violet-600 font-semibold text-sm group-hover:gap-3 transition-all">
+                    Accéder →
+                  </div>
+                </CardContent>
+              </Card>
+            </Link>
+
+            <Link href="/stock">
+              <Card className="h-full border-2 border-purple-200 hover:border-purple-400 cursor-pointer transform hover:-translate-y-1 transition-all duration-200 group">
+                <CardHeader className="pb-4">
+                  <div className="w-14 h-14 rounded-xl bg-gradient-to-br from-purple-500 to-purple-600 flex items-center justify-center mb-3 shadow-medium group-hover:scale-110 transition-transform">
+                    <Boxes className="w-8 h-8 text-white" />
+                  </div>
+                  <CardTitle className="text-xl">État des stocks</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <p className="text-sm text-brown-600 mb-4">
+                    Vue par entrepôt et par outlet, alertes, mouvements
+                  </p>
+                  <div className="flex items-center gap-2 text-purple-600 font-semibold text-sm group-hover:gap-3 transition-all">
+                    Accéder →
+                  </div>
+                </CardContent>
+              </Card>
+            </Link>
+
+            <Link href="/orders">
+              <Card className="h-full border-2 border-cyan-200 hover:border-cyan-400 cursor-pointer transform hover:-translate-y-1 transition-all duration-200 group">
+                <CardHeader className="pb-4">
+                  <div className="w-14 h-14 rounded-xl bg-gradient-to-br from-cyan-500 to-blue-600 flex items-center justify-center mb-3 shadow-medium group-hover:scale-110 transition-transform">
+                    <FileText className="w-8 h-8 text-white" />
+                  </div>
+                  <CardTitle className="text-xl">Commandes clients</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <p className="text-sm text-brown-600 mb-4">
+                    Approuver les commandes négociées en attente de validation
+                  </p>
+                  <div className="flex items-center gap-2 text-cyan-600 font-semibold text-sm group-hover:gap-3 transition-all">
+                    Accéder →
+                  </div>
+                </CardContent>
+              </Card>
+            </Link>
+
+            <Link href="/admin/workspace">
+              <Card className="h-full border-2 border-rose-200 hover:border-rose-400 cursor-pointer transform hover:-translate-y-1 transition-all duration-200 group">
+                <CardHeader className="pb-4">
+                  <div className="w-14 h-14 rounded-xl bg-gradient-to-br from-rose-500 to-rose-600 flex items-center justify-center mb-3 shadow-medium group-hover:scale-110 transition-transform">
+                    <Settings className="w-8 h-8 text-white" />
+                  </div>
+                  <CardTitle className="text-xl">Identité entreprise</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <p className="text-sm text-brown-600 mb-4">
+                    Nom, slogan, logo, coordonnées (utilisés sur les en-têtes imprimables)
+                  </p>
+                  <div className="flex items-center gap-2 text-rose-600 font-semibold text-sm group-hover:gap-3 transition-all">
+                    Accéder →
+                  </div>
+                </CardContent>
+              </Card>
+            </Link>
+
+            <Link href="/admin">
               <Card className="h-full border-2 border-orange-200 hover:border-orange-400 cursor-pointer transform hover:-translate-y-1 transition-all duration-200 group">
                 <CardHeader className="pb-4">
                   <div className="w-14 h-14 rounded-xl bg-gradient-to-br from-orange-500 to-orange-600 flex items-center justify-center mb-3 shadow-medium group-hover:scale-110 transition-transform">
                     <Database className="w-8 h-8 text-white" />
                   </div>
-                  <CardTitle className="text-xl">Sauvegardes</CardTitle>
+                  <CardTitle className="text-xl">Centre admin complet</CardTitle>
                 </CardHeader>
                 <CardContent>
                   <p className="text-sm text-brown-600 mb-4">
-                    Gérer les sauvegardes de la base de données
+                    Tableau de bord administration consolidé
                   </p>
                   <div className="flex items-center gap-2 text-orange-600 font-semibold text-sm group-hover:gap-3 transition-all">
                     Accéder →

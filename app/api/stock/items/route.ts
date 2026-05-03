@@ -24,6 +24,9 @@ export async function GET(request: NextRequest) {
     if (searchParams.get('warehouseId')) {
       filters.warehouseId = searchParams.get('warehouseId');
     }
+    if (searchParams.get('outletId')) {
+      filters.outletId = searchParams.get('outletId');
+    }
     if (searchParams.get('productId')) {
       filters.productId = searchParams.get('productId');
     }

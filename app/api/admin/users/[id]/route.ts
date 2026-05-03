@@ -26,10 +26,12 @@ export async function GET(
       return NextResponse.json({ error: 'Utilisateur non trouvé' }, { status: 404 });
     }
 
+    const roles = await service.getUserRoles(id);
+
     // Ne pas retourner le hash du mot de passe
     const { PasswordHash, ...userWithoutPassword } = user as any;
 
-    return NextResponse.json({ data: userWithoutPassword });
+    return NextResponse.json({ data: { ...userWithoutPassword, roles } });
   } catch (error: any) {
     console.error('Error fetching user:', error);
     return NextResponse.json(
@@ -51,7 +53,26 @@ export async function PUT(
     const { id } = await params;
     const body = await request.json();
 
-    const user = await service.update(id, body);
+    const { password, roleIds, ...updateFields } = body;
+
+    const user = await service.update(id, updateFields);
+
+    if (Array.isArray(roleIds) && roleIds.length > 0) {
+      await service.setUserRoles(id, roleIds);
+    }
+
+    if (password && typeof password === 'string' && password.length > 0) {
+      if (password.length < 8) {
+        return NextResponse.json(
+          { error: 'Le mot de passe doit contenir au moins 8 caractères' },
+          { status: 400 }
+        );
+      }
+      await service.changePassword(id, password);
+    }
+
+    const updatedRoles = await service.getUserRoles(id);
+    (user as any).roles = updatedRoles;
 
     // Ne pas retourner le hash du mot de passe
     const { PasswordHash, ...userWithoutPassword } = user as any;

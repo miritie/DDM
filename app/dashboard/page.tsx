@@ -6,21 +6,44 @@
 import { redirect } from 'next/navigation';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { getCurrentUser } from '@/lib/auth/get-session';
+import { getPostgresClient } from '@/lib/database/postgres-client';
 
-// Mapping des roleId vers les dashboards spécialisés
+/**
+ * Mapping basé sur le slug du rôle (colonne `roles.role_id`, VARCHAR), pas sur l'UUID.
+ * Permet à la redirection de survivre à des rôles recréés avec de nouveaux UUIDs.
+ */
 const ROLE_DASHBOARDS: Record<string, string> = {
-  '770e8400-e29b-41d4-a716-446655440001': '/dashboard/admin',    // Admin
-  '770e8400-e29b-41d4-a716-446655440002': '/dashboard/dg',       // DG/Director
-  '770e8400-e29b-41d4-a716-446655440003': '/dashboard/manager',  // Manager
-  '770e8400-e29b-41d4-a716-446655440004': '/dashboard/accountant', // Accountant
-  '770e8400-e29b-41d4-a716-446655440005': '/dashboard/sales',    // Sales/Commercial
+  admin:                  '/dashboard/admin',
+  pca:                    '/dashboard/dg',
+  dg:                     '/dashboard/dg',
+  manager:                '/dashboard/manager',
+  manager_commercial:     '/dashboard/manager',
+  manager_compta_stocks:  '/dashboard/accountant',
+  accountant:             '/dashboard/accountant',
+  manager_production:     '/dashboard/production',
+  operateur_production:   '/dashboard/production',
+  agent_commercial:       '/dashboard/sales',
+  commercial:             '/dashboard/sales',
 };
+
+async function resolveRoleSlug(roleUuid: string): Promise<string | null> {
+  if (!roleUuid) return null;
+  try {
+    const r = await getPostgresClient().query(
+      `SELECT role_id FROM roles WHERE id = $1 LIMIT 1`,
+      [roleUuid]
+    );
+    return r.rows[0]?.role_id ?? null;
+  } catch {
+    return null;
+  }
+}
 
 export default async function DashboardPage() {
   const user = await getCurrentUser();
 
-  // Rediriger vers le dashboard spécialisé si disponible
-  const specializedDashboard = ROLE_DASHBOARDS[user.roleId];
+  const slug = await resolveRoleSlug((user as any).activeRoleId || user.roleId);
+  const specializedDashboard = slug ? ROLE_DASHBOARDS[slug] : undefined;
   if (specializedDashboard) {
     redirect(specializedDashboard);
   }
@@ -167,22 +190,25 @@ export default async function DashboardPage() {
             </CardContent>
           </Card>
 
-          <Card className="opacity-60 relative overflow-hidden">
-            <div className="absolute top-3 right-3">
-              <span className="px-2 py-1 rounded-lg bg-amber-100 text-amber-700 text-xs font-semibold">Bientôt</span>
-            </div>
-            <CardHeader className="pb-4">
-              <div className="w-14 h-14 rounded-xl bg-brown-200 flex items-center justify-center text-3xl mb-3">
-                💰
-              </div>
-              <CardTitle className="text-xl">Ventes</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <p className="text-sm text-brown-600">
-                Module 7.1 - Ventes & Encaissements
-              </p>
-            </CardContent>
-          </Card>
+          <a href="/sales/quick" className="block">
+            <Card className="relative overflow-hidden hover:shadow-strong transition-all duration-300 cursor-pointer group">
+              <CardHeader className="pb-4">
+                <div className="w-14 h-14 rounded-xl bg-gradient-to-br from-emerald-500 to-emerald-600 flex items-center justify-center text-3xl mb-3 shadow-medium">
+                  💰
+                </div>
+                <CardTitle className="text-xl">Vente rapide</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <p className="text-sm text-brown-600 mb-4">
+                  Caisse POS — produits, panier, encaissement en un clic
+                </p>
+                <div className="flex items-center gap-2 text-emerald-600 font-semibold text-sm group-hover:gap-3 transition-all">
+                  Ouvrir la caisse
+                  <span>→</span>
+                </div>
+              </CardContent>
+            </Card>
+          </a>
 
           <Card className="opacity-60 relative overflow-hidden">
             <div className="absolute top-3 right-3">
@@ -238,13 +264,12 @@ export default async function DashboardPage() {
               <span className="text-brown-600 text-xs font-medium uppercase tracking-wide">Rôle</span>
               <span className="font-semibold text-brown-900">{user.roleId}</span>
             </div>
-            <div className="flex flex-col gap-1 p-3 bg-primary-50 rounded-lg">
-              <span className="text-primary-700 text-xs font-medium uppercase tracking-wide">Modules implémentés</span>
-              <span className="font-bold text-primary-900 text-lg">1 / 12</span>
-            </div>
-            <div className="flex flex-col gap-1 p-3 bg-brown-50 rounded-lg">
-              <span className="text-brown-600 text-xs font-medium uppercase tracking-wide">Version</span>
-              <span className="font-semibold text-brown-900">v1.0.0</span>
+            <div className="flex flex-col gap-1 p-3 bg-amber-50 rounded-lg col-span-2">
+              <span className="text-amber-700 text-xs font-medium uppercase tracking-wide">⚠️ Aucun dashboard spécialisé pour ce rôle</span>
+              <span className="text-sm text-amber-900 mt-1">
+                Votre rôle n'est pas mappé à un tableau de bord dédié. Cela peut indiquer un nouveau rôle non encore configuré côté UI.
+                Contactez l'administrateur ou ajoutez le mapping dans <code>app/dashboard/page.tsx</code>.
+              </span>
             </div>
           </div>
         </CardContent>

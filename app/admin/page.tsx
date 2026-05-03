@@ -22,6 +22,7 @@ import {
   ShieldPlus,
   Activity,
   AlertCircle,
+  Package,
 } from 'lucide-react';
 
 export default function AdminDashboardPage() {
@@ -129,6 +130,21 @@ export default function AdminDashboardPage() {
                 >
                   <ShieldPlus className="h-4 w-4 mr-2" />
                   Nouveau Rôle
+                </Button>
+                <Button
+                  variant="outline"
+                  onClick={() => router.push('/products')}
+                  className="bg-white text-purple-600 hover:bg-gray-100 border-white"
+                >
+                  <Package className="h-4 w-4 mr-2" />
+                  Catalogue
+                </Button>
+                <Button
+                  variant="outline"
+                  onClick={() => router.push('/sales/quick')}
+                  className="bg-white text-purple-600 hover:bg-gray-100 border-white"
+                >
+                  💰 Vente rapide
                 </Button>
               </div>
             </div>

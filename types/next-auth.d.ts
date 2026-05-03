@@ -9,7 +9,9 @@ declare module 'next-auth' {
     user: {
       userId: string;
       workspaceId: string;
-      roleId: string;
+      roleId: string; // alias de activeRoleId pour compat
+      activeRoleId: string;
+      roleIds: string[];
       email: string;
       name: string;
       image?: string;
@@ -23,6 +25,8 @@ declare module 'next-auth' {
     image?: string;
     workspaceId?: string;
     roleId?: string;
+    roleIds?: string[];
+    activeRoleId?: string;
   }
 }
 
@@ -30,6 +34,8 @@ declare module 'next-auth/jwt' {
   interface JWT {
     userId: string;
     workspaceId: string;
-    roleId: string;
+    roleId: string; // alias de activeRoleId
+    activeRoleId: string;
+    roleIds: string[];
   }
 }

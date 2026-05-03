@@ -121,7 +121,12 @@ export default function SalesPage() {
             <h1 className="text-3xl font-bold">Ventes & Encaissements</h1>
             <p className="text-gray-600">Gestion des ventes et des paiements clients</p>
           </div>
-          <Button onClick={() => router.push('/sales/new')}>+ Nouvelle Vente</Button>
+          <div className="flex gap-2">
+            <Button variant="outline" onClick={() => router.push('/sales/recouvrement')}>
+              ⚠️ Recouvrement
+            </Button>
+            <Button onClick={() => router.push('/sales/quick')}>+ Nouvelle Vente</Button>
+          </div>
         </div>
 
         {/* Statistics */}
@@ -285,7 +290,7 @@ export default function SalesPage() {
             ) : sales.length === 0 ? (
               <div className="text-center py-12">
                 <p className="text-gray-500 mb-4">Aucune vente trouvée</p>
-                <Button onClick={() => router.push('/sales/new')}>Créer une vente</Button>
+                <Button onClick={() => router.push('/sales/quick')}>Créer une vente</Button>
               </div>
             ) : (
               <div className="overflow-x-auto">

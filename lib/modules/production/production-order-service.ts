@@ -361,6 +361,19 @@ export class ProductionOrderService {
   }
 
   /**
+   * Approuve un ordre de production : draft → planned.
+   * Réservé à l'admin / au validateur.
+   */
+  async approve(productionOrderId: string): Promise<ProductionOrder> {
+    const order = await this.getById(productionOrderId);
+    if (!order) throw new Error('Ordre de production non trouvé');
+    if (order.Status !== 'draft') {
+      throw new Error(`Seul un ordre en brouillon peut être approuvé (statut actuel : ${order.Status})`);
+    }
+    return await this.update(productionOrderId, { status: 'planned' });
+  }
+
+  /**
    * Démarre un ordre de production
    */
   async start(productionOrderId: string): Promise<ProductionOrder> {

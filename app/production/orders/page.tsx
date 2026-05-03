@@ -274,14 +274,36 @@ export default function ProductionOrdersPage() {
         <div className="space-y-4">
           {filteredOrders.length > 0 ? (
             filteredOrders.map((order) => (
-              <ProductionOrderCard
-                key={order.ProductionOrderId}
-                order={order}
-                onClick={() =>
-                  router.push(`/production/orders/${order.ProductionOrderId}`)
-                }
-                showDetails={true}
-              />
+              <div key={order.ProductionOrderId}>
+                <ProductionOrderCard
+                  order={order}
+                  onClick={() =>
+                    router.push(`/production/orders/${order.ProductionOrderId}`)
+                  }
+                  showDetails={true}
+                />
+                {order.Status === 'draft' && (
+                  <div className="bg-amber-50 border-2 border-t-0 border-amber-200 rounded-b-2xl px-4 py-2 -mt-2 flex items-center justify-between">
+                    <span className="text-xs text-amber-800">
+                      ⚠️ Cet ordre attend l'approbation de l'administrateur pour passer en production.
+                    </span>
+                    <button
+                      onClick={async (e) => {
+                        e.stopPropagation();
+                        if (!confirm(`Approuver l'ordre ${order.OrderNumber} ?\n\nIl pourra ensuite être démarré par la production.`)) return;
+                        try {
+                          const r = await fetch(`/api/production/orders/${order.ProductionOrderId}/approve`, { method: 'POST' });
+                          if (!r.ok) { alert((await r.json()).error || 'Erreur'); return; }
+                          await loadOrders();
+                        } catch (e: any) { alert(e.message); }
+                      }}
+                      className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded"
+                    >
+                      ✓ Approuver
+                    </button>
+                  </div>
+                )}
+              </div>
             ))
           ) : (
             <div className="text-center py-12 bg-white rounded-2xl shadow">

@@ -3,6 +3,10 @@
  * Crée les utilisateurs admin, commercial et production dans PostgreSQL
  */
 
+import * as dotenv from 'dotenv';
+import * as path from 'path';
+dotenv.config({ path: path.join(__dirname, '../.env.local') });
+
 import { getPostgresClient } from '../lib/database/postgres-client';
 import bcrypt from 'bcryptjs';
 

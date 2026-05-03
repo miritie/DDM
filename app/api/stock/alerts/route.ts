@@ -35,7 +35,7 @@ export async function GET(request: NextRequest) {
     console.error('Error fetching alerts:', error);
     return NextResponse.json(
       { error: error.message || 'Erreur lors de la récupération' },
-      { status: 500 }
+      { status: error.message?.includes('Permission') ? 403 : 500 }
     );
   }
 }

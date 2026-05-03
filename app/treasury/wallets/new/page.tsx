@@ -85,23 +85,23 @@ export default function NewWalletPage() {
       setLoading(true);
 
       const payload: any = {
-        Name: formData.name,
-        Type: formData.type,
-        Currency: formData.currency,
-        InitialBalance: parseFloat(formData.initialBalance),
-        Description: formData.description || undefined,
+        name: formData.name,
+        type: formData.type,
+        currency: formData.currency,
+        initialBalance: parseFloat(formData.initialBalance) || 0,
+        description: formData.description || undefined,
       };
 
       if (formData.type === 'bank') {
-        payload.BankName = formData.bankName;
-        payload.AccountNumber = formData.accountNumber;
-        if (formData.iban) payload.IBAN = formData.iban;
-        if (formData.swiftCode) payload.SwiftCode = formData.swiftCode;
+        payload.bankName = formData.bankName;
+        payload.accountNumber = formData.accountNumber;
+        if (formData.iban) payload.iban = formData.iban;
+        if (formData.swiftCode) payload.swiftCode = formData.swiftCode;
       }
 
       if (formData.type === 'mobile_money') {
-        payload.MobileOperator = formData.mobileOperator;
-        payload.MobileNumber = formData.mobileNumber;
+        payload.mobileOperator = formData.mobileOperator;
+        payload.mobileNumber = formData.mobileNumber;
       }
 
       const response = await fetch('/api/treasury/wallets', {

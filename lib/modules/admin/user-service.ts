@@ -183,6 +183,7 @@ export class UserService {
         updated_at
       ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
       RETURNING
+        id,
         user_id as "UserId",
         email as "Email",
         full_name as "FullName",
@@ -206,7 +207,16 @@ export class UserService {
       ]
     );
 
-    return result.rows[0];
+    const created = result.rows[0];
+
+    await db.query(
+      `INSERT INTO user_roles (user_id, role_id, is_primary)
+       VALUES ($1, $2, true)
+       ON CONFLICT (user_id, role_id) DO NOTHING`,
+      [created.id, input.roleId]
+    );
+
+    return created;
   }
 
   /**
@@ -288,6 +298,89 @@ export class UserService {
     const db = getPostgresClient();
 
     await db.query('DELETE FROM users WHERE user_id = $1', [userId]);
+  }
+
+  /**
+   * Récupère tous les rôles d'un utilisateur
+   * @param userId Code métier (user_id VARCHAR)
+   */
+  async getUserRoles(userId: string): Promise<
+    Array<{ id: string; roleId: string; name: string; description: string | null; isPrimary: boolean }>
+  > {
+    const db = getPostgresClient();
+    const result = await db.query(
+      `SELECT r.id, r.role_id as "roleId", r.name, r.description, ur.is_primary as "isPrimary"
+       FROM user_roles ur
+       INNER JOIN users u ON u.id = ur.user_id
+       INNER JOIN roles r ON r.id = ur.role_id
+       WHERE u.user_id = $1
+       ORDER BY ur.is_primary DESC, r.name ASC`,
+      [userId]
+    );
+    return result.rows;
+  }
+
+  /**
+   * Récupère les rôles d'un utilisateur par son UUID (users.id)
+   */
+  async getUserRolesByUuid(userUuid: string): Promise<
+    Array<{ id: string; roleId: string; name: string; description: string | null; isPrimary: boolean }>
+  > {
+    const db = getPostgresClient();
+    const result = await db.query(
+      `SELECT r.id, r.role_id as "roleId", r.name, r.description, ur.is_primary as "isPrimary"
+       FROM user_roles ur
+       INNER JOIN roles r ON r.id = ur.role_id
+       WHERE ur.user_id = $1
+       ORDER BY ur.is_primary DESC, r.name ASC`,
+      [userUuid]
+    );
+    return result.rows;
+  }
+
+  /**
+   * Remplace l'ensemble des rôles d'un utilisateur.
+   * Le premier roleId du tableau devient le rôle primaire (et users.role_id est synchronisé).
+   * @param userId Code métier (user_id VARCHAR)
+   * @param roleIds Liste d'UUIDs (roles.id). Doit contenir au moins un rôle.
+   */
+  async setUserRoles(userId: string, roleIds: string[]): Promise<void> {
+    if (!roleIds || roleIds.length === 0) {
+      throw new Error('Au moins un rôle est requis');
+    }
+
+    const unique = Array.from(new Set(roleIds));
+    const primaryRoleId = unique[0];
+
+    const db = getPostgresClient();
+
+    const userResult = await db.query(`SELECT id FROM users WHERE user_id = $1`, [userId]);
+    if (userResult.rows.length === 0) {
+      throw new Error('Utilisateur introuvable');
+    }
+    const userUuid = userResult.rows[0].id;
+
+    await db.query('BEGIN');
+    try {
+      await db.query(`DELETE FROM user_roles WHERE user_id = $1`, [userUuid]);
+
+      for (const rid of unique) {
+        await db.query(
+          `INSERT INTO user_roles (user_id, role_id, is_primary) VALUES ($1, $2, $3)`,
+          [userUuid, rid, rid === primaryRoleId]
+        );
+      }
+
+      await db.query(
+        `UPDATE users SET role_id = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2`,
+        [primaryRoleId, userUuid]
+      );
+
+      await db.query('COMMIT');
+    } catch (e) {
+      await db.query('ROLLBACK');
+      throw e;
+    }
   }
 
   /**

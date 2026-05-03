@@ -121,6 +121,17 @@ const PERMISSION_DEFINITIONS = [
   // Notifications
   { code: PERMISSIONS.NOTIFICATION_VIEW, name: 'Voir les notifications', module: 'notification' },
   { code: PERMISSIONS.NOTIFICATION_SEND, name: 'Envoyer des notifications', module: 'notification' },
+
+  // Module 7.10 - Points de vente
+  { code: PERMISSIONS.OUTLET_VIEW, name: 'Voir les points de vente', module: 'outlet' },
+  { code: PERMISSIONS.OUTLET_CREATE, name: 'Créer des points de vente', module: 'outlet' },
+  { code: PERMISSIONS.OUTLET_EDIT, name: 'Modifier les points de vente', module: 'outlet' },
+  { code: PERMISSIONS.OUTLET_DELETE, name: 'Supprimer/désactiver un point de vente', module: 'outlet' },
+  { code: PERMISSIONS.OUTLET_ASSIGN, name: 'Gérer le planning des commerciaux', module: 'outlet' },
+  { code: PERMISSIONS.OUTLET_INVOICE_VIEW, name: 'Voir les factures outlets', module: 'outlet' },
+  { code: PERMISSIONS.OUTLET_INVOICE_MANAGE, name: 'Gérer les factures outlets', module: 'outlet' },
+  { code: PERMISSIONS.OUTLET_PRICE_MANAGE, name: 'Gérer les prix par outlet', module: 'outlet' },
+  { code: PERMISSIONS.POS_SESSION_OPEN, name: 'Ouvrir/fermer une session POS', module: 'outlet' },
 ];
 
 async function seedPermissions() {
