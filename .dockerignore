@@ -1,0 +1,17 @@
+node_modules
+.next
+.git
+.github
+.env*
+.vscode
+*.md
+!README.md
+.DS_Store
+coverage
+.pnp.js
+.yarn
+.pnpm-store
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+tsconfig.tsbuildinfo
