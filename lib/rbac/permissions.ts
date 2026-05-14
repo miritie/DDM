@@ -33,6 +33,22 @@ export const PERMISSIONS = {
   PRODUCTION_DELETE: 'production:delete',
   PRODUCTION_START: 'production:start',
   PRODUCTION_COMPLETE: 'production:complete',
+  PRODUCTION_SUBMIT: 'production:submit',           // Soumettre un OP au validateur (manager_production)
+  PRODUCTION_APPROVE: 'production:approve',         // Approuver un OP soumis (admin)
+  PRODUCTION_VIEW_COST: 'production:view_cost',     // Voir le coût détaillé d'un OP (admin/pca/compta)
+
+  // Module 7.4 bis - Matières premières & recettes (formules secrètes)
+  INGREDIENT_VIEW: 'ingredient:view',               // Voir la liste des MP (qty, unité, fournisseur)
+  INGREDIENT_EDIT: 'ingredient:edit',               // Créer/modifier une MP (admin + pca)
+  RECIPE_VIEW: 'recipe:view',                       // Voir liste recettes (sans % ni marge)
+  RECIPE_EDIT: 'recipe:edit',                       // Créer/modifier recette (admin + pca uniquement)
+  RECIPE_VIEW_FORMULA: 'recipe:view_formula',       // Voir % d'ingrédients, marges, coûts (admin + pca SECRET)
+
+  // Module 7.5 bis - Achats matières premières (greffé sur expense_requests)
+  PURCHASE_REQUEST_VIEW: 'purchase_request:view',
+  PURCHASE_REQUEST_CREATE: 'purchase_request:create',     // manager_production + manager_compta_stocks
+  PURCHASE_REQUEST_APPROVE: 'purchase_request:approve',   // admin
+  PURCHASE_REQUEST_RECEIVE: 'purchase_request:receive',   // manager_production + manager_compta_stocks
 
   // Module 7.5 - Dépenses
   EXPENSE_VIEW: 'expense:view',

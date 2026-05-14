@@ -1018,6 +1018,8 @@ export interface GlobalDashboard {
  * Ingrédient / Matière Première
  * Éléments de base utilisés dans les recettes de production
  */
+export type IngredientKind = 'raw' | 'semi';
+
 export interface Ingredient {
   id?: string;
   IngredientId: string;
@@ -1025,11 +1027,14 @@ export interface Ingredient {
   Code: string;
   Description?: string;
   Unit: string; // kg, L, piece, etc.
-  UnitCost: number; // Coût unitaire
+  UnitCost: number; // PMP courant (Prix Moyen Pondéré)
   Currency: string;
-  MinimumStock: number; // Stock minimum à maintenir
-  CurrentStock: number; // Stock actuel
-  Supplier?: string; // Fournisseur principal
+  MinimumStock: number;
+  CurrentStock: number;
+  Supplier?: string;                                  // legacy texte libre
+  Kind: IngredientKind;                               // 'raw' (achetée) | 'semi' (fabriquée)
+  RecipeId?: string | null;                           // si Kind='semi', recette qui le produit
+  PreferredSupplierAccountId?: string | null;         // FK accounts (account_type='supplier')
   IsActive: boolean;
   WorkspaceId: string;
   CreatedAt: string;
@@ -1080,8 +1085,9 @@ export interface Recipe {
  * Statuts d'un ordre de production
  */
 export type ProductionOrderStatus =
-  | 'draft'        // Brouillon
-  | 'planned'      // Planifié
+  | 'draft'        // Brouillon (manager_production)
+  | 'submitted'    // Soumis pour validation admin
+  | 'planned'      // Approuvé/planifié (= ready to start)
   | 'in_progress'  // En cours
   | 'completed'    // Terminé
   | 'cancelled';   // Annulé
@@ -1150,18 +1156,68 @@ export interface ProductionOrder {
   ActualStartDate?: string;
   ActualEndDate?: string;
   Priority: 'low' | 'normal' | 'high' | 'urgent';
-  AssignedToId?: string; // Chef Usine assigné
+  AssignedToId?: string;
   AssignedToName?: string;
-  SourceWarehouseId?: string; // Entrepôt source des matières premières
-  DestinationWarehouseId?: string; // Entrepôt de destination des produits finis
-  IngredientConsumptions: IngredientConsumption[]; // Consommations réelles
-  Batches: ProductionBatch[]; // Lots produits
-  TotalCost: number; // Coût total de production
-  YieldRate: number; // Rendement réel en %
+  SourceWarehouseId?: string;
+  DestinationWarehouseId?: string;
+  IngredientConsumptions: IngredientConsumption[];
+  Batches: ProductionBatch[];
+  TotalCost: number;
+  YieldRate: number;
+  CustomerOrderId?: string | null;                    // FK customer_orders (commande déclencheuse)
+  RecipeVersion?: number;                             // Version de la recette snapshot
+  SubmittedById?: string | null;
+  SubmittedAt?: string | null;
+  ApprovedById?: string | null;
+  ApprovedAt?: string | null;
   Notes?: string;
   WorkspaceId: string;
   CreatedAt: string;
   UpdatedAt: string;
+}
+
+// ============================================================================
+// Sollicitations d'achat MP — greffées sur expense_requests
+// ============================================================================
+
+export interface PurchaseRequestLine {
+  id?: string;
+  PurchaseRequestLineId: string;
+  ExpenseRequestId: string;          // FK expense_requests.id
+  IngredientId: string;
+  IngredientName?: string;
+  SupplierAccountId?: string | null;
+  QtyRequested: number;
+  Unit: string;
+  EstimatedUnitPrice: number;
+  EstimatedTotal: number;
+  QtyReceived: number;
+  ActualTotal: number;
+  Notes?: string;
+  CreatedAt: string;
+  UpdatedAt: string;
+}
+
+export interface IngredientReception {
+  id?: string;
+  ReceptionId: string;
+  IngredientId: string;
+  PurchaseRequestLineId?: string | null;
+  SupplierAccountId?: string | null;
+  Qty: number;
+  Unit: string;
+  UnitPrice: number;
+  TotalCost: number;
+  ReceivedById?: string | null;
+  ReceivedAt: string;
+  ExpenseId?: string | null;
+  PmpBefore?: number | null;
+  PmpAfter?: number | null;
+  StockBefore?: number | null;
+  StockAfter?: number | null;
+  Notes?: string;
+  WorkspaceId: string;
+  CreatedAt: string;
 }
 
 // ============================================================================
