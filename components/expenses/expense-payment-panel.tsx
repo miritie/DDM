@@ -20,7 +20,7 @@ import { useEffect, useState } from 'react';
 import { Can } from '@/components/rbac/can';
 import { PERMISSIONS } from '@/lib/rbac';
 import { Button } from '@/components/ui/button';
-import { Wallet, Loader2, Plus, Trash2, CheckCircle2, AlertCircle, Clock } from 'lucide-react';
+import { Wallet, Loader2, Plus, Trash2, CheckCircle2, AlertCircle, Clock, BookOpen } from 'lucide-react';
 
 interface ExpenseLite {
   id: string;
@@ -63,9 +63,28 @@ function formatXof(n: number | string): string {
   return new Intl.NumberFormat('fr-FR', { maximumFractionDigits: 0 }).format(v) + ' XOF';
 }
 
+interface JournalEntryLite {
+  id: string;
+  entry_number: string;
+  entry_date: string;
+  description: string;
+  journal_code: string;
+  journal_label: string;
+  status: string;
+  lines: Array<{
+    line_number: number;
+    label: string;
+    account_number: string;
+    account_label: string;
+    debit_amount: number | string;
+    credit_amount: number | string;
+  }>;
+}
+
 export function ExpensePaymentPanel({ expenseRequestId }: { expenseRequestId: string }) {
   const [expense, setExpense] = useState<ExpenseLite | null>(null);
   const [payments, setPayments] = useState<PaymentTransaction[]>([]);
+  const [journalEntry, setJournalEntry] = useState<JournalEntryLite | null>(null);
   const [wallets, setWallets] = useState<WalletOption[]>([]);
   const [loading, setLoading] = useState(true);
   const [allocations, setAllocations] = useState<AllocationRow[]>([{ walletId: '', amount: 0 }]);
@@ -86,6 +105,10 @@ export function ExpensePaymentPanel({ expenseRequestId }: { expenseRequestId: st
           const tr = await fetch(`/api/expenses/${exp.id}/pay`);
           const tj = await tr.json();
           setPayments(tj.data || []);
+
+          const jeR = await fetch(`/api/expenses/${exp.id}/journal-entry`);
+          const jeJ = await jeR.json();
+          setJournalEntry(jeJ.data ?? null);
         }
         if (exp.status === 'approved') {
           const wr = await fetch('/api/treasury/wallets?isActive=true');
@@ -194,12 +217,13 @@ export function ExpensePaymentPanel({ expenseRequestId }: { expenseRequestId: st
       )}
 
       {expense.status === 'paid' && (
-        <div className="space-y-2">
+        <div className="space-y-3">
           <p className="text-sm text-green-700 bg-green-50 rounded-lg p-3 flex items-center gap-2">
             <CheckCircle2 className="w-4 h-4" />
             Réglé le {expense.payment_date ? new Date(expense.payment_date).toLocaleDateString('fr-FR') : '—'}
             {expense.payer_name && ` par ${expense.payer_name}`}.
           </p>
+
           {payments.length > 0 && (
             <div className="space-y-1">
               <h4 className="text-xs font-semibold text-gray-700 uppercase tracking-wide">
@@ -223,6 +247,46 @@ export function ExpensePaymentPanel({ expenseRequestId }: { expenseRequestId: st
                   ))}
                 </tbody>
               </table>
+            </div>
+          )}
+
+          {journalEntry ? (
+            <div className="bg-slate-50 border border-slate-200 rounded-lg p-3 space-y-2">
+              <div className="flex items-center justify-between">
+                <h4 className="text-xs font-semibold text-slate-700 uppercase tracking-wide flex items-center gap-1.5">
+                  <BookOpen className="w-3.5 h-3.5" />
+                  Écriture comptable
+                </h4>
+                <span className="text-xs font-mono text-slate-600">
+                  {journalEntry.entry_number} · {journalEntry.journal_label}
+                </span>
+              </div>
+              <table className="w-full text-xs">
+                <thead>
+                  <tr className="text-slate-500 border-b">
+                    <th className="text-left py-1">N°</th>
+                    <th className="text-left py-1">Compte</th>
+                    <th className="text-left py-1">Libellé</th>
+                    <th className="text-right py-1">Débit</th>
+                    <th className="text-right py-1">Crédit</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {journalEntry.lines.map(l => (
+                    <tr key={l.line_number} className="border-b border-slate-100 last:border-b-0">
+                      <td className="py-1 font-mono text-slate-500">{l.account_number}</td>
+                      <td className="py-1">{l.account_label}</td>
+                      <td className="py-1 text-slate-600">{l.label}</td>
+                      <td className="py-1 text-right font-semibold">{Number(l.debit_amount) > 0 ? formatXof(l.debit_amount) : '—'}</td>
+                      <td className="py-1 text-right font-semibold">{Number(l.credit_amount) > 0 ? formatXof(l.credit_amount) : '—'}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ) : (
+            <div className="bg-amber-50 border border-amber-200 rounded-lg p-2 text-xs text-amber-800">
+              ⚠ Écriture comptable non générée. Vérifier que la catégorie a un compte de charge configuré et que chaque wallet pointe vers un compte de trésorerie.
             </div>
           )}
         </div>

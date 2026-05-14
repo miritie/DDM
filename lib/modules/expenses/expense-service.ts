@@ -7,11 +7,13 @@ import { getPostgresClient } from '@/lib/database/postgres-client';
 import { Expense, ExpenseAttachment, ExpenseStatus } from '@/types/modules';
 import { PaymentMethodService } from '@/lib/modules/treasury/payment-method-service';
 import { TransactionService } from '@/lib/modules/treasury/transaction-service';
+import { JournalGenerationService } from '@/lib/modules/accounting/journal-generation-service';
 import { v4 as uuidv4 } from 'uuid';
 
 const postgresClient = getPostgresClient();
 const paymentMethodService = new PaymentMethodService();
 const transactionService = new TransactionService();
+const journalGenerator = new JournalGenerationService();
 
 export interface PayFromWalletsInput {
   expenseId: string;          // UUID PK ou business code
@@ -213,6 +215,8 @@ export class ExpenseService {
   async payFromWallets(input: PayFromWalletsInput): Promise<{
     expense: any;
     transactions: any[];
+    journalEntryId?: string | null;
+    journalError?: string | null;
   }> {
     if (!input.allocations || input.allocations.length === 0) {
       throw new Error('Au moins une allocation wallet est requise');
@@ -287,7 +291,19 @@ export class ExpenseService {
       [expense.id, payerUuid, input.paymentDate || new Date().toISOString()]
     );
 
-    return { expense: paidR.rows[0], transactions };
+    // Génération automatique de l'écriture comptable OHADA (best-effort).
+    // En cas d'erreur (catégorie mal configurée, wallet sans compte mappé…),
+    // le paiement reste valide mais on remonte un warning dans le retour.
+    let journalEntryId: string | null = null;
+    let journalError: string | null = null;
+    try {
+      journalEntryId = await journalGenerator.fromExpensePayment(expense.id);
+    } catch (e: any) {
+      journalError = e?.message || 'Génération comptable échouée';
+      console.error(`[payFromWallets] Écriture comptable non générée pour ${expense.expense_id}:`, journalError);
+    }
+
+    return { expense: paidR.rows[0], transactions, journalEntryId, journalError };
   }
 
   /**
