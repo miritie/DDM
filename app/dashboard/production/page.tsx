@@ -21,6 +21,7 @@ import {
   Factory, ChefHat, Package, ListChecks, AlertTriangle, CheckCircle,
   Clock, Play, RefreshCw, Loader2, Plus, ArrowRight,
 } from 'lucide-react';
+import { ProductionQueue } from '@/components/dashboard/production-queue';
 
 interface OrderSummary {
   id: string;
@@ -124,6 +125,9 @@ export default function ProductionDashboardPage() {
         </div>
 
         <div className="p-6 space-y-6">
+
+          {/* Corbeille : commandes clients validées à produire */}
+          <ProductionQueue />
 
           {/* KPIs par statut */}
           <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
