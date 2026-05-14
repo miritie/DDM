@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useMemo } from 'react';
 import { Button } from '@/components/ui/button';
-import { X, Loader2, Banknote, Smartphone, CreditCard, Clock, Check } from 'lucide-react';
+import { X, Loader2, Banknote, Smartphone, CreditCard, Clock, Check, Wallet, FileText, Building2 } from 'lucide-react';
 
 interface Wallet {
   id?: string;            // mapper varie selon l'origine
@@ -12,7 +12,20 @@ interface Wallet {
   Type?: string; type?: string;
 }
 
-export type PosPaymentMethod = 'cash' | 'mobile_money' | 'card' | 'credit';
+// Le mode "crédit" est traité comme un cas à part : ce n'est pas un moyen
+// de paiement (pas de wallet, pas de payment_method_id) mais le marqueur
+// d'une vente à crédit (montant payé < total). Il est toujours présent.
+export type PosPaymentMethod = string; // code dynamique issu de la DB, ou 'credit'
+
+interface ApiPaymentMethod {
+  PaymentMethodId: string;
+  Code: string;
+  Label: string;
+  RequiredWalletType?: string | null;
+  DisplayOrder: number;
+  Icon?: string | null;
+  IsActive: boolean;
+}
 
 export interface CheckoutResult {
   paymentMethod: PosPaymentMethod;
@@ -20,12 +33,34 @@ export interface CheckoutResult {
   amountPaid: number;       // montant encaissé maintenant (peut être < total → crédit)
 }
 
-const METHODS: { id: PosPaymentMethod; label: string; icon: any; walletType: string | null; color: string }[] = [
-  { id: 'cash',         label: 'Espèces',      icon: Banknote,    walletType: 'cash',         color: 'emerald' },
-  { id: 'mobile_money', label: 'Mobile Money', icon: Smartphone,  walletType: 'mobile_money', color: 'orange' },
-  { id: 'card',         label: 'TPE / Carte',  icon: CreditCard,  walletType: 'bank',         color: 'blue' },
-  { id: 'credit',       label: 'Crédit',       icon: Clock,       walletType: null,           color: 'amber' },
-];
+// Mapping icône lucide pour les valeurs seedées (et fallback).
+const ICON_MAP: Record<string, any> = {
+  Banknote, Smartphone, CreditCard, Building2, FileText, Wallet, Clock,
+};
+function iconFor(name?: string | null) {
+  return (name && ICON_MAP[name]) || Wallet;
+}
+
+// Couleur arbitraire par code (cohérence visuelle avec l'ancien design).
+const COLOR_BY_CODE: Record<string, string> = {
+  cash: 'emerald',
+  mobile_money: 'orange',
+  card: 'blue',
+  bank_transfer: 'indigo',
+  check: 'slate',
+  other: 'gray',
+};
+function colorFor(code: string) {
+  return COLOR_BY_CODE[code] || 'gray';
+}
+
+const CREDIT_METHOD = {
+  id: 'credit' as const,
+  label: 'Crédit',
+  icon: Clock,
+  walletType: null as string | null,
+  color: 'amber',
+};
 
 export function CheckoutModal({ total, onClose, onConfirm }: {
   total: number;
@@ -34,28 +69,59 @@ export function CheckoutModal({ total, onClose, onConfirm }: {
 }) {
   const [method, setMethod] = useState<PosPaymentMethod>('cash');
   const [wallets, setWallets] = useState<Wallet[]>([]);
+  const [paymentMethods, setPaymentMethods] = useState<ApiPaymentMethod[]>([]);
   const [walletId, setWalletId] = useState<string>('');
   const [amountPaid, setAmountPaid] = useState<string>(String(total));
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
+    // Wallets actifs + méthodes de paiement actives (dynamiques depuis la DB).
     fetch('/api/treasury/wallets?isActive=true')
       .then(r => r.ok ? r.json() : { data: [] })
       .then(d => setWallets(d.data || []));
+    fetch('/api/treasury/payment-methods?isActive=true')
+      .then(r => r.ok ? r.json() : { data: [] })
+      .then(d => setPaymentMethods((d.data || []) as ApiPaymentMethod[]));
   }, []);
+
+  // Méthodes affichées : celles actives en DB + crédit (cas à part)
+  const displayedMethods = useMemo(() => {
+    const dynamic = paymentMethods
+      .slice()
+      .sort((a, b) => a.DisplayOrder - b.DisplayOrder)
+      .map(pm => ({
+        id: pm.Code,
+        label: pm.Label,
+        icon: iconFor(pm.Icon),
+        walletType: pm.RequiredWalletType || null,
+        color: colorFor(pm.Code),
+      }));
+    return [...dynamic, CREDIT_METHOD];
+  }, [paymentMethods]);
+
+  // S'assure que la méthode sélectionnée existe encore (fallback sur la première)
+  useEffect(() => {
+    if (displayedMethods.length === 0) return;
+    if (!displayedMethods.find(m => m.id === method)) {
+      setMethod(displayedMethods[0].id);
+    }
+  }, [displayedMethods, method]);
 
   // Quand on change de méthode, on resélectionne le 1er wallet disponible
   useEffect(() => {
-    const required = METHODS.find(m => m.id === method)?.walletType;
-    if (!required) { setWalletId(''); return; }
-    const candidates = wallets.filter(w => (w.Type || w.type) === required);
-    setWalletId(candidates[0] ? (candidates[0].Id || candidates[0].id || '') : '');
+    const current = displayedMethods.find(m => m.id === method);
+    const required = current?.walletType ?? null;
+    if (!required) { setWalletId(''); }
+    else {
+      const candidates = wallets.filter(w => (w.Type || w.type) === required);
+      setWalletId(candidates[0] ? (candidates[0].Id || candidates[0].id || '') : '');
+    }
     if (method === 'credit') setAmountPaid('0');
     else setAmountPaid(String(total));
-  }, [method, wallets, total]);
+  }, [method, wallets, total, displayedMethods]);
 
-  const requiredType = METHODS.find(m => m.id === method)?.walletType;
+  const requiredType = displayedMethods.find(m => m.id === method)?.walletType ?? null;
   const filteredWallets = useMemo(
     () => requiredType ? wallets.filter(w => (w.Type || w.type) === requiredType) : [],
     [wallets, requiredType]
@@ -102,7 +168,7 @@ export function CheckoutModal({ total, onClose, onConfirm }: {
 
         {/* Méthodes */}
         <div className="grid grid-cols-2 gap-2 mb-4">
-          {METHODS.map(m => {
+          {displayedMethods.map(m => {
             const Icon = m.icon;
             const active = method === m.id;
             return (

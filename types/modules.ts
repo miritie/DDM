@@ -460,6 +460,22 @@ export interface AdvanceDebtMovement {
 export type WalletType = 'cash' | 'bank' | 'mobile_money' | 'other';
 export type WalletStatus = 'active' | 'inactive' | 'closed';
 
+// Moyens de paiement configurables (migration 2a)
+export interface PaymentMethod {
+  Id?: string;                                 // UUID interne (mapper postgres-client PascalCase)
+  PaymentMethodId: string;                     // code métier (PM-xxx-cash, etc.)
+  Code: string;                                // 'cash', 'mobile_money', 'card', ...
+  Label: string;                               // libellé affiché
+  RequiredWalletType?: WalletType | null;      // 'cash' | 'bank' | 'mobile_money' | null
+  DisplayOrder: number;
+  Icon?: string | null;                        // nom d'icône lucide
+  IsActive: boolean;
+  IsSystem: boolean;                           // valeur héritée de l'enum, non supprimable
+  WorkspaceId: string;
+  CreatedAt: string;
+  UpdatedAt: string;
+}
+
 export interface Wallet {
   id?: string;
   WalletId: string;
@@ -1485,7 +1501,9 @@ export interface Settlement {
   SalesReportIds: string[];
 
   // Paiement
-  PaymentMethod?: 'cash' | 'bank_transfer' | 'mobile_money' | 'check';
+  PaymentMethodId?: string;        // FK UUID vers payment_methods (depuis 2c)
+  PaymentMethodCode?: string;      // optionnel : populated par jointure (read-only)
+  PaymentMethodLabel?: string;     // optionnel : populated par jointure (read-only)
   PaymentDate?: string;
   PaymentProof?: string; // URL du justificatif de paiement
   WalletId?: string; // Wallet utilisé pour le paiement
@@ -1960,7 +1978,8 @@ export interface Customer {
   LastOrderAmount?: number;
 
   // Préférences
-  PreferredPaymentMethod?: string;
+  PreferredPaymentMethodId?: string;     // FK UUID vers payment_methods (depuis 2c)
+  PreferredPaymentMethod?: string;       // legacy read-only — alias résolu via JOIN (code fonctionnel)
   PreferredLanguage?: string;
   ReceivePromotions: boolean;
   ReceiveSMS: boolean;

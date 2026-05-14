@@ -5,9 +5,11 @@
 
 import { getPostgresClient } from '@/lib/database/postgres-client';
 import { Expense, ExpenseAttachment, ExpenseStatus } from '@/types/modules';
+import { PaymentMethodService } from '@/lib/modules/treasury/payment-method-service';
 import { v4 as uuidv4 } from 'uuid';
 
 const postgresClient = getPostgresClient();
+const paymentMethodService = new PaymentMethodService();
 
 export interface CreateExpenseInput {
   expenseRequestId: string;
@@ -161,17 +163,22 @@ export class ExpenseService {
       throw new Error('ID not found');
     }
 
-    const updated = await postgresClient.update<Expense>(
-      'expenses',
-      recordId,
-      {
-        Status: 'paid',
-        PaymentDate: input.paymentDate,
-        PaymentMethod: input.paymentMethod,
-        PayerId: input.payerId,
-        UpdatedAt: new Date().toISOString(),
-      }
-    );
+    // Résolution payment_method_id (la colonne enum legacy a été supprimée en 2c).
+    const workspaceId = (expenses[0] as any).WorkspaceId || (expenses[0] as any).workspace_id;
+    if (!workspaceId) throw new Error('Workspace introuvable pour cette dépense');
+    const pm = await paymentMethodService.getByCode(workspaceId, input.paymentMethod);
+    if (!pm?.Id) {
+      throw new Error(`Moyen de paiement "${input.paymentMethod}" introuvable ou inactif dans ce workspace.`);
+    }
+
+    const updateData: any = {
+      Status: 'paid',
+      PaymentDate: input.paymentDate,
+      PaymentMethodId: pm.Id,
+      PayerId: input.payerId,
+      UpdatedAt: new Date().toISOString(),
+    };
+    const updated = await postgresClient.update<Expense>('expenses', recordId, updateData);
     return updated;
   }
 

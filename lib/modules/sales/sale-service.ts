@@ -14,11 +14,13 @@ import { v4 as uuidv4 } from 'uuid';
 import { OutletService } from '@/lib/modules/outlets/outlet-service';
 import { PosSessionService } from '@/lib/modules/outlets/pos-session-service';
 import { StockService } from '@/lib/modules/stock/stock-service';
+import { PaymentMethodService } from '@/lib/modules/treasury/payment-method-service';
 
 const postgresClient = getPostgresClient();
 const outletService = new OutletService();
 const posSessionService = new PosSessionService();
 const stockService = new StockService();
+const paymentMethodService = new PaymentMethodService();
 
 export interface CreateSaleInput {
   clientId?: string;
@@ -385,13 +387,19 @@ export class SaleService {
       walletUuid = wr.rows[0]?.id ?? undefined;
     }
 
+    // Résolution payment_method_id (FK obligatoire depuis 2c).
+    const pm = await paymentMethodService.getByCode(input.workspaceId, input.paymentMethod);
+    if (!pm?.Id) {
+      throw new Error(`Moyen de paiement "${input.paymentMethod}" introuvable ou inactif dans ce workspace.`);
+    }
+
     // Create payment
-    const payment = {
+    const payment: any = {
       PaymentId: uuidv4(),
       SaleId: input.saleId,
       PaymentNumber: paymentNumber,
       Amount: input.amount,
-      PaymentMethod: input.paymentMethod,
+      PaymentMethodId: pm.Id,
       PaymentDate: input.paymentDate,
       WalletId: walletUuid,
       Reference: input.reference,

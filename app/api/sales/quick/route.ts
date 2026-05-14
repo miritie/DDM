@@ -27,6 +27,7 @@ import { OutletService } from '@/lib/modules/outlets/outlet-service';
 import { PosSessionService } from '@/lib/modules/outlets/pos-session-service';
 import { StockService } from '@/lib/modules/stock/stock-service';
 import { ScanQueueService } from '@/lib/modules/outlets/scan-queue-service';
+import { PaymentMethodService } from '@/lib/modules/treasury/payment-method-service';
 import { v4 as uuidv4 } from 'uuid';
 
 const db = getPostgresClient();
@@ -34,6 +35,7 @@ const outletService = new OutletService();
 const posSessionService = new PosSessionService();
 const stockService = new StockService();
 const scanQueue = new ScanQueueService();
+const paymentMethodService = new PaymentMethodService();
 
 export async function POST(request: NextRequest) {
   try {
@@ -180,14 +182,27 @@ export async function POST(request: NextRequest) {
         );
         walletUuid = wr.rows[0]?.id ?? null;
       }
+
+      // Mode crédit = vente à crédit, pas un moyen de paiement : on ne trace
+      // pas dans sale_payments. Quand `paidNow > 0` ET paymentMethod === 'credit'
+      // ça signifie un acompte → on doit choisir un vrai moyen (cash par défaut).
+      const methodCode = paymentMethod === 'credit' ? 'cash' : paymentMethod;
+      const pm = await paymentMethodService.getByCode(workspaceId, methodCode);
+      if (!pm?.Id) {
+        return NextResponse.json(
+          { error: `Moyen de paiement "${methodCode}" introuvable ou inactif.` },
+          { status: 400 }
+        );
+      }
+
       const paymentNumber = `PAY-${new Date().getFullYear()}-${Date.now().toString().slice(-6)}`;
       await db.query(
         `INSERT INTO sale_payments
-          (payment_id, sale_id, payment_number, amount, payment_method, payment_date,
+          (payment_id, sale_id, payment_number, amount, payment_method_id, payment_date,
            wallet_id, received_by_id, workspace_id, notes)
          VALUES ($1, $2, $3, $4, $5, CURRENT_TIMESTAMP, $6, $7, $8, $9)`,
         [
-          uuidv4(), sale.id, paymentNumber, paidNow, paymentMethod,
+          uuidv4(), sale.id, paymentNumber, paidNow, pm.Id,
           walletUuid, sellerUuid, workspaceId,
           paymentMethod === 'credit' && paidNow > 0 ? 'Acompte sur vente à crédit' : null,
         ]

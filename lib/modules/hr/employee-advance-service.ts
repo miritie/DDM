@@ -5,9 +5,11 @@
 
 import { getPostgresClient } from '@/lib/database/postgres-client';
 import { EmployeeAdvance } from '@/types/modules';
+import { PaymentMethodService } from '@/lib/modules/treasury/payment-method-service';
 import { v4 as uuidv4 } from 'uuid';
 
 const postgresClient = getPostgresClient();
+const paymentMethodService = new PaymentMethodService();
 
 export interface CreateEmployeeAdvanceInput {
   employeeId: string;
@@ -262,14 +264,23 @@ export class EmployeeAdvanceService {
       throw new Error('Advance ID is missing');
     }
 
-    const updated = await postgresClient.update<EmployeeAdvance>('employee_advances', advance.id, {
+    // Résolution payment_method_id (la colonne legacy a été supprimée en 2c).
+    const wsId = (advance as any).WorkspaceId || (advance as any).workspace_id;
+    if (!wsId) throw new Error('Workspace introuvable pour cette avance');
+    const pm = await paymentMethodService.getByCode(wsId, input.paymentMethod);
+    if (!pm?.Id) {
+      throw new Error(`Moyen de paiement "${input.paymentMethod}" introuvable ou inactif dans ce workspace.`);
+    }
+
+    const updateData: any = {
       Status: 'paid',
       PaymentDate: input.paymentDate,
-      PaymentMethod: input.paymentMethod,
+      PaymentMethodId: pm.Id,
       WalletId: input.walletId,
       TransactionId: input.transactionId,
       UpdatedAt: new Date().toISOString(),
-    });
+    };
+    const updated = await postgresClient.update<EmployeeAdvance>('employee_advances', advance.id, updateData);
     return updated;
   }
 

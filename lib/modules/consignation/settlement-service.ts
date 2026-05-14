@@ -8,10 +8,21 @@ import { Settlement, SettlementStatus } from '@/types/modules';
 import { v4 as uuidv4 } from 'uuid';
 import { PartnerService } from './partner-service';
 import { SalesReportService } from './sales-report-service';
+import { PaymentMethodService } from '@/lib/modules/treasury/payment-method-service';
 
 const postgresClient = getPostgresClient();
 const partnerService = new PartnerService();
 const salesReportService = new SalesReportService();
+const paymentMethodService = new PaymentMethodService();
+
+// SELECT factorisé : JOIN payment_methods pour exposer code + label.
+const SETTLEMENT_SELECT = `
+  SELECT s.*,
+         pm.code  AS payment_method_code,
+         pm.label AS payment_method_label
+  FROM settlements s
+  LEFT JOIN payment_methods pm ON pm.id = s.payment_method_id
+`;
 
 export interface CreateSettlementInput {
   partnerId: string;
@@ -114,49 +125,40 @@ export class SettlementService {
    * Recuperer un reglement par son ID
    */
   async getById(settlementId: string): Promise<Settlement | null> {
-    const settlements = await postgresClient.list<any>('settlements', {
-      filterByFormula: `{settlement_id} = '${settlementId}'`,
-    });
-    return settlements.length > 0 ? this.mapToSettlement(settlements[0]) : null;
+    const r = await postgresClient.query(
+      `${SETTLEMENT_SELECT} WHERE s.settlement_id = $1 LIMIT 1`,
+      [settlementId]
+    );
+    return r.rows.length > 0 ? this.mapToSettlement(r.rows[0]) : null;
   }
 
   /**
    * Recuperer un reglement par son numero
    */
   async getByNumber(settlementNumber: string, workspaceId: string): Promise<Settlement | null> {
-    const settlements = await postgresClient.list<any>('settlements', {
-      filterByFormula: `AND({workspace_id} = '${workspaceId}', {settlement_number} = '${settlementNumber}')`,
-    });
-    return settlements.length > 0 ? this.mapToSettlement(settlements[0]) : null;
+    const r = await postgresClient.query(
+      `${SETTLEMENT_SELECT} WHERE s.workspace_id = $1 AND s.settlement_number = $2 LIMIT 1`,
+      [workspaceId, settlementNumber]
+    );
+    return r.rows.length > 0 ? this.mapToSettlement(r.rows[0]) : null;
   }
 
   /**
    * Lister les reglements avec filtres
    */
   async list(workspaceId: string, filters: SettlementFilters = {}): Promise<Settlement[]> {
-    const filterFormulas: string[] = [`{workspace_id} = '${workspaceId}'`];
+    const conds: string[] = ['s.workspace_id = $1'];
+    const params: any[] = [workspaceId];
+    if (filters.partnerId) { params.push(filters.partnerId); conds.push(`s.partner_id = $${params.length}`); }
+    if (filters.status)    { params.push(filters.status);    conds.push(`s.status = $${params.length}`); }
+    if (filters.startDate) { params.push(filters.startDate); conds.push(`s.created_at >= $${params.length}`); }
+    if (filters.endDate)   { params.push(filters.endDate);   conds.push(`s.created_at <= $${params.length}`); }
 
-    if (filters.partnerId) {
-      filterFormulas.push(`{partner_id} = '${filters.partnerId}'`);
-    }
-    if (filters.status) {
-      filterFormulas.push(`{status} = '${filters.status}'`);
-    }
-    if (filters.startDate) {
-      filterFormulas.push(`{created_at} >= '${filters.startDate}'`);
-    }
-    if (filters.endDate) {
-      filterFormulas.push(`{created_at} <= '${filters.endDate}'`);
-    }
-
-    const filterByFormula =
-      filterFormulas.length > 1 ? `AND(${filterFormulas.join(', ')})` : filterFormulas[0];
-
-    const results = await postgresClient.list<any>('settlements', {
-      filterByFormula,
-      sort: [{ field: 'CreatedAt', direction: 'desc' }],
-    });
-    return results.map((record: any) => this.mapToSettlement(record));
+    const r = await postgresClient.query(
+      `${SETTLEMENT_SELECT} WHERE ${conds.join(' AND ')} ORDER BY s.created_at DESC`,
+      params
+    );
+    return r.rows.map((record: any) => this.mapToSettlement(record));
   }
 
   /**
@@ -210,12 +212,18 @@ export class SettlementService {
     // Mettre a jour le solde du partenaire
     await partnerService.pay(settlement.PartnerId, paymentAmount);
 
+    // Résolution payment_method_id depuis le code fonctionnel.
+    const pm = await paymentMethodService.getByCode(settlement.WorkspaceId, input.paymentMethod);
+    if (!pm?.Id) {
+      throw new Error(`Moyen de paiement "${input.paymentMethod}" introuvable ou inactif dans ce workspace.`);
+    }
+
     // Mettre a jour le reglement
     const updateData: any = {
       Status: newStatus,
       AmountPaid: newAmountPaid,
       AmountRemaining: newAmountRemaining,
-      PaymentMethod: input.paymentMethod,
+      PaymentMethodId: pm.Id,
       PaymentDate: input.paymentDate,
       PaymentProof: input.paymentProof,
       WalletId: input.walletId,
@@ -436,7 +444,10 @@ export class SettlementService {
       SalesReportIds: record.sales_report_ids,
       PreparedById: record.prepared_by_id,
       PreparedByName: record.prepared_by_name,
-      PaymentMethod: record.payment_method,
+      PaymentMethodId: record.payment_method_id,
+      // Populated via JOIN payment_methods (cf. list/getByNumber).
+      PaymentMethodCode: record.payment_method_code,
+      PaymentMethodLabel: record.payment_method_label,
       PaymentDate: record.payment_date,
       PaymentProof: record.payment_proof,
       WalletId: record.wallet_id,

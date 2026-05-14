@@ -16,9 +16,11 @@
  */
 
 import { getPostgresClient } from '@/lib/database/postgres-client';
+import { PaymentMethodService } from '@/lib/modules/treasury/payment-method-service';
 import { v4 as uuidv4 } from 'uuid';
 
 const db = getPostgresClient();
+const paymentMethodService = new PaymentMethodService();
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 export type CustomerOrderStatus =
@@ -179,8 +181,13 @@ export class CustomerOrderService {
       [order.id]
     );
     const payments = await db.query(
-      `SELECT cop.*, u.full_name AS received_by_name, w.name AS wallet_name
+      `SELECT cop.*,
+              pm.code AS payment_method,
+              pm.label AS payment_method_label,
+              u.full_name AS received_by_name,
+              w.name AS wallet_name
        FROM customer_order_payments cop
+       LEFT JOIN payment_methods pm ON pm.id = cop.payment_method_id
        LEFT JOIN users u ON u.id = cop.received_by_id
        LEFT JOIN wallets w ON w.id = cop.wallet_id
        WHERE customer_order_id = $1 ORDER BY payment_date DESC`,
@@ -277,12 +284,18 @@ export class CustomerOrderService {
     const walletUuid = await resolveUuid('wallets', 'wallet_id', input.walletId);
     const receivedByUuid = await resolveUuid('users', 'user_id', input.receivedById);
 
+    // Résolution payment_method_id depuis le code fonctionnel (table payment_methods).
+    const pm = await paymentMethodService.getByCode(input.workspaceId, input.paymentMethod);
+    if (!pm?.Id) {
+      throw new Error(`Moyen de paiement "${input.paymentMethod}" introuvable ou inactif dans ce workspace.`);
+    }
+
     await db.query(
       `INSERT INTO customer_order_payments
-        (customer_order_id, amount, payment_method, wallet_id, received_by_id,
+        (customer_order_id, amount, payment_method_id, wallet_id, received_by_id,
          is_advance, notes, workspace_id)
        VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
-      [id, amt, input.paymentMethod, walletUuid, receivedByUuid,
+      [id, amt, pm.Id, walletUuid, receivedByUuid,
        input.isAdvance ?? false, input.notes ?? null, input.workspaceId]
     );
 
@@ -354,16 +367,17 @@ export class CustomerOrderService {
       );
     }
 
-    // Reporte les paiements de la commande sur la sale (sale_payments)
+    // Reporte les paiements de la commande sur la sale (sale_payments).
+    // Le payment_method_id de chaque ligne customer_order_payments est repris tel quel.
     for (const p of order.payments) {
       await db.query(
         `INSERT INTO sale_payments
-          (payment_id, sale_id, payment_number, amount, payment_method, payment_date,
+          (payment_id, sale_id, payment_number, amount, payment_method_id, payment_date,
            wallet_id, received_by_id, workspace_id, notes)
          VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
         [
           uuidv4(), sale.rows[0].id, `PAY-${Date.now()}`,
-          p.amount, p.payment_method, p.payment_date,
+          p.amount, p.payment_method_id, p.payment_date,
           p.wallet_id, p.received_by_id, order.workspace_id,
           `Reporté depuis commande ${order.order_number}${p.is_advance ? ' (avance)' : ''}`,
         ]

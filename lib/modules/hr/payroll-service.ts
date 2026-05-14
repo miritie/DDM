@@ -7,9 +7,11 @@ import { getPostgresClient } from '@/lib/database/postgres-client';
 import { Payroll, Employee } from '@/types/modules';
 import { v4 as uuidv4 } from 'uuid';
 import { AdvanceDebtService } from '@/lib/modules/advances-debts/advance-debt-service';
+import { PaymentMethodService } from '@/lib/modules/treasury/payment-method-service';
 
 const postgresClient = getPostgresClient();
 const advanceDebtService = new AdvanceDebtService();
+const paymentMethodService = new PaymentMethodService();
 
 export interface CreatePayrollInput {
   employeeId: string;
@@ -160,17 +162,22 @@ export class PayrollService {
       throw new Error('Payroll ID is missing');
     }
 
-    const updated = await postgresClient.update<Payroll>(
-      'payrolls',
-      payrolls[0].id,
-      {
-        Status: 'paid',
-        PaidAt: input.paymentDate,
-        PaymentMethod: input.paymentMethod as 'bank_transfer' | 'cash' | 'mobile_money' | 'check',
-        PaidById: input.processedById,
-        UpdatedAt: new Date().toISOString(),
-      }
-    );
+    // Résolution payment_method_id (la colonne legacy a été supprimée en 2c).
+    const wsId = (payrolls[0] as any).WorkspaceId || (payrolls[0] as any).workspace_id;
+    if (!wsId) throw new Error('Workspace introuvable pour cette paie');
+    const pm = await paymentMethodService.getByCode(wsId, input.paymentMethod);
+    if (!pm?.Id) {
+      throw new Error(`Moyen de paiement "${input.paymentMethod}" introuvable ou inactif dans ce workspace.`);
+    }
+
+    const updateData: any = {
+      Status: 'paid',
+      PaidAt: input.paymentDate,
+      PaymentMethodId: pm.Id,
+      PaidById: input.processedById,
+      UpdatedAt: new Date().toISOString(),
+    };
+    const updated = await postgresClient.update<Payroll>('payrolls', payrolls[0].id, updateData);
     return updated;
   }
 

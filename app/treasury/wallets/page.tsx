@@ -5,19 +5,24 @@
  * Module Trésorerie Multi-Wallet
  */
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import { ProtectedPage } from '@/components/rbac/protected-page';
+import { Can } from '@/components/rbac/can';
 import { PERMISSIONS } from '@/lib/rbac';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Wallet } from '@/types/modules';
-import { Wallet as WalletIcon, Plus, CreditCard, Smartphone, Banknote, DollarSign } from 'lucide-react';
+import { Wallet as WalletIcon, Plus, CreditCard, Smartphone, Banknote, DollarSign, Power, PowerOff } from 'lucide-react';
+
+type StatusFilter = 'all' | 'active' | 'inactive' | 'closed';
 
 export default function WalletsPage() {
   const router = useRouter();
   const [wallets, setWallets] = useState<Wallet[]>([]);
   const [loading, setLoading] = useState(true);
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
+  const [toggling, setToggling] = useState<string | null>(null);
   const [showCreateForm, setShowCreateForm] = useState(false);
   const [formData, setFormData] = useState({
     name: '',
@@ -36,7 +41,8 @@ export default function WalletsPage() {
   async function loadWallets() {
     try {
       setLoading(true);
-      const response = await fetch('/api/treasury/wallets?isActive=true');
+      // Charge TOUS les wallets (actifs + inactifs + clos). Le filtrage est UI.
+      const response = await fetch('/api/treasury/wallets');
       if (response.ok) {
         const data = await response.json();
         setWallets(data.data || []);
@@ -45,6 +51,30 @@ export default function WalletsPage() {
       console.error('Error loading wallets:', error);
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function handleToggleStatus(wallet: Wallet) {
+    const isCurrentlyActive = wallet.Status === 'active';
+    const action = isCurrentlyActive ? 'désactiver' : 'activer';
+    if (!confirm(`Confirmer : ${action} le portefeuille « ${wallet.Name} » ?`)) return;
+
+    try {
+      setToggling(wallet.WalletId);
+      const response = await fetch(`/api/treasury/wallets/${wallet.WalletId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ Status: isCurrentlyActive ? 'inactive' : 'active' }),
+      });
+      if (!response.ok) {
+        const err = await response.json();
+        throw new Error(err.error || `Erreur lors de la ${action === 'désactiver' ? 'désactivation' : 'activation'}`);
+      }
+      await loadWallets();
+    } catch (error: any) {
+      alert(`❌ ${error.message}`);
+    } finally {
+      setToggling(null);
     }
   }
 
@@ -118,7 +148,41 @@ export default function WalletsPage() {
     }).format(amount);
   }
 
-  const totalBalance = wallets.reduce((sum, w) => sum + w.Balance, 0);
+  function getStatusBadge(status: string) {
+    const styles: Record<string, string> = {
+      active: 'bg-green-100 text-green-700 border-green-200',
+      inactive: 'bg-gray-100 text-gray-700 border-gray-200',
+      closed: 'bg-red-100 text-red-700 border-red-200',
+    };
+    const labels: Record<string, string> = {
+      active: 'Actif',
+      inactive: 'Inactif',
+      closed: 'Clôturé',
+    };
+    return (
+      <span className={`px-2 py-0.5 rounded-full text-xs font-semibold border ${styles[status] || styles.inactive}`}>
+        {labels[status] || status}
+      </span>
+    );
+  }
+
+  const counts = useMemo(() => ({
+    all: wallets.length,
+    active: wallets.filter(w => w.Status === 'active').length,
+    inactive: wallets.filter(w => w.Status === 'inactive').length,
+    closed: wallets.filter(w => w.Status === 'closed').length,
+  }), [wallets]);
+
+  const filteredWallets = useMemo(
+    () => statusFilter === 'all' ? wallets : wallets.filter(w => w.Status === statusFilter),
+    [wallets, statusFilter]
+  );
+
+  // Le solde total ne tient compte que des wallets actifs (réalité opérationnelle).
+  const totalBalance = wallets
+    .filter(w => w.Status === 'active')
+    .reduce((sum, w) => sum + w.Balance, 0);
+  const activeCount = counts.active;
 
   return (
     <ProtectedPage permission={PERMISSIONS.TREASURY_VIEW}>
@@ -148,14 +212,36 @@ export default function WalletsPage() {
           <CardContent className="pt-6">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-blue-100 text-sm mb-1">Solde Total</p>
+                <p className="text-blue-100 text-sm mb-1">Solde Total (portefeuilles actifs)</p>
                 <p className="text-4xl font-bold">{formatCurrency(totalBalance)}</p>
-                <p className="text-blue-100 text-sm mt-1">{wallets.length} portefeuille(s) actif(s)</p>
+                <p className="text-blue-100 text-sm mt-1">{activeCount} actif(s) — {counts.inactive} inactif(s) — {counts.closed} clôturé(s)</p>
               </div>
               <DollarSign className="h-16 w-16 text-blue-200" />
             </div>
           </CardContent>
         </Card>
+
+        {/* Filtres par statut */}
+        <div className="flex flex-wrap gap-2 mb-6">
+          {([
+            { key: 'all', label: 'Tous', count: counts.all },
+            { key: 'active', label: 'Actifs', count: counts.active },
+            { key: 'inactive', label: 'Inactifs', count: counts.inactive },
+            { key: 'closed', label: 'Clôturés', count: counts.closed },
+          ] as const).map(f => (
+            <button
+              key={f.key}
+              onClick={() => setStatusFilter(f.key)}
+              className={`px-4 py-1.5 rounded-full text-sm font-medium border transition ${
+                statusFilter === f.key
+                  ? 'bg-blue-600 text-white border-blue-600'
+                  : 'bg-white text-gray-700 border-gray-200 hover:border-blue-400'
+              }`}
+            >
+              {f.label} <span className="ml-1 opacity-75">({f.count})</span>
+            </button>
+          ))}
+        </div>
 
         {/* Create Form */}
         {showCreateForm && (
@@ -300,62 +386,106 @@ export default function WalletsPage() {
               <Button onClick={() => setShowCreateForm(true)}>Créer le premier portefeuille</Button>
             </CardContent>
           </Card>
+        ) : filteredWallets.length === 0 ? (
+          <Card>
+            <CardContent className="py-12 text-center text-gray-500">
+              Aucun portefeuille dans ce statut.
+            </CardContent>
+          </Card>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-            {wallets.map((wallet) => (
-              <Card
-                key={wallet.WalletId}
-                className="hover:shadow-lg transition-shadow cursor-pointer"
-                onClick={() => router.push(`/treasury/wallets/${wallet.WalletId}`)}
-              >
-                <CardHeader>
-                  <div className="flex items-start justify-between">
-                    <div className="flex items-center gap-3">
-                      <div className={`p-3 rounded-lg ${getWalletColor(wallet.Type)}`}>
-                        {getWalletIcon(wallet.Type)}
+            {filteredWallets.map((wallet) => {
+              const isActive = wallet.Status === 'active';
+              const isClosed = wallet.Status === 'closed';
+              return (
+                <Card
+                  key={wallet.WalletId}
+                  className={`hover:shadow-lg transition-shadow ${!isActive ? 'opacity-70' : ''}`}
+                >
+                  <CardHeader>
+                    <div className="flex items-start justify-between gap-2">
+                      <div
+                        className="flex items-center gap-3 cursor-pointer flex-1 min-w-0"
+                        onClick={() => router.push(`/treasury/wallets/${wallet.WalletId}`)}
+                      >
+                        <div className={`p-3 rounded-lg ${getWalletColor(wallet.Type)}`}>
+                          {getWalletIcon(wallet.Type)}
+                        </div>
+                        <div className="min-w-0">
+                          <CardTitle className="text-lg truncate">{wallet.Name}</CardTitle>
+                          <p className="text-sm text-gray-500">{wallet.Code}</p>
+                        </div>
                       </div>
-                      <div>
-                        <CardTitle className="text-lg">{wallet.Name}</CardTitle>
-                        <p className="text-sm text-gray-500">{wallet.Code}</p>
+                      {getStatusBadge(wallet.Status)}
+                    </div>
+                  </CardHeader>
+                  <CardContent className="space-y-3">
+                    <div className="flex items-center justify-between">
+                      <span className="text-sm text-gray-600">Type</span>
+                      <span className="text-sm font-medium">{getWalletLabel(wallet.Type)}</span>
+                    </div>
+
+                    {wallet.BankName && (
+                      <div className="flex items-center justify-between">
+                        <span className="text-sm text-gray-600">Banque</span>
+                        <span className="text-sm font-medium">{wallet.BankName}</span>
+                      </div>
+                    )}
+
+                    {wallet.AccountNumber && (
+                      <div className="flex items-center justify-between">
+                        <span className="text-sm text-gray-600">N° Compte</span>
+                        <span className="text-sm font-medium">{wallet.AccountNumber}</span>
+                      </div>
+                    )}
+
+                    <div className="border-t pt-3 mt-3">
+                      <div className="flex items-center justify-between">
+                        <span className="text-sm text-gray-600">Solde</span>
+                        <span className={`text-2xl font-bold ${wallet.Balance >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                          {formatCurrency(wallet.Balance, wallet.Currency)}
+                        </span>
                       </div>
                     </div>
-                  </div>
-                </CardHeader>
-                <CardContent className="space-y-3">
-                  <div className="flex items-center justify-between">
-                    <span className="text-sm text-gray-600">Type</span>
-                    <span className="text-sm font-medium">{getWalletLabel(wallet.Type)}</span>
-                  </div>
 
-                  {wallet.BankName && (
-                    <div className="flex items-center justify-between">
-                      <span className="text-sm text-gray-600">Banque</span>
-                      <span className="text-sm font-medium">{wallet.BankName}</span>
+                    {wallet.Description && (
+                      <p className="text-sm text-gray-600 pt-2 border-t">{wallet.Description}</p>
+                    )}
+
+                    {/* Actions */}
+                    <div className="flex gap-2 pt-3 border-t">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="flex-1"
+                        onClick={() => router.push(`/treasury/wallets/${wallet.WalletId}`)}
+                      >
+                        Détails
+                      </Button>
+                      {!isClosed && (
+                        <Can permission={PERMISSIONS.TREASURY_EDIT}>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            disabled={toggling === wallet.WalletId}
+                            onClick={() => handleToggleStatus(wallet)}
+                            className={isActive
+                              ? 'text-amber-700 border-amber-300 hover:bg-amber-50'
+                              : 'text-green-700 border-green-300 hover:bg-green-50'}
+                          >
+                            {isActive ? (
+                              <><PowerOff className="h-4 w-4 mr-1" />Désactiver</>
+                            ) : (
+                              <><Power className="h-4 w-4 mr-1" />Activer</>
+                            )}
+                          </Button>
+                        </Can>
+                      )}
                     </div>
-                  )}
-
-                  {wallet.AccountNumber && (
-                    <div className="flex items-center justify-between">
-                      <span className="text-sm text-gray-600">N° Compte</span>
-                      <span className="text-sm font-medium">{wallet.AccountNumber}</span>
-                    </div>
-                  )}
-
-                  <div className="border-t pt-3 mt-3">
-                    <div className="flex items-center justify-between">
-                      <span className="text-sm text-gray-600">Solde</span>
-                      <span className={`text-2xl font-bold ${wallet.Balance >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                        {formatCurrency(wallet.Balance, wallet.Currency)}
-                      </span>
-                    </div>
-                  </div>
-
-                  {wallet.Description && (
-                    <p className="text-sm text-gray-600 pt-2 border-t">{wallet.Description}</p>
-                  )}
-                </CardContent>
-              </Card>
-            ))}
+                  </CardContent>
+                </Card>
+              );
+            })}
           </div>
         )}
       </div>

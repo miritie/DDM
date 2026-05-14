@@ -95,7 +95,7 @@ export function SettlementCard({
 }: SettlementCardProps) {
   const statusConfig = getStatusConfig(settlement.Status);
   const StatusIcon = statusConfig.icon;
-  const PaymentIcon = getPaymentMethodIcon(settlement.PaymentMethod);
+  const PaymentIcon = getPaymentMethodIcon(settlement.PaymentMethodCode);
 
   // Calcul progression paiement
   const paymentProgress =
@@ -226,14 +226,14 @@ export function SettlementCard({
             ) : null}
 
             {/* Mode de paiement */}
-            {settlement.PaymentMethod && (
+            {settlement.PaymentMethodCode && (
               <div className="bg-blue-50 rounded-xl p-3">
                 <div className="flex items-center justify-between">
                   <span className="text-sm text-gray-700">Mode de paiement</span>
                   <div className="flex items-center gap-2">
                     <PaymentIcon className="w-4 h-4 text-blue-600" />
                     <span className="font-semibold text-blue-700">
-                      {getPaymentMethodLabel(settlement.PaymentMethod)}
+                      {getPaymentMethodLabel(settlement.PaymentMethodCode)}
                     </span>
                   </div>
                 </div>

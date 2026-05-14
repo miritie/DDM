@@ -5,9 +5,11 @@
 
 import { getPostgresClient } from '@/lib/database/postgres-client';
 import { Customer, CustomerType, CustomerStatus, LoyaltyTier } from '@/types/modules';
+import { PaymentMethodService } from '@/lib/modules/treasury/payment-method-service';
 import { v4 as uuidv4 } from 'uuid';
 
 const postgresClient = getPostgresClient();
+const paymentMethodService = new PaymentMethodService();
 
 export interface CreateCustomerInput {
   type: CustomerType;
@@ -80,7 +82,15 @@ export class CustomerService {
 
     const customerCode = await this.generateCustomerCode(input.workspaceId);
 
-    const customer = {
+    // Préférence : résolution payment_method_id si fournie (la colonne legacy
+    // preferred_payment_method a été supprimée en 2c).
+    let preferredPaymentMethodId: string | null = null;
+    if (input.preferredPaymentMethod) {
+      const pm = await paymentMethodService.getByCode(input.workspaceId, input.preferredPaymentMethod);
+      preferredPaymentMethodId = pm?.Id ?? null;
+    }
+
+    const customer: any = {
       CustomerId: uuidv4(),
       CustomerCode: customerCode,
       Type: input.type,
@@ -105,7 +115,7 @@ export class CustomerService {
       TotalOrders: 0,
       TotalSpent: 0,
       AverageOrderValue: 0,
-      PreferredPaymentMethod: input.preferredPaymentMethod,
+      PreferredPaymentMethodId: preferredPaymentMethodId,
       PreferredLanguage: input.preferredLanguage || 'fr',
       ReceivePromotions: input.receivePromotions !== false,
       ReceiveSMS: input.receiveSMS !== false,
@@ -125,10 +135,24 @@ export class CustomerService {
   }
 
   async getById(customerId: string): Promise<Customer | null> {
-    const customers = await postgresClient.list<Customer>('customers', {
-      where: { customer_id: customerId },
-    });
-    return customers.length > 0 ? customers[0] : null;
+    // JOIN pour exposer le code du moyen de paiement préféré (alias legacy).
+    const r = await postgresClient.query(
+      `SELECT c.*, pm.code AS preferred_payment_method
+       FROM customers c
+       LEFT JOIN payment_methods pm ON pm.id = c.preferred_payment_method_id
+       WHERE c.customer_id = $1 LIMIT 1`,
+      [customerId]
+    );
+    if (r.rows.length === 0) return null;
+    // Conversion snake_case → PascalCase manuelle (le client postgres a un helper
+    // mais on l'a court-circuité avec le query direct).
+    const row = r.rows[0];
+    const mapped: any = {};
+    for (const k in row) {
+      const pk = k.split('_').map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()).join('');
+      mapped[pk] = row[k];
+    }
+    return mapped as Customer;
   }
 
   async getByPhone(phone: string, workspaceId: string): Promise<Customer | null> {
@@ -160,12 +184,25 @@ export class CustomerService {
 
     if (customers.length === 0) throw new Error('Client non trouvé');
 
-    const customer = customers[0];
-    if (!customer.id) throw new Error('Customer ID is missing');
+    const customer: any = customers[0];
+    const uuid = customer.Id || customer.id;
+    if (!uuid) throw new Error('Customer ID is missing');
 
     const updateData: any = { UpdatedAt: new Date().toISOString() };
 
+    // Résolution du code en payment_method_id (la colonne legacy preferred_payment_method a été supprimée en 2c).
+    if (updates.preferredPaymentMethod !== undefined) {
+      const workspaceId = customer.WorkspaceId;
+      if (updates.preferredPaymentMethod === null || updates.preferredPaymentMethod === '') {
+        updateData.PreferredPaymentMethodId = null;
+      } else if (workspaceId) {
+        const pm = await paymentMethodService.getByCode(workspaceId, updates.preferredPaymentMethod);
+        updateData.PreferredPaymentMethodId = pm?.Id ?? null;
+      }
+    }
+
     Object.keys(updates).forEach((key) => {
+      if (key === 'preferredPaymentMethod') return; // déjà traité ci-dessus
       if (updates[key as keyof UpdateCustomerInput] !== undefined) {
         // Convert first letter to uppercase for PascalCase
         const pascalKey = key.charAt(0).toUpperCase() + key.slice(1);
@@ -175,7 +212,7 @@ export class CustomerService {
 
     const updated = await postgresClient.update<Customer>(
       'customers',
-      customer.id,
+      uuid,
       updateData
     );
     return updated;

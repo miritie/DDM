@@ -114,6 +114,21 @@ export default function TreasuryPage() {
           </div>
         </div>
 
+        {/* Sous-navigation Configuration */}
+        <div className="flex flex-wrap gap-2">
+          <Button variant="outline" size="sm" onClick={() => router.push('/treasury/wallets')}>
+            💼 Portefeuilles
+          </Button>
+          <Can permission={PERMISSIONS.PAYMENT_METHOD_VIEW}>
+            <Button variant="outline" size="sm" onClick={() => router.push('/treasury/payment-methods')}>
+              💳 Moyens de paiement
+            </Button>
+          </Can>
+          <Button variant="outline" size="sm" onClick={() => router.push('/treasury/transactions')}>
+            🔁 Transactions
+          </Button>
+        </div>
+
         {/* Statistiques Globales */}
         {statistics && (
           <div className="grid grid-cols-1 md:grid-cols-4 gap-4">

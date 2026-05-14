@@ -5,9 +5,11 @@
 
 import { getPostgresClient } from '@/lib/database/postgres-client';
 import { SalePayment as Payment } from '@/types/modules';
+import { PaymentMethodService } from '@/lib/modules/treasury/payment-method-service';
 import { v4 as uuidv4 } from 'uuid';
 
 const postgresClient = getPostgresClient();
+const paymentMethodService = new PaymentMethodService();
 
 export interface CreatePaymentInput {
   saleId: string;
@@ -22,17 +24,24 @@ export interface CreatePaymentInput {
 
 export class PaymentService {
   /**
-   * Créer un nouveau paiement
+   * Créer un nouveau paiement.
+   * Depuis 2c : on écrit uniquement `payment_method_id` (FK UUID vers
+   * `payment_methods`). La colonne `payment_method` (enum) a été supprimée.
    */
   async create(input: CreatePaymentInput): Promise<Payment> {
     const paymentNumber = await this.generatePaymentNumber(input.workspaceId);
 
-    const payment = {
+    const pm = await paymentMethodService.getByCode(input.workspaceId, input.paymentMethod);
+    if (!pm?.Id) {
+      throw new Error(`Moyen de paiement "${input.paymentMethod}" introuvable ou inactif dans ce workspace.`);
+    }
+
+    const payment: any = {
       PaymentId: uuidv4(),
       PaymentNumber: paymentNumber,
       SaleId: input.saleId,
       Amount: input.amount,
-      PaymentMethod: input.paymentMethod,
+      PaymentMethodId: pm.Id,
       PaymentDate: input.paymentDate,
       Reference: input.reference,
       Notes: input.notes,
@@ -94,7 +103,10 @@ export class PaymentService {
     const where: Record<string, any> = { workspace_id: workspaceId };
 
     if (filters.paymentMethod) {
-      where.payment_method = filters.paymentMethod;
+      // Le filtre arrive en code fonctionnel ; on résout en UUID.
+      const pm = await paymentMethodService.getByCode(workspaceId, filters.paymentMethod);
+      if (!pm?.Id) return []; // code inconnu ou inactif → aucun match
+      where.payment_method_id = pm.Id;
     }
 
     let payments = await postgresClient.list<Payment>('sale_payments', {
@@ -125,13 +137,17 @@ export class PaymentService {
 
     const totalAmount = payments.reduce((sum, p) => sum + p.Amount, 0);
 
+    // Agrégation par code fonctionnel (résolu depuis payment_method_id).
+    const allMethods = await paymentMethodService.list(workspaceId);
+    const codeByUuid = new Map<string, string>();
+    allMethods.forEach(m => { if (m.Id) codeByUuid.set(m.Id, m.Code); });
+
     const byMethod: Record<string, { count: number; amount: number }> = {};
-    payments.forEach(p => {
-      if (!byMethod[p.PaymentMethod]) {
-        byMethod[p.PaymentMethod] = { count: 0, amount: 0 };
-      }
-      byMethod[p.PaymentMethod].count += 1;
-      byMethod[p.PaymentMethod].amount += p.Amount;
+    payments.forEach((p: any) => {
+      const code = codeByUuid.get(p.PaymentMethodId) || 'unknown';
+      if (!byMethod[code]) byMethod[code] = { count: 0, amount: 0 };
+      byMethod[code].count += 1;
+      byMethod[code].amount += p.Amount;
     });
 
     return {
