@@ -59,6 +59,7 @@ const SELECT_PO = `
     source_warehouse_id     AS "SourceWarehouseId",
     destination_warehouse_id AS "DestinationWarehouseId",
     customer_order_id       AS "CustomerOrderId",
+    replenishment_id        AS "ReplenishmentId",
     submitted_by_id         AS "SubmittedById",
     submitted_at            AS "SubmittedAt",
     approved_by_id          AS "ApprovedById",
@@ -131,6 +132,7 @@ export interface CreateProductionOrderInput {
   sourceWarehouseId?: string;
   destinationWarehouseId?: string;
   customerOrderId?: string | null;   // OP déclenché par commande négociée
+  replenishmentId?: string | null;   // OP déclenché par un réappro stand
   notes?: string;
   workspaceId: string;
   createdById?: string;              // qui crée l'OP (manager_production)
@@ -288,6 +290,9 @@ export class ProductionOrderService {
     const customerOrderUuid = input.customerOrderId
       ? await resolveUuid('customer_orders', 'order_id', input.customerOrderId)
       : null;
+    const replenishmentUuid = input.replenishmentId
+      ? await resolveUuid('stand_replenishment_orders', 'replenishment_id', input.replenishmentId)
+      : null;
     const assignedToUuid = input.assignedToId
       ? await resolveUuid('users', 'user_id', input.assignedToId)
       : null;
@@ -310,8 +315,8 @@ export class ProductionOrderService {
            planned_start_date, planned_end_date, priority,
            assigned_to_id, assigned_to_name,
            source_warehouse_id, destination_warehouse_id,
-           customer_order_id, total_cost, yield_rate, notes, workspace_id
-         ) VALUES ($1,$2,$3,$4,$5,$6,$7,'draft',$8,0,$9,$10,$11,$12,$13,$14,$15,$16,$17,0,0,$18,$19)
+           customer_order_id, replenishment_id, total_cost, yield_rate, notes, workspace_id
+         ) VALUES ($1,$2,$3,$4,$5,$6,$7,'draft',$8,0,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,0,0,$19,$20)
          RETURNING id`,
         [
           orderSlug, orderNumber, recipeUuid, recipe.Name, recipe.Version,
@@ -321,7 +326,7 @@ export class ProductionOrderService {
           input.priority ?? 'normal',
           assignedToUuid, input.assignedToName ?? null,
           sourceWhUuid, destWhUuid,
-          customerOrderUuid,
+          customerOrderUuid, replenishmentUuid,
           input.notes ?? null, wsUuid,
         ]
       );
@@ -462,6 +467,18 @@ export class ProductionOrderService {
                updated_at = CURRENT_TIMESTAMP
          WHERE id = $1 AND status = 'approved'`,
         [order.CustomerOrderId, order.id]
+      );
+    }
+
+    // Idem si OP rattaché à un réappro stands.
+    if (order.ReplenishmentId) {
+      await db.query(
+        `UPDATE stand_replenishment_orders
+           SET status = 'in_production',
+               production_order_id = $2,
+               updated_at = CURRENT_TIMESTAMP
+         WHERE id = $1 AND status = 'approved'`,
+        [order.ReplenishmentId, order.id]
       );
     }
 
@@ -618,6 +635,16 @@ export class ProductionOrderService {
            SET status = 'produced', updated_at = CURRENT_TIMESTAMP
          WHERE id = $1 AND status = 'in_production'`,
         [order.CustomerOrderId]
+      );
+    }
+
+    // Idem si OP rattaché à un réappro stands.
+    if (order.ReplenishmentId) {
+      await db.query(
+        `UPDATE stand_replenishment_orders
+           SET status = 'produced', updated_at = CURRENT_TIMESTAMP
+         WHERE id = $1 AND status = 'in_production'`,
+        [order.ReplenishmentId]
       );
     }
 

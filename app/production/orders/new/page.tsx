@@ -52,6 +52,7 @@ export default function NewProductionOrderPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const customerOrderSlug = searchParams?.get('customerOrderId') ?? null;
+  const replenishmentSlug = searchParams?.get('replenishmentId') ?? null;
   const [step, setStep] = useState(1); // 1: Recette, 2: Quantité + Dates, 3: Entrepôts + Priorité, 4: Confirmation
   const [recipes, setRecipes] = useState<Recipe[]>([]);
   const [warehouses, setWarehouses] = useState<Warehouse[]>([]);
@@ -67,8 +68,9 @@ export default function NewProductionOrderPage() {
   const [priority, setPriority] = useState<Priority>('normal');
   const [notes, setNotes] = useState('');
 
-  // Si on vient d'une commande client : pré-remplissage automatique
+  // Si on vient d'une commande client OU d'un réappro : pré-remplissage automatique
   const [linkedCustomerOrder, setLinkedCustomerOrder] = useState<any | null>(null);
+  const [linkedReplenishment, setLinkedReplenishment] = useState<any | null>(null);
 
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -82,33 +84,52 @@ export default function NewProductionOrderPage() {
     setPlannedEndDate(nextWeek.toISOString().split('T')[0]);
   }, []);
 
-  // Pré-remplit le wizard quand on arrive avec ?customerOrderId=
+  // Pré-remplit le wizard quand on arrive avec ?customerOrderId= ou ?replenishmentId=
   useEffect(() => {
-    if (!customerOrderSlug || recipes.length === 0 || linkedCustomerOrder) return;
+    if (recipes.length === 0) return;
+    if (!customerOrderSlug && !replenishmentSlug) return;
+    if (linkedCustomerOrder || linkedReplenishment) return;
     (async () => {
       try {
         const r = await fetch('/api/dashboard/production-queue');
         if (!r.ok) return;
         const j = await r.json();
-        const all = [...(j.data.pending || []), ...(j.data.inProgress || [])];
-        const co = all.find((o: any) => o.order_id === customerOrderSlug);
-        if (!co) return;
-        setLinkedCustomerOrder(co);
 
-        // Première ligne → recette
-        const firstLine = co.lines?.[0];
-        if (!firstLine) return;
-        const recipeMatch = recipes.find((r) => r.RecipeId === firstLine.available_recipe_slug);
-        if (recipeMatch) {
-          setSelectedRecipe(recipeMatch);
-          setPlannedQuantity(Number(firstLine.quantity) || 1);
+        if (customerOrderSlug) {
+          const all = [...(j.data.pending || []), ...(j.data.inProgress || [])];
+          const co = all.find((o: any) => o.order_id === customerOrderSlug);
+          if (!co) return;
+          setLinkedCustomerOrder(co);
+          const firstLine = co.lines?.[0];
+          if (!firstLine) return;
+          const recipeMatch = recipes.find((r) => r.RecipeId === firstLine.available_recipe_slug);
+          if (recipeMatch) {
+            setSelectedRecipe(recipeMatch);
+            setPlannedQuantity(Number(firstLine.quantity) || 1);
+            setStep(2);
+          }
+          setNotes(`Pour commande ${co.order_number} — ${co.client_full_name || co.client_name || ''}`.trim());
+          return;
         }
-        setNotes(`Pour commande ${co.order_number} — ${co.client_full_name || co.client_name || ''}`.trim());
-        // Saute directement à l'étape 2 (qty/dates) si recette résolue
-        if (recipeMatch) setStep(2);
+
+        if (replenishmentSlug) {
+          const all = [...(j.data.replenishmentsPending || []), ...(j.data.replenishmentsInProgress || [])];
+          const rep = all.find((o: any) => o.replenishment_id === replenishmentSlug);
+          if (!rep) return;
+          setLinkedReplenishment(rep);
+          const firstLine = rep.lines?.[0];
+          if (!firstLine) return;
+          const recipeMatch = recipes.find((r) => r.RecipeId === firstLine.available_recipe_slug);
+          if (recipeMatch) {
+            setSelectedRecipe(recipeMatch);
+            setPlannedQuantity(Number(firstLine.quantity_requested) || 1);
+            setStep(2);
+          }
+          setNotes(`Pour réappro ${rep.replenishment_number} (${rep.requested_by_name || ''})`.trim());
+        }
       } catch {}
     })();
-  }, [customerOrderSlug, recipes, linkedCustomerOrder]);
+  }, [customerOrderSlug, replenishmentSlug, recipes, linkedCustomerOrder, linkedReplenishment]);
 
   async function loadData() {
     try {
@@ -161,6 +182,8 @@ export default function NewProductionOrderPage() {
         notes: notes || undefined,
         // Lien avec la commande client négociée si on vient de la corbeille
         customerOrderId: linkedCustomerOrder?.order_id || customerOrderSlug || undefined,
+        // Lien avec un réappro stand si on vient de la corbeille production
+        replenishmentId: linkedReplenishment?.replenishment_id || replenishmentSlug || undefined,
       };
 
       const response = await fetch('/api/production/orders', {
@@ -241,12 +264,40 @@ export default function NewProductionOrderPage() {
                 {' · '}Total {Number(linkedCustomerOrder.total_amount).toLocaleString('fr-FR')} XOF
               </p>
               <p className="text-xs text-blue-600 mt-1">
-                À la création de l'OP, la commande passera automatiquement en « in_production ».
+                Au démarrage de l'OP, la commande passera automatiquement en « in_production ».
               </p>
             </div>
             <button
               onClick={() => { setLinkedCustomerOrder(null); router.replace('/production/orders/new'); }}
               className="text-xs text-blue-600 hover:text-blue-800 underline shrink-0"
+            >
+              Détacher
+            </button>
+          </div>
+        )}
+
+        {/* Bandeau réappro stand lié (si on vient de la corbeille production) */}
+        {linkedReplenishment && (
+          <div className="bg-cyan-50 border-2 border-cyan-200 rounded-2xl p-4 mb-4 flex items-start gap-3">
+            <div className="w-10 h-10 bg-cyan-500 rounded-xl flex items-center justify-center text-white shrink-0">
+              <ShoppingCart className="w-5 h-5" />
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className="font-semibold text-cyan-900">
+                Pour le réappro {linkedReplenishment.replenishment_number}
+              </p>
+              <p className="text-sm text-cyan-700">
+                Demandé par <strong>{linkedReplenishment.requested_by_name || 'Manager commercial'}</strong>
+                {' · '}{linkedReplenishment.lines?.length} produit(s)
+                {' · '}{Number(linkedReplenishment.total_value_estimate).toLocaleString('fr-FR')} XOF estimés
+              </p>
+              <p className="text-xs text-cyan-600 mt-1">
+                Au démarrage de l'OP, le réappro passera automatiquement en « in_production ».
+              </p>
+            </div>
+            <button
+              onClick={() => { setLinkedReplenishment(null); router.replace('/production/orders/new'); }}
+              className="text-xs text-cyan-600 hover:text-cyan-800 underline shrink-0"
             >
               Détacher
             </button>

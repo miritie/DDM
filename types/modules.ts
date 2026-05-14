@@ -1165,6 +1165,7 @@ export interface ProductionOrder {
   TotalCost: number;
   YieldRate: number;
   CustomerOrderId?: string | null;                    // FK customer_orders (commande déclencheuse)
+  ReplenishmentId?: string | null;                    // FK stand_replenishment_orders (réappro déclencheur)
   RecipeVersion?: number;                             // Version de la recette snapshot
   SubmittedById?: string | null;
   SubmittedAt?: string | null;
