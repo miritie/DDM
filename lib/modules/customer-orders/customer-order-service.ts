@@ -44,9 +44,12 @@ export interface CreateCustomerOrderInput {
 
 async function resolveUuid(table: string, slugCol: string | null, value: string | null | undefined): Promise<string | null> {
   if (!value) return null;
-  if (UUID_RE.test(value)) return value;
-  if (!slugCol) return null;
-  const r = await db.query(`SELECT id FROM ${table} WHERE ${slugCol} = $1 OR id::text = $1 LIMIT 1`, [value]);
+  // Toujours vérifier l'existence en base. Accepte : UUID PK, slug business code,
+  // ou UUID stocké à tort dans le slug column (bug data historique sur certaines
+  // tables). Un UUID au format valide mais inexistant retourne null — évite la
+  // propagation d'un id corrompu jusqu'à la FK.
+  const where = slugCol ? `id::text = $1 OR ${slugCol} = $1` : `id::text = $1`;
+  const r = await db.query(`SELECT id FROM ${table} WHERE ${where} LIMIT 1`, [value]);
   return r.rows[0]?.id ?? null;
 }
 

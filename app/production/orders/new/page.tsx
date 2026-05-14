@@ -196,11 +196,12 @@ function NewProductionOrderContent() {
         const result = await response.json();
         router.push(`/production/orders/${result.data.ProductionOrderId}`);
       } else {
-        alert('Erreur lors de la création');
+        const body = await response.json().catch(() => ({}));
+        alert(`Erreur lors de la création : ${body?.error || `HTTP ${response.status}`}`);
       }
-    } catch (error) {
+    } catch (error: any) {
       console.error('Erreur:', error);
-      alert('Erreur lors de la création');
+      alert(`Erreur lors de la création : ${error?.message || 'erreur réseau'}`);
     } finally {
       setSaving(false);
     }
