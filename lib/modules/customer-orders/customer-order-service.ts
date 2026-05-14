@@ -100,24 +100,26 @@ export class CustomerOrderService {
     const computedTotal = lines.reduce((s, l) => s + l.lineTotal, 0);
     const total = Number(input.totalAmount) || computedTotal;
     const advance = Number(input.initialAdvance?.amount) || 0;
-    const balance = total - advance;
 
     const orderNumber = await this.generateOrderNumber(input.workspaceId);
     const orderId = `CO-${uuidv4().slice(0, 8)}`;
 
-    // Insert
+    // Insert avec amount_paid=0 et balance=total : l'éventuelle avance est
+    // enregistrée juste après via recordPayment qui se charge d'incrémenter
+    // amount_paid et de décrémenter balance. Sinon on double-compte l'avance
+    // (INSERT met advance dans amount_paid, puis recordPayment ajoute encore advance).
     const inserted = await db.query(
       `INSERT INTO customer_orders
         (order_id, order_number, client_id, client_name, client_phone,
          total_amount, amount_paid, balance, currency, status,
          requested_delivery_date, destination_warehouse_id, destination_outlet_id,
          notes, requested_by_id, workspace_id)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'XOF','draft',$9,$10,$11,$12,$13,$14)
+       VALUES ($1,$2,$3,$4,$5,$6,0,$7,'XOF','draft',$8,$9,$10,$11,$12,$13)
        RETURNING *`,
       [
         orderId, orderNumber, clientUuid,
         input.clientName ?? null, input.clientPhone ?? null,
-        total, advance, balance,
+        total, total,
         input.requestedDeliveryDate ?? null,
         warehouseUuid,
         outletUuid,
@@ -136,7 +138,7 @@ export class CustomerOrderService {
       );
     }
 
-    // Avance si fournie
+    // Avance si fournie : recordPayment met à jour amount_paid + balance.
     if (advance > 0 && input.initialAdvance) {
       await this.recordPayment(order.id, {
         amount: advance,
@@ -230,11 +232,29 @@ export class CustomerOrderService {
     return await this.getById(id);
   }
 
+  /**
+   * Manager commercial soumet sa commande au décideur (draft → submitted).
+   * Seule étape légitime depuis 'draft' : l'approbation par l'admin n'est plus possible
+   * en raccourci.
+   */
+  async submit(id: string): Promise<any> {
+    const order = await this.getById(id);
+    if (!order) throw new Error('Commande introuvable');
+    if (order.status !== 'draft') {
+      throw new Error(`Seul un brouillon peut être soumis (statut actuel : ${order.status})`);
+    }
+    return this.setStatus(id, 'submitted');
+  }
+
+  /**
+   * Admin approuve une commande soumise (submitted → approved).
+   * Refuse les raccourcis depuis 'draft' : le manager doit explicitement soumettre avant.
+   */
   async approve(id: string, approvedById: string): Promise<any> {
     const order = await this.getById(id);
     if (!order) throw new Error('Commande introuvable');
-    if (order.status !== 'draft' && order.status !== 'submitted') {
-      throw new Error(`Seul un brouillon ou une commande soumise peut être approuvée (statut actuel : ${order.status})`);
+    if (order.status !== 'submitted') {
+      throw new Error(`Seule une commande soumise peut être approuvée (statut actuel : ${order.status}). Le manager doit d'abord la soumettre.`);
     }
     const approverUuid = await resolveUuid('users', 'user_id', approvedById);
     return this.setStatus(id, 'approved', {

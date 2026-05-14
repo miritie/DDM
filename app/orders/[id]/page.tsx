@@ -12,7 +12,7 @@ import { PERMISSIONS } from '@/lib/rbac';
 import { Button } from '@/components/ui/button';
 import {
   ArrowLeft, Loader2, CheckCircle, XCircle, Truck, Factory, Package,
-  CreditCard, Banknote, Smartphone, Clock,
+  CreditCard, Banknote, Smartphone, Clock, Send,
 } from 'lucide-react';
 
 const FLOW = ['draft', 'submitted', 'approved', 'in_production', 'produced', 'transferred', 'delivered', 'completed'];
@@ -151,6 +151,11 @@ export default function OrderDetailPage({ params }: { params: Promise<{ id: stri
             <h3 className="font-bold mb-3">Actions disponibles</h3>
             <div className="flex gap-2 flex-wrap">
               {order.status === 'draft' && (
+                <Button onClick={() => callTransition('submit')} disabled={busy !== null}>
+                  <Send className="w-4 h-4 mr-1" /> Soumettre pour validation
+                </Button>
+              )}
+              {order.status === 'submitted' && (
                 <Button onClick={approve} disabled={busy !== null}>
                   <CheckCircle className="w-4 h-4 mr-1" /> Approuver (admin)
                 </Button>

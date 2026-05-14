@@ -1,6 +1,6 @@
 /**
  * POST /api/customer-orders/[id]/transition
- *   body: { action: 'mark_produced'|'mark_transferred'|'mark_delivered'|'cancel'|'link_production', ...params }
+ *   body: { action: 'submit'|'mark_produced'|'mark_transferred'|'mark_delivered'|'cancel'|'link_production', ...params }
  */
 import { NextRequest, NextResponse } from 'next/server';
 import { requirePermission, PERMISSIONS } from '@/lib/rbac/server';
@@ -17,6 +17,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
 
     let data;
     switch (action) {
+      case 'submit':           data = await service.submit(id); break;
       case 'mark_produced':    data = await service.markProduced(id); break;
       case 'mark_transferred': data = await service.markTransferred(id); break;
       case 'mark_delivered':   data = await service.markDelivered(id); break;
