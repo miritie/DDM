@@ -68,9 +68,12 @@ const SELECT_PRL = `
     prl.qty_received              AS "QtyReceived",
     prl.actual_total              AS "ActualTotal",
     prl.notes                     AS "Notes",
+    prl.production_order_id       AS "ProductionOrderId",
+    po.order_number               AS "ProductionOrderNumber",
     prl.created_at                AS "CreatedAt",
     prl.updated_at                AS "UpdatedAt"
   FROM purchase_request_lines prl
+  LEFT JOIN production_orders po ON po.id = prl.production_order_id
 `;
 
 export interface CreatePurchaseRequestInput {
@@ -78,6 +81,7 @@ export interface CreatePurchaseRequestInput {
   requesterId: string;          // user_id ou UUID
   title?: string;
   description?: string;
+  productionOrderId?: string;   // optionnel : sollicitation faite pour un OP spécifique. Propagé sur toutes les lignes.
   lines: Array<{
     ingredientId: string;
     qtyRequested: number;
@@ -186,6 +190,14 @@ export class PurchaseRequestService {
     const requestNumber = await this.generateRequestNumber(wsUuid);
     const erSlug = `ER-${uuidv4().slice(0, 8)}`;
 
+    // Lien optionnel avec un OP : résolu une seule fois pour toutes les lignes.
+    const productionOrderUuid = input.productionOrderId
+      ? await resolveUuid('production_orders', 'production_order_id', input.productionOrderId)
+      : null;
+    if (input.productionOrderId && !productionOrderUuid) {
+      throw new Error(`Ordre de production introuvable : ${input.productionOrderId}`);
+    }
+
     // Calcul du montant total estimé
     let totalEstimated = 0;
     for (const l of input.lines) {
@@ -224,12 +236,12 @@ export class PurchaseRequestService {
           `INSERT INTO purchase_request_lines (
              purchase_request_line_id, expense_request_id, ingredient_id, ingredient_name,
              supplier_account_id, qty_requested, unit, estimated_unit_price, estimated_total,
-             qty_received, actual_total, notes
-           ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,0,0,$10)`,
+             qty_received, actual_total, notes, production_order_id
+           ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,0,0,$10,$11)`,
           [
             `PRL-${uuidv4().slice(0, 8)}`, prUuid, ingUuid, ingMeta.rows[0]?.name ?? null,
             supplierUuid, line.qtyRequested, line.unit ?? ingMeta.rows[0]?.unit ?? 'unit',
-            line.estimatedUnitPrice, estimatedTotal, line.notes ?? null,
+            line.estimatedUnitPrice, estimatedTotal, line.notes ?? null, productionOrderUuid,
           ]
         );
       }

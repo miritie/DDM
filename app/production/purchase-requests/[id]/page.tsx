@@ -19,6 +19,8 @@ import { ProtectedPage } from '@/components/rbac/protected-page';
 import { Can } from '@/components/rbac/can';
 import { PERMISSIONS } from '@/lib/rbac';
 import { ExpensePaymentPanel } from '@/components/expenses/expense-payment-panel';
+import { Factory } from 'lucide-react';
+import Link from 'next/link';
 
 const INP = 'w-full h-11 px-3 border-2 border-gray-200 rounded-lg focus:outline-none focus:border-amber-500';
 const fmt = (n: number | string | undefined) =>
@@ -97,6 +99,10 @@ function Content({ id }: { id: string }) {
   const totalActual = lines.reduce((s: number, l: any) => s + Number(l.ActualTotal), 0);
   const fullyReceived = lines.length > 0 && lines.every((l: any) => Number(l.QtyReceived) >= Number(l.QtyRequested));
 
+  // Lien OP : si toutes les lignes pointent vers le même OP, on affiche un bandeau global.
+  const opIds = new Set(lines.map((l: any) => l.ProductionOrderId).filter(Boolean));
+  const linkedOpId = opIds.size === 1 ? (lines.find((l: any) => l.ProductionOrderId) as any) : null;
+
   return (
     <div className="min-h-screen bg-gray-50 pb-20">
       <div className="bg-gradient-to-r from-amber-600 to-orange-600 text-white p-6 pb-10">
@@ -129,6 +135,24 @@ function Content({ id }: { id: string }) {
           <div className="bg-red-50 border border-red-200 text-red-700 rounded-2xl p-4 flex gap-2">
             <AlertTriangle className="w-5 h-5 shrink-0" /> {error}
           </div>
+        )}
+
+        {linkedOpId && (
+          <Link
+            href={`/production/orders/${linkedOpId.ProductionOrderId}`}
+            className="block bg-orange-50 border-2 border-orange-200 rounded-2xl p-4 hover:bg-orange-100 transition-colors"
+          >
+            <div className="flex items-center gap-3">
+              <Factory className="w-5 h-5 text-orange-600" />
+              <div className="flex-1">
+                <p className="text-sm text-orange-900">
+                  Sollicitation pour l'ordre de production{' '}
+                  <strong className="font-mono">{linkedOpId.ProductionOrderNumber || linkedOpId.ProductionOrderId}</strong>
+                </p>
+                <p className="text-xs text-orange-700/80">Cliquer pour voir l'OP</p>
+              </div>
+            </div>
+          </Link>
         )}
 
         {/* Synthèse */}

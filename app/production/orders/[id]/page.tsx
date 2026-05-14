@@ -17,6 +17,7 @@ import { useRouter } from 'next/navigation';
 import {
   Factory, ArrowLeft, Send, CheckCircle, XCircle, PlayCircle, Package, Beaker,
   Clock, AlertTriangle, X, Save, FileText, Calendar, TrendingUp, ListChecks, Plus,
+  ShoppingCart,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { ProtectedPage } from '@/components/rbac/protected-page';
@@ -230,6 +231,34 @@ function Content({ id }: { id: string }) {
             )}
             {(order.Status === 'completed' || order.Status === 'cancelled') && (
               <p className="text-sm text-gray-500 self-center">Ordre finalisé — aucune action possible.</p>
+            )}
+
+            {/* Solliciter MP : transversal (tant que l'OP n'est pas finalisé) */}
+            {order.Status !== 'completed' && order.Status !== 'cancelled' && (
+              <Can permission={PERMISSIONS.PURCHASE_REQUEST_CREATE}>
+                <Button
+                  onClick={() => {
+                    const payload = {
+                      productionOrderId: order.id,
+                      lines: cons.map((c: any) => ({
+                        ingredientId: c.IngredientId,
+                        plannedQty: Number(c.PlannedQuantity) || 0,
+                        plannedUnit: c.Unit || '',
+                      })),
+                    };
+                    try {
+                      sessionStorage.setItem('purchaseRequestPrefill', JSON.stringify(payload));
+                    } catch { /* sessionStorage indispo — on continue, le form sera vide */ }
+                    router.push(`/production/purchase-requests/new?productionOrderId=${order.id}&prefill=1`);
+                  }}
+                  disabled={busy !== null || cons.length === 0}
+                  variant="outline"
+                  className="border-amber-400 text-amber-700 hover:bg-amber-50"
+                  title={cons.length === 0 ? 'Aucun ingrédient planifié sur cet ordre' : 'Solliciter les MP nécessaires à cet OP'}
+                >
+                  <ShoppingCart className="w-4 h-4 mr-1" /> Solliciter les MP
+                </Button>
+              </Can>
             )}
           </div>
         </div>
