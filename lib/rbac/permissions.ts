@@ -23,6 +23,8 @@ export const PERMISSIONS = {
   TREASURY_EDIT: 'treasury:edit',
   TREASURY_DELETE: 'treasury:delete',
   TREASURY_APPROVE: 'treasury:approve',
+  PAYMENT_METHOD_VIEW: 'payment_method:view',
+  PAYMENT_METHOD_EDIT: 'payment_method:edit',
 
   // Module 7.4 - Production & Usine
   PRODUCTION_VIEW: 'production:view',
@@ -82,6 +84,17 @@ export const PERMISSIONS = {
   LOYALTY_VIEW: 'loyalty:view',
   LOYALTY_MANAGE: 'loyalty:manage',
   LOYALTY_REDEEM: 'loyalty:redeem',
+
+  // Clients B2B grossistes (commandes négociées)
+  CLIENT_VIEW: 'client:view',
+  CLIENT_CREATE: 'client:create',
+  CLIENT_EDIT: 'client:edit',
+
+  // Approvisionnements stands (commandes internes manager commercial)
+  REPLENISHMENT_VIEW: 'replenishment:view',
+  REPLENISHMENT_CREATE: 'replenishment:create',
+  REPLENISHMENT_APPROVE: 'replenishment:approve',
+  REPLENISHMENT_DISTRIBUTE: 'replenishment:distribute',
 
   // Module 7.9 - IA Prédictive & Aide à la Décision
   AI_DECISION_VIEW: 'ai:decision:view',
@@ -150,6 +163,7 @@ export const ROLE_PERMISSIONS: Record<string, Permission[]> = {
     // Trésorerie
     PERMISSIONS.TREASURY_VIEW,
     PERMISSIONS.TREASURY_CREATE,
+    PERMISSIONS.PAYMENT_METHOD_VIEW,
     // Production
     PERMISSIONS.PRODUCTION_VIEW,
     PERMISSIONS.PRODUCTION_EDIT,
@@ -189,6 +203,12 @@ export const ROLE_PERMISSIONS: Record<string, Permission[]> = {
     PERMISSIONS.LOYALTY_VIEW,
     PERMISSIONS.LOYALTY_MANAGE,
     PERMISSIONS.LOYALTY_REDEEM,
+    PERMISSIONS.CLIENT_VIEW,
+    PERMISSIONS.CLIENT_CREATE,
+    PERMISSIONS.CLIENT_EDIT,
+    PERMISSIONS.REPLENISHMENT_VIEW,
+    PERMISSIONS.REPLENISHMENT_CREATE,
+    PERMISSIONS.REPLENISHMENT_DISTRIBUTE,
     // IA
     PERMISSIONS.AI_DECISION_VIEW,
     PERMISSIONS.AI_DECISION_REQUEST,
@@ -212,6 +232,8 @@ export const ROLE_PERMISSIONS: Record<string, Permission[]> = {
     PERMISSIONS.TREASURY_CREATE,
     PERMISSIONS.TREASURY_EDIT,
     PERMISSIONS.TREASURY_APPROVE,
+    PERMISSIONS.PAYMENT_METHOD_VIEW,
+    PERMISSIONS.PAYMENT_METHOD_EDIT,
     // Dépenses
     PERMISSIONS.EXPENSE_VIEW,
     PERMISSIONS.EXPENSE_CREATE,
@@ -232,6 +254,7 @@ export const ROLE_PERMISSIONS: Record<string, Permission[]> = {
     // Clients
     PERMISSIONS.CUSTOMER_VIEW,
     PERMISSIONS.LOYALTY_VIEW,
+    PERMISSIONS.CLIENT_VIEW,
     // IA
     PERMISSIONS.AI_DECISION_VIEW,
     // Rapports

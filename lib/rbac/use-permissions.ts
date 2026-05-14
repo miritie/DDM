@@ -23,10 +23,11 @@ export function usePermissions() {
       return;
     }
 
-    // Récupérer les permissions via API
+    // Récupérer les permissions via API — no-store pour éviter tout cache
+    // (les permissions peuvent changer en DB sans nouvelle connexion).
     async function fetchPermissions() {
       try {
-        const response = await fetch('/api/rbac/permissions');
+        const response = await fetch('/api/rbac/permissions', { cache: 'no-store' });
         const data = await response.json();
         setPermissions(data.permissions || []);
       } catch (error) {

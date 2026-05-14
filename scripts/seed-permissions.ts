@@ -31,6 +31,8 @@ const PERMISSION_DEFINITIONS = [
   { code: PERMISSIONS.TREASURY_EDIT, name: 'Modifier la trésorerie', module: 'treasury' },
   { code: PERMISSIONS.TREASURY_DELETE, name: 'Supprimer des transactions', module: 'treasury' },
   { code: PERMISSIONS.TREASURY_APPROVE, name: 'Approuver des transactions', module: 'treasury' },
+  { code: PERMISSIONS.PAYMENT_METHOD_VIEW, name: 'Voir les moyens de paiement', module: 'treasury' },
+  { code: PERMISSIONS.PAYMENT_METHOD_EDIT, name: 'Configurer les moyens de paiement', module: 'treasury' },
 
   // Module 7.4 - Production & Usine
   { code: PERMISSIONS.PRODUCTION_VIEW, name: 'Voir la production', module: 'production' },
@@ -90,6 +92,9 @@ const PERMISSION_DEFINITIONS = [
   { code: PERMISSIONS.LOYALTY_VIEW, name: 'Voir la fidélité', module: 'loyalty' },
   { code: PERMISSIONS.LOYALTY_MANAGE, name: 'Gérer la fidélité', module: 'loyalty' },
   { code: PERMISSIONS.LOYALTY_REDEEM, name: 'Échanger des points', module: 'loyalty' },
+  { code: PERMISSIONS.CLIENT_VIEW, name: 'Voir les clients grossistes', module: 'client' },
+  { code: PERMISSIONS.CLIENT_CREATE, name: 'Créer un client grossiste', module: 'client' },
+  { code: PERMISSIONS.CLIENT_EDIT, name: 'Modifier un client grossiste', module: 'client' },
 
   // Module 7.9 - IA Prédictive & Aide à la Décision
   { code: PERMISSIONS.AI_DECISION_VIEW, name: "Voir les décisions IA", module: 'ai' },
