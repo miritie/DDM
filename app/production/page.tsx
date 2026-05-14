@@ -153,7 +153,7 @@ export default function ProductionPage() {
         {/* Actions rapides */}
         <div className="bg-white rounded-2xl shadow-xl p-6 mb-6">
           <h2 className="font-bold text-lg mb-4">Actions Rapides</h2>
-          <div className="grid grid-cols-2 lg:grid-cols-3 gap-3">
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
             <button
               onClick={() => router.push('/production/orders/new')}
               className="bg-gradient-to-br from-orange-500 to-red-600 text-white rounded-xl p-4 hover:scale-105 active:scale-95 transition-transform"
@@ -177,8 +177,17 @@ export default function ProductionPage() {
               className="bg-gradient-to-br from-blue-500 to-cyan-600 text-white rounded-xl p-4 hover:scale-105 active:scale-95 transition-transform"
             >
               <Beaker className="w-8 h-8 mb-2 mx-auto" />
-              <p className="font-semibold text-sm">Ingrédients</p>
-              <p className="text-xs opacity-90 mt-1">Stock matières</p>
+              <p className="font-semibold text-sm">Matières premières</p>
+              <p className="text-xs opacity-90 mt-1">PMP, stock, fournisseurs</p>
+            </button>
+
+            <button
+              onClick={() => router.push('/production/purchase-requests')}
+              className="bg-gradient-to-br from-amber-500 to-orange-500 text-white rounded-xl p-4 hover:scale-105 active:scale-95 transition-transform"
+            >
+              <Package className="w-8 h-8 mb-2 mx-auto" />
+              <p className="font-semibold text-sm">Achats MP</p>
+              <p className="text-xs opacity-90 mt-1">Sollicitations &amp; réceptions</p>
             </button>
           </div>
         </div>
