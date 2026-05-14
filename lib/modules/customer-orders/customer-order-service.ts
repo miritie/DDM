@@ -72,9 +72,13 @@ export class CustomerOrderService {
       throw new Error('Au moins une ligne de produit est requise');
     }
 
-    // Résolution slugs
+    // Résolution slugs → UUIDs
     const requestedByUuid = await resolveUuid('users', 'user_id', input.requestedById);
     if (!requestedByUuid) throw new Error('Utilisateur demandeur introuvable');
+
+    const clientUuid = await resolveUuid('clients', 'client_id', input.clientId);
+    const warehouseUuid = await resolveUuid('warehouses', 'warehouse_id', input.destinationWarehouseId);
+    const outletUuid = await resolveUuid('outlets', 'code', input.destinationOutletId);
 
     // Résolution products + calcul total
     const lines = await Promise.all(input.lines.map(async (l) => {
@@ -111,12 +115,12 @@ export class CustomerOrderService {
        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'XOF','draft',$9,$10,$11,$12,$13,$14)
        RETURNING *`,
       [
-        orderId, orderNumber, input.clientId ?? null,
+        orderId, orderNumber, clientUuid,
         input.clientName ?? null, input.clientPhone ?? null,
         total, advance, balance,
         input.requestedDeliveryDate ?? null,
-        input.destinationWarehouseId ?? null,
-        input.destinationOutletId ?? null,
+        warehouseUuid,
+        outletUuid,
         input.notes ?? null, requestedByUuid, input.workspaceId,
       ]
     );

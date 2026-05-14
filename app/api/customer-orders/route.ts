@@ -35,6 +35,10 @@ export async function POST(request: NextRequest) {
     });
     return NextResponse.json({ data }, { status: 201 });
   } catch (e: any) {
-    return NextResponse.json({ error: e.message }, { status: e.message?.includes('Permission') ? 403 : 500 });
+    console.error('[customer-orders POST] failure :', e.message, e.code, e.detail);
+    return NextResponse.json(
+      { error: e.message, code: e.code, detail: e.detail },
+      { status: e.message?.includes('Permission') ? 403 : 500 }
+    );
   }
 }

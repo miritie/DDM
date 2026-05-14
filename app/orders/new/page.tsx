@@ -122,13 +122,17 @@ export default function NewOrderPage() {
   async function submit(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
-    if (!client) { setError('Choisir ou créer un client est obligatoire'); return; }
+    const fail = (msg: string) => {
+      setError(msg);
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    };
+    if (!client) return fail('Choisir ou créer un client est obligatoire.');
     if (lines.some(l => !l.productId || l.quantity <= 0 || l.unitPrice < 0)) {
-      setError('Chaque ligne doit avoir un produit, une quantité et un prix valides'); return;
+      return fail('Chaque ligne doit avoir un produit, une quantité et un prix valides.');
     }
     if (advanceAmount > 0) {
-      if (!currentMethod) { setError('Sélectionner un mode de paiement pour l\'avance'); return; }
-      if (requiredWalletType && !advanceWalletId) { setError(`Sélectionner un wallet ${requiredWalletType} pour l\'avance`); return; }
+      if (!currentMethod) return fail('Sélectionner un mode de paiement pour l\'avance.');
+      if (requiredWalletType && !advanceWalletId) return fail(`Sélectionner un portefeuille ${requiredWalletType} pour l\'avance.`);
     }
 
     setSubmitting(true);
@@ -159,10 +163,14 @@ export default function NewOrderPage() {
         body: JSON.stringify(body),
       });
       const result = await r.json().catch(() => ({} as any));
-      if (!r.ok) throw new Error(result.error || `HTTP ${r.status}`);
+      if (!r.ok) {
+        const detail = result.detail ? ` — détail : ${result.detail}` : '';
+        throw new Error((result.error || `HTTP ${r.status}`) + detail);
+      }
       router.push(`/orders/${result.data.id}`);
     } catch (e: any) {
       setError(e.message);
+      window.scrollTo({ top: 0, behavior: 'smooth' });
     } finally { setSubmitting(false); }
   }
 
@@ -177,6 +185,21 @@ export default function NewOrderPage() {
         <p className="text-sm text-gray-600">
           La commande passera en statut <strong>brouillon</strong> et devra être approuvée par l'administrateur avant production.
         </p>
+
+        {/* Bannière d'erreur sticky en haut — impossible à manquer */}
+        {error && (
+          <div className="sticky top-0 z-20 -mx-6 px-6 py-3 bg-red-600 text-white shadow-lg">
+            <div className="max-w-4xl mx-auto flex items-start gap-3">
+              <span className="text-xl">⚠️</span>
+              <div className="flex-1">
+                <strong>Impossible de créer la commande</strong>
+                <div className="text-sm mt-1 break-words">{error}</div>
+              </div>
+              <button type="button" onClick={() => setError(null)}
+                className="text-white/80 hover:text-white text-xl">✕</button>
+            </div>
+          </div>
+        )}
 
         <form onSubmit={submit} className="space-y-4">
           {/* Client */}
@@ -298,8 +321,6 @@ export default function NewOrderPage() {
               <span className="font-bold text-orange-700">{balance.toLocaleString('fr-FR')} XOF</span>
             </div>
           </Section>
-
-          {error && <div className="px-3 py-2 bg-red-50 text-red-800 rounded text-sm">{error}</div>}
 
           <div className="flex gap-2 justify-end">
             <Button type="button" variant="outline" onClick={() => router.push('/orders')}>Annuler</Button>
