@@ -18,6 +18,7 @@ import { Button } from '@/components/ui/button';
 import { ProtectedPage } from '@/components/rbac/protected-page';
 import { Can } from '@/components/rbac/can';
 import { PERMISSIONS } from '@/lib/rbac';
+import { ExpensePaymentPanel } from '@/components/expenses/expense-payment-panel';
 
 const INP = 'w-full h-11 px-3 border-2 border-gray-200 rounded-lg focus:outline-none focus:border-amber-500';
 const fmt = (n: number | string | undefined) =>
@@ -181,6 +182,8 @@ function Content({ id }: { id: string }) {
             )}
           </div>
         </div>
+
+        <ExpensePaymentPanel expenseRequestId={pr.ExpenseRequestId} />
 
         {/* Lignes */}
         <div className="bg-white rounded-2xl shadow-xl p-6">

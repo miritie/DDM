@@ -6,10 +6,23 @@
 import { getPostgresClient } from '@/lib/database/postgres-client';
 import { Expense, ExpenseAttachment, ExpenseStatus } from '@/types/modules';
 import { PaymentMethodService } from '@/lib/modules/treasury/payment-method-service';
+import { TransactionService } from '@/lib/modules/treasury/transaction-service';
 import { v4 as uuidv4 } from 'uuid';
 
 const postgresClient = getPostgresClient();
 const paymentMethodService = new PaymentMethodService();
+const transactionService = new TransactionService();
+
+export interface PayFromWalletsInput {
+  expenseId: string;          // UUID PK ou business code
+  payerId: string;            // UUID PK ou business code de l'utilisateur qui exécute
+  paymentDate?: string;       // ISO. Défaut: now()
+  allocations: Array<{
+    walletId: string;         // UUID PK du wallet
+    amount: number;
+  }>;
+  notes?: string;
+}
 
 export interface CreateExpenseInput {
   expenseRequestId: string;
@@ -180,6 +193,121 @@ export class ExpenseService {
     };
     const updated = await postgresClient.update<Expense>('expenses', recordId, updateData);
     return updated;
+  }
+
+  /**
+   * Paiement multi-wallet d'une dépense approuvée.
+   *
+   * - Vérifie que la dépense est en statut 'approved'
+   * - Vérifie que Σ allocations === expense.amount (tolérance 1 centime)
+   * - Vérifie que chaque wallet a un solde suffisant
+   * - Crée N transactions (type='expense'), une par wallet, liées à l'expense via expense_id
+   * - Décrémente les soldes des wallets
+   * - Passe la dépense en 'paid'
+   *
+   * NB : pas de transaction SQL globale ici — chaque createExpense est atomique
+   * mais le batch ne l'est pas. En cas d'erreur au milieu, les transactions déjà
+   * créées restent valides et la dépense reste en 'approved'. L'utilisateur peut
+   * compléter manuellement ou réessayer (le service vérifiera le statut).
+   */
+  async payFromWallets(input: PayFromWalletsInput): Promise<{
+    expense: any;
+    transactions: any[];
+  }> {
+    if (!input.allocations || input.allocations.length === 0) {
+      throw new Error('Au moins une allocation wallet est requise');
+    }
+    if (input.allocations.some(a => a.amount <= 0)) {
+      throw new Error('Chaque allocation doit avoir un montant positif');
+    }
+
+    const expR = await postgresClient.query<any>(
+      `SELECT id, expense_id, amount, status, workspace_id, title
+       FROM expenses
+       WHERE id::text = $1 OR expense_id = $1
+       LIMIT 1`,
+      [input.expenseId]
+    );
+    if (expR.rows.length === 0) throw new Error('Dépense introuvable');
+    const expense = expR.rows[0];
+
+    if (expense.status !== 'approved') {
+      throw new Error(`Seules les dépenses approuvées peuvent être payées (statut actuel : ${expense.status})`);
+    }
+
+    const total = input.allocations.reduce((s, a) => s + a.amount, 0);
+    if (Math.abs(total - Number(expense.amount)) > 0.01) {
+      throw new Error(`Le total des allocations (${total}) ne correspond pas au montant de la dépense (${expense.amount})`);
+    }
+
+    const userR = await postgresClient.query<any>(
+      `SELECT id FROM users WHERE id::text = $1 OR user_id = $1 LIMIT 1`,
+      [input.payerId]
+    );
+    if (userR.rows.length === 0) throw new Error('Utilisateur payeur introuvable');
+    const payerUuid = userR.rows[0].id;
+
+    for (const alloc of input.allocations) {
+      const wR = await postgresClient.query<any>(
+        `SELECT id, balance, name FROM wallets WHERE id::text = $1 LIMIT 1`,
+        [alloc.walletId]
+      );
+      if (wR.rows.length === 0) {
+        throw new Error(`Wallet introuvable : ${alloc.walletId}`);
+      }
+      if (Number(wR.rows[0].balance) < alloc.amount) {
+        throw new Error(`Solde insuffisant sur le wallet "${wR.rows[0].name}" (solde : ${wR.rows[0].balance}, requis : ${alloc.amount})`);
+      }
+    }
+
+    const transactions: any[] = [];
+    for (const alloc of input.allocations) {
+      const tx = await transactionService.createExpense({
+        type: 'expense',
+        category: 'expense',
+        amount: alloc.amount,
+        sourceWalletId: alloc.walletId,
+        description: `Paiement dépense ${expense.expense_id} — ${expense.title}${input.notes ? ` (${input.notes})` : ''}`,
+        reference: expense.expense_id,
+        processedById: payerUuid,
+        workspaceId: expense.workspace_id,
+        expenseId: expense.id,
+      });
+      transactions.push(tx);
+    }
+
+    const paidR = await postgresClient.query<any>(
+      `UPDATE expenses
+       SET status='paid',
+           payer_id=$2,
+           payment_date=$3,
+           updated_at=CURRENT_TIMESTAMP
+       WHERE id=$1
+       RETURNING *`,
+      [expense.id, payerUuid, input.paymentDate || new Date().toISOString()]
+    );
+
+    return { expense: paidR.rows[0], transactions };
+  }
+
+  /**
+   * Liste les transactions liées à une dépense (pour affichage du paiement dans l'UI).
+   */
+  async listPaymentTransactions(expenseId: string): Promise<any[]> {
+    const r = await postgresClient.query<any>(
+      `SELECT t.id, t.transaction_id, t.transaction_number, t.amount,
+              t.source_wallet_id, w.name AS wallet_name,
+              t.processed_at, t.description, t.status,
+              u.full_name AS processed_by_name
+       FROM transactions t
+       JOIN expenses e ON e.id = t.expense_id
+       LEFT JOIN wallets w ON w.id = t.source_wallet_id
+       LEFT JOIN users u ON u.id = t.processed_by_id
+       WHERE e.id::text = $1 OR e.expense_id = $1
+       ORDER BY t.processed_at ASC`,
+      [expenseId]
+    );
+    return r.rows;
   }
 
   async reject(expenseId: string): Promise<Expense> {

@@ -22,6 +22,7 @@ export interface CreateTransactionInput {
   attachmentUrl?: string;
   processedById: string;
   workspaceId: string;
+  expenseId?: string;  // FK optionnelle : lie la transaction à une dépense (paiement multi-wallet)
 }
 
 /**
@@ -269,7 +270,7 @@ export class TransactionService {
   private async createTransaction(input: CreateTransactionInput): Promise<Transaction> {
     const transactionNumber = await this.generateTransactionNumber(input.workspaceId, input.type);
 
-    const transaction: Partial<Transaction> = {
+    const transaction: Partial<Transaction> & { ExpenseId?: string } = {
       TransactionId: uuidv4(),
       TransactionNumber: transactionNumber,
       Type: input.type,
@@ -286,6 +287,7 @@ export class TransactionService {
       WorkspaceId: input.workspaceId,
       CreatedAt: new Date().toISOString(),
       UpdatedAt: new Date().toISOString(),
+      ...(input.expenseId ? { ExpenseId: input.expenseId } : {}),
     };
 
     const created = await postgresClient.create<Transaction>('transactions', transaction);

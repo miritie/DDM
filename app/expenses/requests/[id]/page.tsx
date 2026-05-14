@@ -24,6 +24,7 @@ import {
 } from 'lucide-react';
 import { ExpenseRequest, ExpenseRequestStatus, ExpenseUrgency } from '@/types/modules';
 import { Button } from '@/components/ui/button';
+import { ExpensePaymentPanel } from '@/components/expenses/expense-payment-panel';
 
 interface PageProps {
   params: {
@@ -481,18 +482,9 @@ export default function ExpenseRequestDetailPage({ params }: PageProps) {
           </div>
         )}
 
-        {/* Paiement */}
-        {request.Status === 'approved' && request.PaidDate && (
-          <div className="bg-purple-50 border-2 border-purple-200 rounded-2xl p-6 flex items-start gap-3">
-            <CheckCircle className="w-6 h-6 text-purple-600 flex-shrink-0 mt-1" />
-            <div>
-              <p className="font-semibold text-purple-800 mb-1">Payée</p>
-              <p className="text-sm text-purple-700">
-                Le {new Date(request.PaidDate).toLocaleDateString('fr-FR')}
-                {request.WalletName && ` via ${request.WalletName}`}
-              </p>
-            </div>
-          </div>
+        {/* Paiement multi-wallet (panel partagé) */}
+        {(request.Status === 'approved' || request.Status === 'paid') && (
+          <ExpensePaymentPanel expenseRequestId={params.id} />
         )}
 
         {/* Actions */}
