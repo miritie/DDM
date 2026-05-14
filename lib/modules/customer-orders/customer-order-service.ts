@@ -221,15 +221,19 @@ export class CustomerOrderService {
   // -------------------------------------------------------------------------
   // STATE TRANSITIONS
 
-  async setStatus(id: string, status: CustomerOrderStatus, extras: Record<string, any> = {}): Promise<any> {
+  async setStatus(idOrSlug: string, status: CustomerOrderStatus, extras: Record<string, any> = {}): Promise<any> {
     const sets = ['status = $2', 'updated_at = CURRENT_TIMESTAMP'];
-    const params: any[] = [id, status];
+    const params: any[] = [idOrSlug, status];
     for (const [k, v] of Object.entries(extras)) {
       params.push(v);
       sets.push(`${k} = $${params.length}`);
     }
-    await db.query(`UPDATE customer_orders SET ${sets.join(', ')} WHERE id = $1`, params);
-    return await this.getById(id);
+    // Accepte UUID interne OU business code (order_id 'CO-xxxxxxxx')
+    await db.query(
+      `UPDATE customer_orders SET ${sets.join(', ')} WHERE id::text = $1 OR order_id = $1`,
+      params
+    );
+    return await this.getById(idOrSlug);
   }
 
   /**
@@ -319,7 +323,7 @@ export class CustomerOrderService {
         (customer_order_id, amount, payment_method_id, wallet_id, received_by_id,
          is_advance, notes, workspace_id)
        VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
-      [id, amt, pm.Id, walletUuid, receivedByUuid,
+      [order.id, amt, pm.Id, walletUuid, receivedByUuid,
        input.isAdvance ?? false, input.notes ?? null, input.workspaceId]
     );
 
@@ -328,7 +332,7 @@ export class CustomerOrderService {
 
     await db.query(
       `UPDATE customer_orders SET amount_paid = $2, balance = $3, updated_at = CURRENT_TIMESTAMP WHERE id = $1`,
-      [id, newPaid, newBalance]
+      [order.id, newPaid, newBalance]
     );
 
     // Si livrée et soldée → completed
