@@ -201,7 +201,7 @@ export default function WarehousesPage() {
                           size="sm"
                           variant="outline"
                           className="flex-1"
-                          onClick={() => router.push(`/stock?warehouseId=${warehouse.WarehouseId}`)}
+                          onClick={() => router.push(`/stock/locations/warehouse/${warehouse.WarehouseId}`)}
                         >
                           Voir les stocks
                         </Button>

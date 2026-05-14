@@ -229,8 +229,10 @@ export default function InventoryPage() {
         } else {
           alert(`Inventaire enregistré avec succès (${processed} ajustement${processed > 1 ? 's' : ''})`);
         }
-        const back = warehouseId ? `warehouseId=${warehouseId}` : `outletId=${outletId}`;
-        router.push(`/stock?${back}`);
+        // Redirige vers la vue focalisée de l'emplacement (affiche les stocks à jour).
+        const kind = warehouseId ? 'warehouse' : 'outlet';
+        const locId = warehouseId || outletId;
+        router.push(`/stock/locations/${kind}/${locId}`);
       } else {
         alert(`Erreur : ${result?.error || `HTTP ${response.status}`}`);
       }

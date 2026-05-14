@@ -13,6 +13,7 @@ import { Button } from '@/components/ui/button';
 import {
   Package,
   Warehouse as WarehouseIcon,
+  Store,
   AlertTriangle,
   TrendingDown,
   DollarSign,
@@ -21,25 +22,21 @@ import {
   Zap,
   ChevronRight,
   Eye,
-  BarChart3,
 } from 'lucide-react';
-import { StockItem, StockStatistics, StockAlert, Warehouse, Product } from '@/types/modules';
-import { ProductVisualCard } from '@/components/stock/product-visual-card';
+import { StockStatistics, StockAlert, Warehouse, Product } from '@/types/modules';
 
 export default function StockPage() {
   const router = useRouter();
-  const [stockItems, setStockItems] = useState<StockItem[]>([]);
   const [statistics, setStatistics] = useState<StockStatistics | null>(null);
   const [alerts, setAlerts] = useState<StockAlert[]>([]);
   const [warehouses, setWarehouses] = useState<Warehouse[]>([]);
   const [products, setProducts] = useState<Product[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<{ status: number; message: string } | null>(null);
-  const [filter, setFilter] = useState<'all' | 'low_stock' | 'out_of_stock'>('all');
 
   useEffect(() => {
     loadData();
-  }, [filter]);
+  }, []);
 
   async function fetchOrFail(url: string) {
     const res = await fetch(url);
@@ -61,54 +58,23 @@ export default function StockPage() {
       setLoading(true);
       setLoadError(null);
 
-      const params = new URLSearchParams();
-      if (filter === 'low_stock') params.append('lowStock', 'true');
-      else if (filter === 'out_of_stock') params.append('outOfStock', 'true');
-
-      const [stats, alertsRes, warehousesRes, productsRes, itemsRes] = await Promise.all([
+      const [stats, alertsRes, warehousesRes, productsRes] = await Promise.all([
         fetchOrFail('/api/stock/statistics'),
         fetchOrFail('/api/stock/alerts'),
         fetchOrFail('/api/stock/warehouses?isActive=true'),
         fetchOrFail('/api/products?isActive=true'),
-        fetchOrFail(`/api/stock/items?${params.toString()}`),
       ]);
 
       setStatistics(stats.data);
       setAlerts(alertsRes.data || []);
       setWarehouses(warehousesRes.data || []);
       setProducts(productsRes.data || []);
-      setStockItems(itemsRes.data || []);
     } catch (error: any) {
       console.error('Error loading data:', error);
       setLoadError({ status: error.status || 500, message: error.message });
     } finally {
       setLoading(false);
     }
-  }
-
-  function getProductName(productId: string): string {
-    const product = products.find((p) => p.ProductId === productId);
-    return product?.Name || 'Produit inconnu';
-  }
-
-  function getWarehouseName(warehouseId: string): string {
-    const warehouse = warehouses.find((w) => w.WarehouseId === warehouseId);
-    return warehouse?.Name || 'Entrepôt inconnu';
-  }
-
-  // Fusionner stock items avec les données produits pour affichage visuel
-  function getEnrichedStockItems(): Array<StockItem & { product?: Product; warehouse?: Warehouse }> {
-    return stockItems.map((item) => ({
-      ...item,
-      product: products.find((p) => p.ProductId === item.ProductId),
-      warehouse: warehouses.find((w) => w.WarehouseId === item.WarehouseId),
-    }));
-  }
-
-  function getStockStatus(quantity: number, minimum: number): 'out' | 'low' | 'ok' {
-    if (quantity === 0) return 'out';
-    if (quantity <= minimum) return 'low';
-    return 'ok';
   }
 
   if (loading) {
@@ -150,8 +116,6 @@ export default function StockPage() {
       </ProtectedPage>
     );
   }
-
-  const enrichedItems = getEnrichedStockItems();
 
   return (
     <ProtectedPage permission={PERMISSIONS.STOCK_VIEW}>
@@ -255,12 +219,57 @@ export default function StockPage() {
               </button>
 
               <button
-                onClick={() => router.push('/stock/warehouses')}
+                onClick={() => router.push('/stock/overview')}
                 className="bg-gradient-to-br from-green-500 to-emerald-600 text-white rounded-xl p-4 hover:scale-105 active:scale-95 transition-transform"
               >
-                <WarehouseIcon className="w-8 h-8 mb-2 mx-auto" />
-                <p className="font-semibold text-sm">Entrepôts</p>
-                <p className="text-xs opacity-90 mt-1">Gérer lieux</p>
+                <Eye className="w-8 h-8 mb-2 mx-auto" />
+                <p className="font-semibold text-sm">État global</p>
+                <p className="text-xs opacity-90 mt-1">Matrice + cumul</p>
+              </button>
+            </div>
+          </div>
+
+          {/* Navigation par emplacement — accès direct aux vues focalisées */}
+          <div className="bg-white rounded-2xl shadow-xl p-6 mb-6">
+            <h2 className="font-bold text-lg mb-1">Stocks par emplacement</h2>
+            <p className="text-sm text-gray-600 mb-4">Voir le stock détaillé, filtrable et trié, d'un entrepôt ou d'un stand.</p>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <button
+                onClick={() => router.push('/stock/warehouses')}
+                className="text-left p-5 rounded-xl border-2 border-violet-200 hover:border-violet-400 hover:shadow-md transition-all bg-gradient-to-br from-violet-50 to-white"
+              >
+                <div className="flex items-center gap-3 mb-2">
+                  <div className="w-12 h-12 rounded-lg bg-violet-600 text-white flex items-center justify-center">
+                    <WarehouseIcon className="w-6 h-6" />
+                  </div>
+                  <div>
+                    <h3 className="font-bold text-gray-900">Entrepôts</h3>
+                    <p className="text-xs text-gray-600">{warehouses.length} entrepôt{warehouses.length > 1 ? 's' : ''} actif{warehouses.length > 1 ? 's' : ''}</p>
+                  </div>
+                </div>
+                <p className="text-sm text-gray-700">Stocks de réserve par entrepôt — comptage, transferts, valorisation.</p>
+                <div className="mt-3 text-sm font-semibold text-violet-700 flex items-center gap-1">
+                  Voir les entrepôts <ChevronRight className="w-4 h-4" />
+                </div>
+              </button>
+
+              <button
+                onClick={() => router.push('/stock/outlets')}
+                className="text-left p-5 rounded-xl border-2 border-amber-200 hover:border-amber-400 hover:shadow-md transition-all bg-gradient-to-br from-amber-50 to-white"
+              >
+                <div className="flex items-center gap-3 mb-2">
+                  <div className="w-12 h-12 rounded-lg bg-amber-600 text-white flex items-center justify-center">
+                    <Store className="w-6 h-6" />
+                  </div>
+                  <div>
+                    <h3 className="font-bold text-gray-900">Stands</h3>
+                    <p className="text-xs text-gray-600">Points de vente avec stock dédié</p>
+                  </div>
+                </div>
+                <p className="text-sm text-gray-700">Stocks des stands (POS) — vue par stand, alertes, mouvements rapides.</p>
+                <div className="mt-3 text-sm font-semibold text-amber-700 flex items-center gap-1">
+                  Voir les stands <ChevronRight className="w-4 h-4" />
+                </div>
               </button>
             </div>
           </div>
@@ -325,96 +334,6 @@ export default function StockPage() {
             </div>
           )}
 
-          {/* Filtres */}
-          <div className="bg-white rounded-2xl shadow-xl p-4 mb-4">
-            <div className="flex gap-2 overflow-x-auto">
-              <button
-                onClick={() => setFilter('all')}
-                className={`px-4 py-2 rounded-lg font-medium whitespace-nowrap transition-colors ${
-                  filter === 'all'
-                    ? 'bg-blue-600 text-white'
-                    : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                }`}
-              >
-                Tous les produits
-              </button>
-              <button
-                onClick={() => setFilter('low_stock')}
-                className={`px-4 py-2 rounded-lg font-medium whitespace-nowrap transition-colors ${
-                  filter === 'low_stock'
-                    ? 'bg-orange-600 text-white'
-                    : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                }`}
-              >
-                <AlertTriangle className="w-4 h-4 inline mr-1" />
-                Stock Faible
-              </button>
-              <button
-                onClick={() => setFilter('out_of_stock')}
-                className={`px-4 py-2 rounded-lg font-medium whitespace-nowrap transition-colors ${
-                  filter === 'out_of_stock'
-                    ? 'bg-red-600 text-white'
-                    : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                }`}
-              >
-                <TrendingDown className="w-4 h-4 inline mr-1" />
-                Ruptures
-              </button>
-            </div>
-          </div>
-
-          {/* Grille visuelle des produits */}
-          <div className="mb-4 px-2">
-            <p className="text-sm text-gray-600">
-              <span className="font-semibold text-gray-900">{enrichedItems.length}</span>{' '}
-              {enrichedItems.length > 1 ? 'produits' : 'produit'}
-            </p>
-          </div>
-
-          {enrichedItems.length === 0 ? (
-            <div className="text-center py-12 bg-white rounded-2xl shadow">
-              <Package className="w-16 h-16 text-gray-300 mx-auto mb-4" />
-              <p className="text-gray-500 mb-4">Aucun produit en stock</p>
-              <Button
-                onClick={() => router.push('/stock/movements/quick')}
-                className="bg-blue-600 hover:bg-blue-700"
-              >
-                <ArrowRightLeft className="w-5 h-5 mr-2" />
-                Ajouter du stock
-              </Button>
-            </div>
-          ) : (
-            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
-              {enrichedItems.map((item) => {
-                if (!item.product) return null;
-
-                return (
-                  <div key={item.StockItemId} className="relative">
-                    <ProductVisualCard
-                      product={item.product}
-                      stockQuantity={item.Quantity}
-                      minimumStock={item.MinimumStock}
-                      onClick={() => {
-                        // Show details or navigate
-                        router.push(`/stock/items/${item.StockItemId}`);
-                      }}
-                      showStock={true}
-                      size="md"
-                    />
-                    {/* Badge entrepôt */}
-                    {item.warehouse && (
-                      <div className="absolute top-2 right-2 bg-white/90 backdrop-blur-sm px-2 py-1 rounded-lg shadow-sm">
-                        <p className="text-[10px] font-semibold text-gray-700 flex items-center gap-1">
-                          <WarehouseIcon className="w-3 h-3" />
-                          {item.warehouse.Name}
-                        </p>
-                      </div>
-                    )}
-                  </div>
-                );
-              })}
-            </div>
-          )}
         </div>
       </div>
     </ProtectedPage>

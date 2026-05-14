@@ -216,7 +216,11 @@ function ByLocationView({ data, locations }: { data: OverviewData; locations: Ov
           .map(p => ({ p, s: data.stock[p.id]?.[l.id] }))
           .filter(x => x.s && x.s.qty > 0);
         return (
-          <div key={l.id} className="bg-white p-4 rounded-2xl border">
+          <Link
+            key={l.id}
+            href={`/stock/locations/${l.kind}/${l.id}`}
+            className="block bg-white p-4 rounded-2xl border hover:border-blue-400 hover:shadow-md transition-all"
+          >
             <div className="flex items-center justify-between mb-2">
               <div className="flex items-center gap-2">
                 {l.kind === 'warehouse'
@@ -225,7 +229,7 @@ function ByLocationView({ data, locations }: { data: OverviewData; locations: Ov
                 <h3 className="font-bold">{l.name}</h3>
               </div>
               <span className={`text-xs px-2 py-0.5 rounded-full ${l.kind === 'warehouse' ? 'bg-violet-100 text-violet-800' : 'bg-amber-100 text-amber-800'}`}>
-                {l.kind === 'warehouse' ? 'Entrepôt' : 'Outlet'}
+                {l.kind === 'warehouse' ? 'Entrepôt' : 'Stand'}
               </span>
             </div>
             <div className="text-xs text-gray-600 mb-3">
@@ -243,7 +247,8 @@ function ByLocationView({ data, locations }: { data: OverviewData; locations: Ov
                 ))}
               </div>
             )}
-          </div>
+            <div className="mt-3 text-xs text-blue-600 font-medium">Voir le détail →</div>
+          </Link>
         );
       })}
     </div>
