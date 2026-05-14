@@ -50,10 +50,18 @@ export class MovementService {
     workspaceId: string,
     type: StockMovementType
   ): Promise<string> {
+    // Comptage SQL direct : le parser legacy filterByFormula ne supporte pas
+    // YEAR(...) et retombait sur tout-le-workspace (bug documenté).
     const year = new Date().getFullYear();
-    const movements = await postgresClient.list<StockMovement>('stock_movements', {
-      filterByFormula: `AND({workspace_id} = '${workspaceId}', {type} = '${type}', YEAR({processed_at}) = ${year})`,
-    });
+    const r = await postgresClient.query<{ n: number }>(
+      `SELECT COUNT(*)::int AS n
+       FROM stock_movements
+       WHERE workspace_id = $1
+         AND type = $2
+         AND EXTRACT(YEAR FROM processed_at) = $3`,
+      [workspaceId, type, year]
+    );
+    const movements = { length: r.rows[0]?.n ?? 0 };
 
     const prefixes: Record<StockMovementType, string> = {
       entry: 'ENT',

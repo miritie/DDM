@@ -86,102 +86,111 @@ export async function POST(request: NextRequest) {
       resolvedLocationId = or.rows[0].id;
     }
 
+    // Tout ou rien : la boucle entière est encapsulée dans une transaction.
+    // Si une seule ligne échoue, on rollback toute l'inventaire pour ne pas
+    // laisser de mises à jour partielles.
+    const locationCol = warehouseId ? 'warehouse_id' : 'outlet_id';
+    const movDestCol  = warehouseId ? 'destination_warehouse_id' : 'destination_outlet_id';
+    const locationId = resolvedLocationId;
+
     let processed = 0;
     const errors: Array<{ productId: string; message: string }> = [];
 
-    for (const adj of adjustments) {
-      try {
-        // 0) Résoud productId : on accepte UUID ou slug `product_id` VARCHAR
-        const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(adj.productId);
-        let productUuid: string;
-        if (isUuid) {
-          productUuid = adj.productId;
-        } else {
-          const pr = await db.query(
-            `SELECT id FROM products WHERE product_id = $1 OR code = $1 LIMIT 1`,
-            [adj.productId]
-          );
-          if (pr.rows.length === 0) {
-            errors.push({ productId: adj.productId, message: 'Produit introuvable' });
-            continue;
-          }
-          productUuid = pr.rows[0].id;
-        }
-
-        // 1) Trouve ou crée le stock_item pour ce produit sur cet emplacement
-        const locationCol = warehouseId ? 'warehouse_id' : 'outlet_id';
-        const locationId = resolvedLocationId;
-
-        const existing = await db.query(
-          `SELECT id, quantity, unit_cost FROM stock_items
-           WHERE product_id = $1 AND ${locationCol} = $2
-           LIMIT 1`,
-          [productUuid, locationId]
-        );
-
-        const newQty = Number(adj.countedQuantity);
-        let stockItemId: string;
-        let unitCost: number;
-
-        if (existing.rows.length > 0) {
-          stockItemId = existing.rows[0].id;
-          unitCost = Number(existing.rows[0].unit_cost);
-          await db.query(
-            `UPDATE stock_items
-             SET quantity = $2, total_value = $2 * unit_cost, updated_at = CURRENT_TIMESTAMP
-             WHERE id = $1`,
-            [stockItemId, newQty]
-          );
-        } else {
-          // Crée la ligne — résolveur de coût (moyenne pondérée des autres lignes du produit, sinon 50% prix vente)
-          const avg = await db.query(
-            `SELECT SUM(quantity * unit_cost) / NULLIF(SUM(quantity), 0) AS w
-             FROM stock_items WHERE product_id = $1 AND unit_cost > 0 AND quantity > 0`,
-            [productUuid]
-          );
-          if (avg.rows[0]?.w) {
-            unitCost = Number(avg.rows[0].w);
+    try {
+      await db.transaction(async (client) => {
+        for (const adj of adjustments) {
+          // 0) Résoud productId : UUID ou slug `product_id` VARCHAR
+          const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(adj.productId);
+          let productUuid: string;
+          if (isUuid) {
+            productUuid = adj.productId;
           } else {
-            const p = await db.query(`SELECT unit_price FROM products WHERE id = $1`, [productUuid]);
-            unitCost = Number(p.rows[0]?.unit_price || 0) * 0.5;
+            const pr = await client.query(
+              `SELECT id FROM products WHERE product_id = $1 OR code = $1 LIMIT 1`,
+              [adj.productId]
+            );
+            if (pr.rows.length === 0) {
+              throw new Error(`Produit introuvable : ${adj.productId}`);
+            }
+            productUuid = pr.rows[0].id;
           }
-          const r = await db.query(
-            `INSERT INTO stock_items
-              (stock_item_id, product_id, ${locationCol}, quantity, minimum_stock,
-               unit_cost, total_value, workspace_id)
-             VALUES ($1, $2, $3, $4, 0, $5, $4 * $5, $6) RETURNING id`,
-            [`STK-${uuidv4().slice(0, 8)}`, productUuid, locationId, newQty, unitCost, workspaceId]
+
+          // 1) Trouve ou crée la ligne stock_items pour cet emplacement
+          const existing = await client.query(
+            `SELECT id, quantity, unit_cost FROM stock_items
+             WHERE product_id = $1 AND ${locationCol} = $2
+             LIMIT 1`,
+            [productUuid, locationId]
           );
-          stockItemId = r.rows[0].id;
+
+          const newQty = Number(adj.countedQuantity);
+          let unitCost: number;
+
+          if (existing.rows.length > 0) {
+            unitCost = Number(existing.rows[0].unit_cost);
+            const newTotalValue = newQty * unitCost;
+            await client.query(
+              `UPDATE stock_items
+               SET quantity = $2, total_value = $3, updated_at = CURRENT_TIMESTAMP
+               WHERE id = $1`,
+              [existing.rows[0].id, newQty, newTotalValue]
+            );
+          } else {
+            // Coût : moyenne pondérée des autres lignes du produit, sinon 50% prix vente
+            const avg = await client.query(
+              `SELECT SUM(quantity * unit_cost) / NULLIF(SUM(quantity), 0) AS w
+               FROM stock_items WHERE product_id = $1 AND unit_cost > 0 AND quantity > 0`,
+              [productUuid]
+            );
+            if (avg.rows[0]?.w) {
+              unitCost = Number(avg.rows[0].w);
+            } else {
+              const p = await client.query(`SELECT unit_price FROM products WHERE id = $1`, [productUuid]);
+              unitCost = Number(p.rows[0]?.unit_price || 0) * 0.5;
+            }
+            // total_value pré-calculé côté JS pour éviter l'ambiguïté de type
+            // PostgreSQL sur `$x * $y` (operator is not unique: unknown * unknown).
+            const totalValue = newQty * unitCost;
+            await client.query(
+              `INSERT INTO stock_items
+                (stock_item_id, product_id, ${locationCol}, quantity, minimum_stock,
+                 unit_cost, total_value, workspace_id)
+               VALUES ($1, $2, $3, $4, 0, $5, $6, $7)`,
+              [`STK-${uuidv4().slice(0, 8)}`, productUuid, locationId, newQty, unitCost, totalValue, workspaceId]
+            );
+          }
+
+          // 2) Trace le mouvement (type 'adjustment')
+          await client.query(
+            `INSERT INTO stock_movements
+              (movement_id, movement_number, type, product_id,
+               ${movDestCol},
+               quantity, unit_cost, total_cost, reason, status,
+               processed_by_id, processed_at, workspace_id)
+             VALUES ($1, $2, 'adjustment', $3, $4, $5, $6, $7, $8, 'validated', $9, CURRENT_TIMESTAMP, $10)`,
+            [
+              uuidv4(),
+              `INV-${Date.now()}-${processed}`,
+              productUuid,
+              locationId,
+              Math.abs(Number(adj.difference)),
+              unitCost,
+              Math.abs(Number(adj.difference)) * unitCost,
+              notes || `Ajustement inventaire (compté ${adj.countedQuantity}, attendu ${adj.currentQuantity})`,
+              userUuid,
+              workspaceId,
+            ]
+          );
+
+          processed++;
         }
-
-        // 2) Trace le mouvement (type 'adjustment')
-        await db.query(
-          `INSERT INTO stock_movements
-            (movement_id, movement_number, type, product_id,
-             ${warehouseId ? 'destination_warehouse_id' : 'destination_outlet_id'},
-             quantity, unit_cost, total_cost, reason, status,
-             processed_by_id, processed_at, workspace_id)
-           VALUES ($1, $2, 'adjustment', $3, $4, $5, $6, $7, $8, 'validated', $9, CURRENT_TIMESTAMP, $10)`,
-          [
-            uuidv4(),
-            `INV-${Date.now()}-${processed}`,
-            productUuid,
-            locationId,
-            Math.abs(Number(adj.difference)),
-            unitCost,
-            Math.abs(Number(adj.difference)) * unitCost,
-            notes || `Ajustement inventaire (compté ${adj.countedQuantity}, attendu ${adj.currentQuantity})`,
-            userUuid,
-            workspaceId,
-          ]
-        );
-
-        processed++;
-      } catch (e: any) {
-        console.error(`[inventory] adj ${adj.productId}:`, e.message);
-        errors.push({ productId: adj.productId, message: e.message });
-      }
+      });
+    } catch (e: any) {
+      console.error('[inventory] rollback transaction:', e.message);
+      return NextResponse.json(
+        { error: `Inventaire annulé : ${e.message}` },
+        { status: 500 }
+      );
     }
 
     return NextResponse.json({

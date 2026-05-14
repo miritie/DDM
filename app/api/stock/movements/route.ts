@@ -109,12 +109,14 @@ async function increaseStock(workspaceId: string, productUuid: string, locationK
       [existing.rows[0].id, newQty]
     );
   } else {
+    // total_value pré-calculé côté JS pour éviter l'ambiguïté de type Postgres.
+    const totalValue = qty * unitCost;
     await db.query(
       `INSERT INTO stock_items
         (stock_item_id, product_id, ${col}, quantity, minimum_stock,
          unit_cost, total_value, workspace_id)
-       VALUES ($1, $2, $3, $4, 0, $5, $4 * $5, $6)`,
-      [`STK-${uuidv4().slice(0, 8)}`, productUuid, locationId, qty, unitCost, workspaceId]
+       VALUES ($1, $2, $3, $4, 0, $5, $6, $7)`,
+      [`STK-${uuidv4().slice(0, 8)}`, productUuid, locationId, qty, unitCost, totalValue, workspaceId]
     );
   }
 }
