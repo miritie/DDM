@@ -52,13 +52,17 @@ export function ClientSelector({ value, onChange, disabled, autoFocus }: Props) 
   const inputRef = useRef<HTMLInputElement>(null);
   const blurTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // Debounced search
+  // Charge les clients dès l'ouverture du dropdown — pas besoin de taper
+  // pour voir la base. Si une recherche est saisie, on filtre en debounce.
   useEffect(() => {
-    if (!open || !query.trim()) { setSuggestions([]); return; }
+    if (!open) return;
     const t = setTimeout(async () => {
       try {
         setLoading(true);
-        const r = await fetch(`/api/clients?isActive=true&search=${encodeURIComponent(query)}`);
+        const url = query.trim()
+          ? `/api/clients?isActive=true&search=${encodeURIComponent(query)}`
+          : `/api/clients?isActive=true`;
+        const r = await fetch(url, { cache: 'no-store' });
         const j = await r.json();
         setSuggestions((j.data || []).slice(0, 8));
       } catch {
@@ -66,7 +70,7 @@ export function ClientSelector({ value, onChange, disabled, autoFocus }: Props) 
       } finally {
         setLoading(false);
       }
-    }, 250);
+    }, query.trim() ? 250 : 0);
     return () => clearTimeout(t);
   }, [query, open]);
 
@@ -185,43 +189,54 @@ export function ClientSelector({ value, onChange, disabled, autoFocus }: Props) 
             )}
           </div>
 
-          {/* Dropdown suggestions */}
-          {open && (query.trim() || suggestions.length === 0) && (
+          {/* Dropdown suggestions — toujours affiché à l'ouverture */}
+          {open && (
             <div
               onMouseDown={() => { if (blurTimerRef.current) clearTimeout(blurTimerRef.current); }}
               className="absolute top-full left-0 right-0 mt-1 bg-white border border-gray-200 rounded-lg shadow-lg z-30 max-h-72 overflow-y-auto"
             >
-              {suggestions.length > 0 ? (
-                <ul>
-                  {suggestions.map(s => (
-                    <li key={s.id}>
-                      <button
-                        type="button"
-                        onClick={() => select(s)}
-                        className="w-full text-left px-3 py-2 hover:bg-blue-50 transition-colors flex items-center gap-2"
-                      >
-                        <Building2 className="w-4 h-4 text-gray-400 flex-shrink-0" />
-                        <div className="flex-1 min-w-0">
-                          <div className="font-medium text-gray-900 truncate">
-                            {s.companyName || s.name}
+              {loading && suggestions.length === 0 ? (
+                <div className="px-3 py-3 text-sm text-gray-500 text-center">
+                  <Loader2 className="w-4 h-4 inline animate-spin mr-1" /> Chargement…
+                </div>
+              ) : suggestions.length > 0 ? (
+                <>
+                  {!query.trim() && (
+                    <div className="px-3 py-1.5 text-xs text-gray-400 uppercase tracking-wider bg-gray-50 border-b border-gray-100">
+                      Clients existants
+                    </div>
+                  )}
+                  <ul>
+                    {suggestions.map(s => (
+                      <li key={s.id}>
+                        <button
+                          type="button"
+                          onClick={() => select(s)}
+                          className="w-full text-left px-3 py-2 hover:bg-blue-50 transition-colors flex items-center gap-2"
+                        >
+                          <Building2 className="w-4 h-4 text-gray-400 flex-shrink-0" />
+                          <div className="flex-1 min-w-0">
+                            <div className="font-medium text-gray-900 truncate">
+                              {s.companyName || s.name}
+                            </div>
+                            <div className="text-xs text-gray-500 truncate">
+                              <span className="font-mono mr-2">{s.code}</span>
+                              {s.companyName && <span className="mr-2">{s.name}</span>}
+                              {s.phone && <span>📞 {s.phone}</span>}
+                            </div>
                           </div>
-                          <div className="text-xs text-gray-500 truncate">
-                            <span className="font-mono mr-2">{s.code}</span>
-                            {s.companyName && <span className="mr-2">{s.name}</span>}
-                            {s.phone && <span>📞 {s.phone}</span>}
-                          </div>
-                        </div>
-                      </button>
-                    </li>
-                  ))}
-                </ul>
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                </>
               ) : query.trim() ? (
                 <div className="px-3 py-3 text-sm text-gray-500 text-center">
                   Aucun client ne correspond à « {query} »
                 </div>
               ) : (
                 <div className="px-3 py-3 text-sm text-gray-500 text-center">
-                  Tapez pour rechercher…
+                  Aucun client enregistré pour l'instant.
                 </div>
               )}
               <button
