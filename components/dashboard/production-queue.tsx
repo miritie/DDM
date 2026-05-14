@@ -180,7 +180,7 @@ export function ProductionQueue() {
                   expanded={expanded.has(r.id)}
                   onToggle={() => toggle(r.id)}
                   onOpenDetail={() => router.push(`/replenishments/${r.replenishment_id}`)}
-                  onCreateOP={() => router.push(`/production/orders/new?replenishmentId=${r.replenishment_id}`)}
+                  onCreateOP={() => router.push(`/production/orders/new?replenishmentId=${r.id}`)}
                 />
               ))}
             </div>

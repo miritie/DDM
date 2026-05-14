@@ -114,7 +114,7 @@ function NewProductionOrderContent() {
 
         if (replenishmentSlug) {
           const all = [...(j.data.replenishmentsPending || []), ...(j.data.replenishmentsInProgress || [])];
-          const rep = all.find((o: any) => o.replenishment_id === replenishmentSlug);
+          const rep = all.find((o: any) => o.id === replenishmentSlug);
           if (!rep) return;
           setLinkedReplenishment(rep);
           const firstLine = rep.lines?.[0];
@@ -183,7 +183,7 @@ function NewProductionOrderContent() {
         // Lien avec la commande client négociée si on vient de la corbeille
         customerOrderId: linkedCustomerOrder?.order_id || customerOrderSlug || undefined,
         // Lien avec un réappro stand si on vient de la corbeille production
-        replenishmentId: linkedReplenishment?.replenishment_id || replenishmentSlug || undefined,
+        replenishmentId: linkedReplenishment?.id || replenishmentSlug || undefined,
       };
 
       const response = await fetch('/api/production/orders', {
