@@ -11,7 +11,7 @@ import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import {
   Inbox, ChevronRight, ChevronDown, ChevronUp, Factory, ShoppingBag,
-  RefreshCw, AlertCircle, Truck, Package, Phone, CheckCircle, ArrowRight,
+  RefreshCw, AlertCircle, Truck, Package, Phone, CheckCircle, ArrowRight, Store,
 } from 'lucide-react';
 
 const fmt = (n: number | string | undefined) =>
@@ -52,6 +52,8 @@ interface OrderRow {
 interface QueueData {
   pending: OrderRow[];
   inProgress: OrderRow[];
+  replenishmentsPending: any[];
+  replenishmentsInProgress: any[];
   totalCount: number;
 }
 
@@ -98,7 +100,9 @@ export function ProductionQueue() {
   if (error) return null; // silencieux si permission manquante
   if (!data) return null;
 
-  const total = data.pending.length + data.inProgress.length;
+  const repPending = data.replenishmentsPending || [];
+  const repInProgress = data.replenishmentsInProgress || [];
+  const total = data.pending.length + data.inProgress.length + repPending.length + repInProgress.length;
 
   return (
     <div className="bg-white rounded-2xl shadow-xl border-2 border-blue-200">
@@ -111,8 +115,8 @@ export function ProductionQueue() {
             <h2 className="font-bold text-lg">Corbeille production</h2>
             <p className="text-sm text-gray-600">
               {total === 0
-                ? 'Aucune commande à produire'
-                : `${data.pending.length} en attente · ${data.inProgress.length} en cours`}
+                ? 'Aucune sollicitation à produire'
+                : `${data.pending.length + repPending.length} en attente · ${data.inProgress.length + repInProgress.length} en cours`}
             </p>
           </div>
         </div>
@@ -162,6 +166,47 @@ export function ProductionQueue() {
           </div>
         )}
 
+        {/* Réapprovisionnements stands à produire */}
+        {repPending.length > 0 && (
+          <div>
+            <h3 className="text-sm font-semibold text-cyan-800 mb-2 flex items-center gap-1">
+              <Store className="w-4 h-4" /> Réappro stands à produire ({repPending.length})
+            </h3>
+            <div className="space-y-2">
+              {repPending.map((r: any) => (
+                <ReplenishmentCard
+                  key={r.id}
+                  replenishment={r}
+                  expanded={expanded.has(r.id)}
+                  onToggle={() => toggle(r.id)}
+                  onOpenDetail={() => router.push(`/replenishments/${r.replenishment_id}`)}
+                  onCreateOP={() => router.push('/production/orders/new')}
+                />
+              ))}
+            </div>
+          </div>
+        )}
+        {repInProgress.length > 0 && (
+          <div>
+            <h3 className="text-sm font-semibold text-purple-800 mb-2 flex items-center gap-1">
+              <Factory className="w-4 h-4" /> Réappro en production ({repInProgress.length})
+            </h3>
+            <div className="space-y-2">
+              {repInProgress.map((r: any) => (
+                <ReplenishmentCard
+                  key={r.id}
+                  replenishment={r}
+                  expanded={expanded.has(r.id)}
+                  onToggle={() => toggle(r.id)}
+                  tone="purple"
+                  onOpenDetail={() => router.push(`/replenishments/${r.replenishment_id}`)}
+                  onOpenOP={() => router.push(`/production/orders/${r.linked_op_slug}`)}
+                />
+              ))}
+            </div>
+          </div>
+        )}
+
         {total === 0 && (
           <div className="text-center py-8">
             <CheckCircle className="w-12 h-12 text-green-500 mx-auto mb-2" />
@@ -172,6 +217,92 @@ export function ProductionQueue() {
           </div>
         )}
       </div>
+    </div>
+  );
+}
+
+function ReplenishmentCard({ replenishment: r, expanded, onToggle, onOpenDetail, onCreateOP, onOpenOP, tone = 'cyan' }: {
+  replenishment: any;
+  expanded: boolean;
+  onToggle: () => void;
+  onOpenDetail: () => void;
+  onCreateOP?: () => void;
+  onOpenOP?: () => void;
+  tone?: 'cyan' | 'purple';
+}) {
+  const border = tone === 'purple' ? 'border-purple-200 bg-purple-50/30' : 'border-cyan-200 bg-cyan-50/30';
+  const lines = (r.lines || []) as any[];
+  const totalReq = lines.reduce((s, l) => s + Number(l.quantity_requested), 0);
+  const totalProd = lines.reduce((s, l) => s + Number(l.quantity_produced), 0);
+  return (
+    <div className={`border-2 rounded-xl ${border}`}>
+      <button onClick={onToggle} className="w-full flex items-center justify-between p-3 text-left hover:bg-white/50 rounded-xl transition-colors">
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2 mb-1 flex-wrap">
+            <span className="font-semibold">Réappro stands</span>
+            <span className="text-xs px-2 py-0.5 rounded bg-white border">{r.replenishment_number}</span>
+            {r.linked_op_status && (
+              <span className="text-xs px-2 py-0.5 rounded bg-purple-200 text-purple-900">
+                OP {r.linked_op_status}
+              </span>
+            )}
+          </div>
+          <p className="text-sm text-gray-600">
+            par <strong>{r.requested_by_name || 'Manager commercial'}</strong> · {lines.length} produit{lines.length > 1 ? 's' : ''}
+            {totalReq > 0 && <> · {fmt(totalProd)}/{fmt(totalReq)} produits</>}
+            {r.requested_delivery_date && <> · livraison {fmtDate(r.requested_delivery_date)}</>}
+          </p>
+        </div>
+        {expanded ? <ChevronUp className="w-5 h-5 text-gray-400" /> : <ChevronDown className="w-5 h-5 text-gray-400" />}
+      </button>
+
+      {expanded && (
+        <div className="border-t bg-white px-3 py-3 rounded-b-xl space-y-3">
+          <div>
+            <h4 className="text-xs font-semibold text-gray-500 uppercase mb-1">Produits demandés</h4>
+            <div className="space-y-1">
+              {lines.map((l) => (
+                <div key={l.id} className="flex items-center justify-between text-sm bg-gray-50 rounded p-2">
+                  <div className="min-w-0">
+                    <p className="font-medium truncate">{l.product_name}</p>
+                    <p className="text-xs text-gray-500">{l.product_code}</p>
+                  </div>
+                  <div className="text-right shrink-0 ml-3">
+                    <p className="font-semibold">{fmt(l.quantity_requested)}</p>
+                    {l.available_recipe_slug ? (
+                      <p className="text-xs text-green-600">✓ recette dispo</p>
+                    ) : (
+                      <p className="text-xs text-orange-600">⚠ pas de recette</p>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {r.notes && (
+            <div className="text-xs bg-yellow-50 border border-yellow-200 rounded p-2 text-yellow-900">
+              <strong>Note :</strong> {r.notes}
+            </div>
+          )}
+
+          <div className="flex gap-2 flex-wrap">
+            <button onClick={onOpenDetail} className="px-3 py-2 bg-cyan-600 hover:bg-cyan-700 text-white rounded-lg text-sm font-medium flex items-center gap-1">
+              <Truck className="w-4 h-4" /> Détail réappro
+            </button>
+            {onOpenOP && (
+              <button onClick={onOpenOP} className="px-3 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-lg text-sm font-medium flex items-center gap-1">
+                <Factory className="w-4 h-4" /> Ouvrir l'OP
+              </button>
+            )}
+            {onCreateOP && (
+              <button onClick={onCreateOP} className="px-3 py-2 bg-orange-600 hover:bg-orange-700 text-white rounded-lg text-sm font-medium flex items-center gap-1">
+                <Factory className="w-4 h-4" /> Créer un OP
+              </button>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

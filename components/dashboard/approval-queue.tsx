@@ -13,13 +13,14 @@
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import {
-  AlertTriangle, ShoppingCart, Factory, ShoppingBag, ChevronRight, RefreshCw, CheckCircle,
+  AlertTriangle, ShoppingCart, Factory, ShoppingBag, ChevronRight, RefreshCw, CheckCircle, Truck,
 } from 'lucide-react';
 
 interface QueueData {
   customerOrders: any[];
   productionOrders: any[];
   purchaseRequests: any[];
+  replenishments: any[];
   totalCount: number;
 }
 
@@ -91,7 +92,7 @@ export function ApprovalQueue() {
         </button>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 divide-y lg:divide-y-0 lg:divide-x">
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 divide-y md:divide-y-0 md:divide-x">
         <Column
           icon={<ShoppingCart className="w-5 h-5 text-blue-600" />}
           title="Commandes clients"
@@ -102,6 +103,17 @@ export function ApprovalQueue() {
             onClick: () => router.push(`/orders/${co.order_id}`),
           }))}
           emptyText="Aucune commande à valider"
+        />
+        <Column
+          icon={<Truck className="w-5 h-5 text-cyan-600" />}
+          title="Réappro stands"
+          items={(data.replenishments || []).map((r) => ({
+            id: r.replenishment_id,
+            primary: r.requested_by_name || 'Manager commercial',
+            secondary: `${r.replenishment_number} · ${r.line_count} produit(s) · ${fmt(r.total_value_estimate)} XOF`,
+            onClick: () => router.push(`/replenishments/${r.replenishment_id}`),
+          }))}
+          emptyText="Aucun réappro à valider"
         />
         <Column
           icon={<Factory className="w-5 h-5 text-orange-600" />}

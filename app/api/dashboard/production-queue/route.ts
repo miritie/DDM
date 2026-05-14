@@ -58,11 +58,48 @@ export async function GET(_req: NextRequest) {
     const pending = ordersR.rows.filter((o) => !o.linked_op_id);
     const inProgress = ordersR.rows.filter((o) => !!o.linked_op_id);
 
+    // Réappro stands à produire (validés par admin, à fabriquer)
+    const replenishmentsR = await db.query(
+      `SELECT r.id, r.replenishment_id, r.replenishment_number, r.status,
+              r.total_value_estimate, r.requested_delivery_date, r.notes,
+              r.approved_at, r.production_order_id,
+              u.full_name AS requested_by_name,
+              (SELECT po.production_order_id FROM production_orders po
+               WHERE po.id = r.production_order_id LIMIT 1) AS linked_op_slug,
+              (SELECT po.status::text FROM production_orders po
+               WHERE po.id = r.production_order_id LIMIT 1) AS linked_op_status
+       FROM stand_replenishment_orders r
+       LEFT JOIN users u ON u.id = r.requested_by_id
+       WHERE r.workspace_id = $1
+         AND r.status IN ('approved', 'in_production')
+       ORDER BY r.approved_at DESC NULLS LAST, r.updated_at DESC`,
+      [workspaceId]
+    );
+    // Charge les lignes pour chaque réappro
+    for (const r of replenishmentsR.rows) {
+      const linesR = await db.query(
+        `SELECT rl.id, rl.product_id, rl.product_name,
+                rl.quantity_requested, rl.quantity_produced,
+                p.code AS product_code,
+                (SELECT rc.recipe_id FROM recipes rc
+                 WHERE rc.product_id = rl.product_id AND rc.is_active = true AND rc.workspace_id = $2
+                 ORDER BY rc.version DESC LIMIT 1) AS available_recipe_slug
+         FROM stand_replenishment_lines rl
+         JOIN products p ON p.id = rl.product_id
+         WHERE rl.replenishment_id = $1
+         ORDER BY rl.created_at`,
+        [r.id, workspaceId]
+      );
+      r.lines = linesR.rows;
+    }
+
     return NextResponse.json({
       data: {
-        pending,            // commandes approuvées en attente de prise en charge
-        inProgress,         // commandes avec un OP lié (déjà prise en charge)
-        totalCount: ordersR.rowCount,
+        pending,                                          // commandes clients
+        inProgress,                                       // commandes clients en cours
+        replenishmentsPending: replenishmentsR.rows.filter((r) => !r.linked_op_slug),
+        replenishmentsInProgress: replenishmentsR.rows.filter((r) => !!r.linked_op_slug),
+        totalCount: ordersR.rowCount! + replenishmentsR.rowCount!,
       },
     });
   } catch (e: any) {

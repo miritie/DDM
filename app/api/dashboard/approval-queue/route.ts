@@ -2,9 +2,10 @@
  * GET /api/dashboard/approval-queue
  *
  * Agrège tout ce qui attend une validation admin :
- *   - customer_orders status='submitted'
- *   - production_orders status='submitted'
- *   - expense_requests status='submitted' (incluant purchase_requests achat MP)
+ *   - customer_orders status='submitted'                 (commandes négociées)
+ *   - production_orders status='submitted'               (OP à approuver)
+ *   - expense_requests achat_mp status='submitted'       (achats MP)
+ *   - stand_replenishment_orders status='submitted'      (réappro stands)
  *
  * Permission : admin ou tout user avec une perm d'approbation.
  */
@@ -24,14 +25,18 @@ export async function GET(_req: NextRequest) {
       try {
         await requirePermission(PERMISSIONS.PURCHASE_REQUEST_APPROVE);
       } catch {
-        await requirePermission(PERMISSIONS.EXPENSE_APPROVE);
+        try {
+          await requirePermission(PERMISSIONS.EXPENSE_APPROVE);
+        } catch {
+          await requirePermission(PERMISSIONS.REPLENISHMENT_APPROVE);
+        }
       }
     }
 
     const workspaceId = await getCurrentWorkspaceId();
     // workspaceId vient en UUID via getCurrentWorkspaceId — pas besoin de resolve.
 
-    const [coR, poR, prR] = await Promise.all([
+    const [coR, poR, prR, rpR] = await Promise.all([
       // Commandes clients soumises
       db.query(
         `SELECT id, order_id, order_number, client_name, total_amount, currency,
@@ -63,6 +68,19 @@ export async function GET(_req: NextRequest) {
          ORDER BY er.submitted_at DESC NULLS LAST LIMIT 50`,
         [workspaceId]
       ),
+      // Réapprovisionnements stands (depuis l'usine vers les points de vente)
+      db.query(
+        `SELECT r.id, r.replenishment_id, r.replenishment_number,
+                r.total_value_estimate, r.requested_delivery_date,
+                r.updated_at,
+                u.full_name AS requested_by_name,
+                (SELECT COUNT(*)::int FROM stand_replenishment_lines WHERE replenishment_id = r.id) AS line_count
+         FROM stand_replenishment_orders r
+         LEFT JOIN users u ON u.id = r.requested_by_id
+         WHERE r.workspace_id = $1 AND r.status = 'submitted'
+         ORDER BY r.updated_at DESC LIMIT 50`,
+        [workspaceId]
+      ),
     ]);
 
     return NextResponse.json({
@@ -70,7 +88,8 @@ export async function GET(_req: NextRequest) {
         customerOrders: coR.rows,
         productionOrders: poR.rows,
         purchaseRequests: prR.rows,
-        totalCount: coR.rowCount! + poR.rowCount! + prR.rowCount!,
+        replenishments: rpR.rows,
+        totalCount: coR.rowCount! + poR.rowCount! + prR.rowCount! + rpR.rowCount!,
       },
     });
   } catch (e: any) {
