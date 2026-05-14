@@ -449,6 +449,22 @@ export class ProductionOrderService {
        WHERE id = $1`,
       [order.id]
     );
+
+    // Si OP rattaché à une commande client négociée, passer la commande
+    // en 'in_production' et y inscrire le production_order_id.
+    // Garde conditionnel sur status='approved' pour ne pas écraser un état
+    // avancé saisi manuellement.
+    if (order.CustomerOrderId) {
+      await db.query(
+        `UPDATE customer_orders
+           SET status = 'in_production',
+               production_order_id = $2,
+               updated_at = CURRENT_TIMESTAMP
+         WHERE id = $1 AND status = 'approved'`,
+        [order.CustomerOrderId, order.id]
+      );
+    }
+
     return (await this.getById(order.id!))!;
   }
 
@@ -593,6 +609,18 @@ export class ProductionOrderService {
        WHERE id = $1`,
       [order.id]
     );
+
+    // Si OP rattaché à une commande client, fait avancer la commande à 'produced'.
+    // Garde conditionnel : seulement si elle est encore 'in_production'.
+    if (order.CustomerOrderId) {
+      await db.query(
+        `UPDATE customer_orders
+           SET status = 'produced', updated_at = CURRENT_TIMESTAMP
+         WHERE id = $1 AND status = 'in_production'`,
+        [order.CustomerOrderId]
+      );
+    }
+
     return (await this.getById(order.id!))!;
   }
 

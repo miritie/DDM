@@ -6,7 +6,7 @@
  */
 
 import { useState, useEffect } from 'react';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import {
   Factory,
   ChevronLeft,
@@ -17,6 +17,7 @@ import {
   Warehouse as WarehouseIcon,
   AlertTriangle,
   User,
+  ShoppingCart,
 } from 'lucide-react';
 import { Recipe, Warehouse, Product } from '@/types/modules';
 import { RecipeCard } from '@/components/production/recipe-card';
@@ -49,6 +50,8 @@ const priorityConfig: Record<Priority, { label: string; color: string; gradient:
 
 export default function NewProductionOrderPage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const customerOrderSlug = searchParams?.get('customerOrderId') ?? null;
   const [step, setStep] = useState(1); // 1: Recette, 2: Quantité + Dates, 3: Entrepôts + Priorité, 4: Confirmation
   const [recipes, setRecipes] = useState<Recipe[]>([]);
   const [warehouses, setWarehouses] = useState<Warehouse[]>([]);
@@ -64,6 +67,9 @@ export default function NewProductionOrderPage() {
   const [priority, setPriority] = useState<Priority>('normal');
   const [notes, setNotes] = useState('');
 
+  // Si on vient d'une commande client : pré-remplissage automatique
+  const [linkedCustomerOrder, setLinkedCustomerOrder] = useState<any | null>(null);
+
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
 
@@ -75,6 +81,34 @@ export default function NewProductionOrderPage() {
     setPlannedStartDate(today.toISOString().split('T')[0]);
     setPlannedEndDate(nextWeek.toISOString().split('T')[0]);
   }, []);
+
+  // Pré-remplit le wizard quand on arrive avec ?customerOrderId=
+  useEffect(() => {
+    if (!customerOrderSlug || recipes.length === 0 || linkedCustomerOrder) return;
+    (async () => {
+      try {
+        const r = await fetch('/api/dashboard/production-queue');
+        if (!r.ok) return;
+        const j = await r.json();
+        const all = [...(j.data.pending || []), ...(j.data.inProgress || [])];
+        const co = all.find((o: any) => o.order_id === customerOrderSlug);
+        if (!co) return;
+        setLinkedCustomerOrder(co);
+
+        // Première ligne → recette
+        const firstLine = co.lines?.[0];
+        if (!firstLine) return;
+        const recipeMatch = recipes.find((r) => r.RecipeId === firstLine.available_recipe_slug);
+        if (recipeMatch) {
+          setSelectedRecipe(recipeMatch);
+          setPlannedQuantity(Number(firstLine.quantity) || 1);
+        }
+        setNotes(`Pour commande ${co.order_number} — ${co.client_full_name || co.client_name || ''}`.trim());
+        // Saute directement à l'étape 2 (qty/dates) si recette résolue
+        if (recipeMatch) setStep(2);
+      } catch {}
+    })();
+  }, [customerOrderSlug, recipes, linkedCustomerOrder]);
 
   async function loadData() {
     try {
@@ -125,6 +159,8 @@ export default function NewProductionOrderPage() {
         sourceWarehouseId: sourceWarehouse?.WarehouseId,
         destinationWarehouseId: destinationWarehouse?.WarehouseId,
         notes: notes || undefined,
+        // Lien avec la commande client négociée si on vient de la corbeille
+        customerOrderId: linkedCustomerOrder?.order_id || customerOrderSlug || undefined,
       };
 
       const response = await fetch('/api/production/orders', {
@@ -189,6 +225,34 @@ export default function NewProductionOrderPage() {
 
       {/* Contenu */}
       <div className="max-w-7xl mx-auto px-4 -mt-4">
+        {/* Bandeau commande client liée (si on vient de la corbeille) */}
+        {linkedCustomerOrder && (
+          <div className="bg-blue-50 border-2 border-blue-200 rounded-2xl p-4 mb-4 flex items-start gap-3">
+            <div className="w-10 h-10 bg-blue-500 rounded-xl flex items-center justify-center text-white shrink-0">
+              <ShoppingCart className="w-5 h-5" />
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className="font-semibold text-blue-900">
+                Pour la commande {linkedCustomerOrder.order_number}
+              </p>
+              <p className="text-sm text-blue-700">
+                Client : <strong>{linkedCustomerOrder.client_full_name || linkedCustomerOrder.client_name}</strong>
+                {' · '}{linkedCustomerOrder.lines?.length} produit(s)
+                {' · '}Total {Number(linkedCustomerOrder.total_amount).toLocaleString('fr-FR')} XOF
+              </p>
+              <p className="text-xs text-blue-600 mt-1">
+                À la création de l'OP, la commande passera automatiquement en « in_production ».
+              </p>
+            </div>
+            <button
+              onClick={() => { setLinkedCustomerOrder(null); router.replace('/production/orders/new'); }}
+              className="text-xs text-blue-600 hover:text-blue-800 underline shrink-0"
+            >
+              Détacher
+            </button>
+          </div>
+        )}
+
         {/* Étape 1: Sélection recette */}
         {step === 1 && (
           <div className="bg-white rounded-2xl shadow-xl p-6">
