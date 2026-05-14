@@ -134,6 +134,25 @@ export default function AdminDashboardPage() {
       </div>
 
       <div className="container mx-auto p-6 space-y-8">
+        {/* Lien vers l'espace PCA (synthèses, formules, contrôle) */}
+        <Link
+          href="/dashboard/pca"
+          className="block bg-gradient-to-r from-purple-700 via-fuchsia-700 to-pink-700 text-white rounded-2xl p-5 shadow-lg hover:shadow-xl transition-shadow"
+        >
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-4">
+              <div className="w-12 h-12 bg-white/20 rounded-xl flex items-center justify-center">
+                <Lock className="w-6 h-6" />
+              </div>
+              <div>
+                <h3 className="font-bold text-lg">Espace PCA</h3>
+                <p className="text-sm opacity-90">Synthèses stratégiques, formules confidentielles, contrôle</p>
+              </div>
+            </div>
+            <span className="text-2xl">→</span>
+          </div>
+        </Link>
+
         {/* File de validation — sollicitations en attente */}
         <ApprovalQueue />
 

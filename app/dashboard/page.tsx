@@ -14,7 +14,7 @@ import { getPostgresClient } from '@/lib/database/postgres-client';
  */
 const ROLE_DASHBOARDS: Record<string, string> = {
   admin:                  '/dashboard/admin',
-  pca:                    '/dashboard/dg',
+  pca:                    '/dashboard/pca',
   dg:                     '/dashboard/dg',
   manager:                '/dashboard/manager',
   manager_commercial:     '/dashboard/manager',
