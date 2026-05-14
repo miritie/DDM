@@ -38,12 +38,27 @@ export default function CustomerDetailPage() {
 
   const [customer, setCustomer] = useState<Customer | null>(null);
   const [transactions, setTransactions] = useState<LoyaltyTransaction[]>([]);
+  const [pmLabels, setPmLabels] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<TabType>('info');
+
+  const PM_FALLBACK: Record<string, string> = {
+    cash: 'Espèces', bank_transfer: 'Virement', mobile_money: 'Mobile Money',
+    check: 'Chèque', card: 'Carte / TPE', other: 'Autre',
+  };
+  const pmLabel = (code: string) => pmLabels[code] || PM_FALLBACK[code] || code;
 
   useEffect(() => {
     loadCustomer();
     loadTransactions();
+    fetch('/api/treasury/payment-methods')
+      .then(r => r.ok ? r.json() : { data: [] })
+      .then(d => {
+        const map: Record<string, string> = {};
+        (d.data || []).forEach((m: any) => { map[m.Code] = m.Label; });
+        setPmLabels(map);
+      })
+      .catch(() => {});
   }, [customerId]);
 
   const loadCustomer = async () => {
@@ -312,7 +327,7 @@ export default function CustomerDetailPage() {
                     <div className="space-y-2">
                       <div className="flex items-center justify-between p-3 bg-gray-50 rounded-xl">
                         <span className="text-gray-600">Mode de paiement préféré</span>
-                        <Badge>{customer.PreferredPaymentMethod}</Badge>
+                        <Badge>{pmLabel(customer.PreferredPaymentMethod)}</Badge>
                       </div>
                       <div className="flex items-center justify-between p-3 bg-gray-50 rounded-xl">
                         <span className="text-gray-600">Recevoir les promotions</span>

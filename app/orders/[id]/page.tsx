@@ -22,18 +22,38 @@ const STATUS_LABELS: Record<string, string> = {
   delivered: 'Livrée', completed: 'Soldée & terminée', cancelled: 'Annulée',
 };
 
+const PM_FALLBACK: Record<string, string> = {
+  cash: 'Espèces', bank_transfer: 'Virement', mobile_money: 'Mobile Money',
+  check: 'Chèque', card: 'Carte / TPE', other: 'Autre',
+};
+
 export default function OrderDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
   const router = useRouter();
   const [order, setOrder] = useState<any>(null);
+  const [pmLabels, setPmLabels] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState<string | null>(null);
+
+  function pmLabel(code: string) {
+    return pmLabels[code] || PM_FALLBACK[code] || code;
+  }
 
   function load() {
     setLoading(true);
     fetch(`/api/customer-orders/${id}`).then(r => r.json()).then(d => setOrder(d.data)).finally(() => setLoading(false));
   }
-  useEffect(() => { load(); }, [id]);
+  useEffect(() => {
+    load();
+    fetch('/api/treasury/payment-methods')
+      .then(r => r.ok ? r.json() : { data: [] })
+      .then(d => {
+        const map: Record<string, string> = {};
+        (d.data || []).forEach((m: any) => { map[m.Code] = m.Label; });
+        setPmLabels(map);
+      })
+      .catch(() => {});
+  }, [id]);
 
   async function callTransition(action: string, body: any = {}) {
     if (!confirm(`Confirmer l'action : ${action} ?`)) return;
@@ -217,7 +237,7 @@ export default function OrderDetailPage({ params }: { params: Promise<{ id: stri
                 {order.payments.map((p: any) => (
                   <tr key={p.id}>
                     <td className="px-3 py-2 text-xs">{new Date(p.payment_date).toLocaleString('fr-FR')}</td>
-                    <td className="px-3 py-2">{p.payment_method}</td>
+                    <td className="px-3 py-2">{pmLabel(p.payment_method)}</td>
                     <td className="px-3 py-2 text-xs">{p.wallet_name || '—'}</td>
                     <td className="px-3 py-2 text-right font-bold">{Number(p.amount).toLocaleString('fr-FR')}</td>
                     <td className="px-3 py-2 text-xs">{p.is_advance ? 'Avance' : 'Paiement'}</td>
@@ -266,24 +286,45 @@ function Money({ label, value, color, highlight }: { label: string; value: strin
 function PayButton({ orderId, balance, onPaid }: { orderId: string; balance: number; onPaid: () => void }) {
   const [open, setOpen] = useState(false);
   const [amount, setAmount] = useState(balance);
-  const [method, setMethod] = useState('cash');
+  const [methodCode, setMethodCode] = useState('');
   const [walletId, setWalletId] = useState('');
   const [wallets, setWallets] = useState<any[]>([]);
+  const [methods, setMethods] = useState<Array<{ PaymentMethodId: string; Code: string; Label: string; RequiredWalletType?: string | null }>>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => { if (open) fetch('/api/treasury/wallets?isActive=true').then(r => r.json()).then(d => setWallets(d.data || [])); }, [open]);
-  const reqType = method === 'cash' ? 'cash' : method === 'mobile_money' ? 'mobile_money' : 'bank';
-  const filtered = wallets.filter(w => (w.Type || w.type) === reqType);
+  useEffect(() => {
+    if (!open) return;
+    Promise.all([
+      fetch('/api/treasury/wallets?isActive=true').then(r => r.json()),
+      fetch('/api/treasury/payment-methods?isActive=true').then(r => r.json()),
+    ]).then(([w, m]) => {
+      setWallets(w.data || []);
+      const list = m.data || [];
+      setMethods(list);
+      if (list.length > 0) setMethodCode(list[0].Code);
+    });
+  }, [open]);
+
+  const currentMethod = methods.find(m => m.Code === methodCode);
+  const reqType = currentMethod?.RequiredWalletType ?? null;
+  const filtered = reqType ? wallets.filter(w => (w.Type || w.type) === reqType) : [];
+
+  useEffect(() => {
+    if (!reqType) { setWalletId(''); return; }
+    if (filtered.length > 0) setWalletId(filtered[0].Id || filtered[0].id || '');
+    else setWalletId('');
+  }, [methodCode, reqType, filtered]);
 
   async function submit() {
     if (amount <= 0 || amount > balance) { setError(`Montant entre 1 et ${balance}`); return; }
-    if (filtered.length > 0 && !walletId) { setError('Sélectionnez un wallet'); return; }
+    if (!currentMethod) { setError('Sélectionnez un mode de paiement'); return; }
+    if (reqType && !walletId) { setError(`Sélectionnez un portefeuille ${reqType}`); return; }
     setBusy(true); setError(null);
     try {
       const r = await fetch(`/api/customer-orders/${orderId}/payments`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ amount, paymentMethod: method, walletId: walletId || undefined }),
+        body: JSON.stringify({ amount, paymentMethod: methodCode, walletId: walletId || undefined }),
       });
       const result = await r.json();
       if (!r.ok) throw new Error(result.error || `HTTP ${r.status}`);
@@ -298,25 +339,38 @@ function PayButton({ orderId, balance, onPaid }: { orderId: string; balance: num
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center p-4 z-50" onClick={() => setOpen(false)}>
           <div onClick={e => e.stopPropagation()} className="bg-white rounded-2xl p-6 max-w-md w-full">
             <h3 className="font-bold text-lg mb-3">Encaisser un paiement</h3>
-            <p className="text-sm text-gray-600 mb-3">Solde dû : <strong>{balance.toLocaleString('fr-FR')} XOF</strong></p>
+            <p className="text-sm text-gray-600 mb-4">Solde dû : <strong>{balance.toLocaleString('fr-FR')} XOF</strong></p>
             <div className="space-y-3">
-              <select value={method} onChange={e => setMethod(e.target.value)} className="w-full px-3 py-2 border rounded">
-                <option value="cash">Espèces</option>
-                <option value="mobile_money">Mobile Money</option>
-                <option value="card">TPE / Carte</option>
-              </select>
-              {filtered.length > 0 ? (
-                <select value={walletId} onChange={e => setWalletId(e.target.value)} className="w-full px-3 py-2 border rounded">
-                  <option value="">— Wallet —</option>
-                  {filtered.map((w: any) => <option key={w.Id || w.id} value={w.Id || w.id}>{w.Name || w.name}</option>)}
+              <div>
+                <label className="text-xs text-gray-600 block mb-1">Mode de paiement <span className="text-red-500">*</span></label>
+                <select value={methodCode} onChange={e => setMethodCode(e.target.value)} className="w-full px-3 py-2 border rounded">
+                  {methods.length === 0 && <option value="">Aucun moyen configuré</option>}
+                  {methods.map(m => <option key={m.PaymentMethodId} value={m.Code}>{m.Label}</option>)}
                 </select>
-              ) : (
-                <p className="text-sm text-amber-700">Aucun wallet de ce type. <a href="/treasury/wallets/new" className="underline">En créer</a></p>
+              </div>
+              {reqType && (
+                <div>
+                  <label className="text-xs text-gray-600 block mb-1">
+                    Portefeuille <span className="text-red-500">*</span>
+                    <span className="ml-2 text-gray-400">({reqType})</span>
+                  </label>
+                  {filtered.length > 0 ? (
+                    <select value={walletId} onChange={e => setWalletId(e.target.value)} className="w-full px-3 py-2 border rounded">
+                      <option value="">— Sélectionner —</option>
+                      {filtered.map((w: any) => <option key={w.Id || w.id} value={w.Id || w.id}>{w.Name || w.name}</option>)}
+                    </select>
+                  ) : (
+                    <p className="text-sm text-amber-700">Aucun portefeuille de type <strong>{reqType}</strong>. <a href="/treasury/wallets/new" className="underline">En créer un</a></p>
+                  )}
+                </div>
               )}
-              <input type="number" min={1} max={balance} value={amount} onChange={e => setAmount(Number(e.target.value))}
-                className="w-full px-3 py-2 border rounded text-right text-xl font-bold" />
+              <div>
+                <label className="text-xs text-gray-600 block mb-1">Montant (XOF)</label>
+                <input type="number" min={1} max={balance} value={amount} onChange={e => setAmount(Number(e.target.value))}
+                  className="w-full px-3 py-2 border rounded text-right text-xl font-bold" />
+              </div>
               {error && <p className="text-sm text-red-700">{error}</p>}
-              <div className="flex gap-2 justify-end">
+              <div className="flex gap-2 justify-end pt-2">
                 <Button variant="outline" onClick={() => setOpen(false)}>Annuler</Button>
                 <Button onClick={submit} disabled={busy}>{busy ? '…' : 'Encaisser'}</Button>
               </div>

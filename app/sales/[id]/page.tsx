@@ -22,6 +22,7 @@ export default function SaleDetailPage() {
   const [sale, setSale] = useState<(Sale & { items: SaleItem[] }) | null>(null);
   const [payments, setPayments] = useState<SalePayment[]>([]);
   const [wallets, setWallets] = useState<Wallet[]>([]);
+  const [pmLabels, setPmLabels] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
   const [showPaymentModal, setShowPaymentModal] = useState(false);
 
@@ -39,8 +40,20 @@ export default function SaleDetailPage() {
     if (id) {
       loadData();
       loadWallets();
+      loadPaymentMethodLabels();
     }
   }, [id]);
+
+  async function loadPaymentMethodLabels() {
+    try {
+      const r = await fetch('/api/treasury/payment-methods');
+      if (!r.ok) return;
+      const d = await r.json();
+      const map: Record<string, string> = {};
+      (d.data || []).forEach((m: any) => { map[m.Code] = m.Label; });
+      setPmLabels(map);
+    } catch { /* fallback table en dur conservée */ }
+  }
 
   async function loadData() {
     try {
@@ -181,12 +194,15 @@ export default function SaleDetailPage() {
   }
 
   function getPaymentMethodLabel(method: string) {
+    // Priorité : label depuis la table payment_methods (chargé async).
+    // Fallback : table en dur sur les codes système, pour rendu instantané.
+    if (pmLabels[method]) return pmLabels[method];
     const labels: Record<string, string> = {
       cash: 'Espèces',
-      bank_transfer: 'Virement bancaire',
+      bank_transfer: 'Virement',
       mobile_money: 'Mobile Money',
       check: 'Chèque',
-      card: 'Carte bancaire',
+      card: 'Carte / TPE',
       other: 'Autre',
     };
     return labels[method] || method;

@@ -2,29 +2,45 @@
 
 /**
  * Nouvelle commande client négociée.
- * Saisi par le manager commercial — passe en statut 'draft' jusqu'à l'approbation admin.
+ *
+ * - Client : sélection parmi les clients grossistes existants OU création silencieuse
+ *   via <ClientSelector />. Plus de saisie texte non-tracée.
+ * - Moyens de paiement : chargés dynamiquement depuis /api/treasury/payment-methods
+ *   (table activable, plus de codé en dur).
+ * - L'avance, si > 0, exige mode + wallet explicites.
  */
 
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { ProtectedPage } from '@/components/rbac/protected-page';
 import { PERMISSIONS } from '@/lib/rbac';
 import { Button } from '@/components/ui/button';
 import { ArrowLeft, Plus, Trash2, Loader2 } from 'lucide-react';
+import { ClientSelector, SelectedClient } from '@/components/clients/client-selector';
 
 interface Product { Id?: string; id?: string; Name: string; Code: string; UnitPrice: number }
 interface Warehouse { Id?: string; id?: string; Name?: string; name?: string }
 interface Wallet { id?: string; Id?: string; Name?: string; name?: string; Type?: string; type?: string }
+interface PaymentMethod {
+  Id?: string;
+  PaymentMethodId: string;
+  Code: string;
+  Label: string;
+  RequiredWalletType?: string | null;
+}
 
 export default function NewOrderPage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const initialClientId = searchParams?.get('clientId') || null;
+
   const [products, setProducts] = useState<Product[]>([]);
   const [warehouses, setWarehouses] = useState<Warehouse[]>([]);
   const [wallets, setWallets] = useState<Wallet[]>([]);
+  const [methods, setMethods] = useState<PaymentMethod[]>([]);
 
-  const [clientName, setClientName] = useState('');
-  const [clientPhone, setClientPhone] = useState('');
+  const [client, setClient] = useState<SelectedClient | null>(null);
   const [destWarehouseId, setDestWarehouseId] = useState('');
   const [requestedDeliveryDate, setRequestedDeliveryDate] = useState('');
   const [notes, setNotes] = useState('');
@@ -35,7 +51,7 @@ export default function NewOrderPage() {
 
   // Avance
   const [advanceAmount, setAdvanceAmount] = useState(0);
-  const [advanceMethod, setAdvanceMethod] = useState<'cash' | 'mobile_money' | 'card'>('cash');
+  const [advanceMethodCode, setAdvanceMethodCode] = useState('cash');
   const [advanceWalletId, setAdvanceWalletId] = useState('');
 
   const [submitting, setSubmitting] = useState(false);
@@ -46,16 +62,56 @@ export default function NewOrderPage() {
       fetch('/api/products?isActive=true').then(r => r.json()),
       fetch('/api/stock/warehouses?isActive=true').then(r => r.json()),
       fetch('/api/treasury/wallets?isActive=true').then(r => r.json()),
-    ]).then(([p, w, wa]) => {
-      setProducts(p.data || []); setWarehouses(w.data || []); setWallets(wa.data || []);
+      fetch('/api/treasury/payment-methods?isActive=true').then(r => r.json()),
+    ]).then(([p, w, wa, pm]) => {
+      setProducts(p.data || []);
+      setWarehouses(w.data || []);
+      setWallets(wa.data || []);
+      const list: PaymentMethod[] = pm.data || [];
+      setMethods(list);
+      if (list.length > 0 && !list.find(m => m.Code === advanceMethodCode)) {
+        setAdvanceMethodCode(list[0].Code);
+      }
     });
+    // Pré-sélection client si arrivée via /clients/[id] → "Nouvelle commande"
+    if (initialClientId) {
+      fetch(`/api/clients/${initialClientId}`)
+        .then(r => r.ok ? r.json() : null)
+        .then(j => {
+          if (j?.data?.client) {
+            const c = j.data.client;
+            setClient({ id: c.id, name: c.name, companyName: c.companyName, phone: c.phone, code: c.code });
+          }
+        })
+        .catch(() => {});
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const totalLines = lines.reduce((s, l) => s + (Number(l.quantity) * Number(l.unitPrice)), 0);
   const balance = totalLines - Number(advanceAmount || 0);
 
-  const requiredWalletType = advanceMethod === 'cash' ? 'cash' : advanceMethod === 'mobile_money' ? 'mobile_money' : 'bank';
-  const filteredWallets = wallets.filter(w => (w.Type || w.type) === requiredWalletType);
+  const currentMethod = useMemo(
+    () => methods.find(m => m.Code === advanceMethodCode) || null,
+    [methods, advanceMethodCode]
+  );
+  const requiredWalletType = currentMethod?.RequiredWalletType ?? null;
+  const filteredWallets = useMemo(
+    () => requiredWalletType
+      ? wallets.filter(w => (w.Type || w.type) === requiredWalletType)
+      : [],
+    [wallets, requiredWalletType]
+  );
+
+  // Si la méthode change, re-sélectionne le 1er wallet compatible
+  useEffect(() => {
+    if (!requiredWalletType) { setAdvanceWalletId(''); return; }
+    if (filteredWallets.length > 0) {
+      setAdvanceWalletId(filteredWallets[0].Id || filteredWallets[0].id || '');
+    } else {
+      setAdvanceWalletId('');
+    }
+  }, [advanceMethodCode, requiredWalletType, filteredWallets]);
 
   function updateLine(i: number, patch: Partial<typeof lines[number]>) {
     setLines(ls => ls.map((l, idx) => idx === i ? { ...l, ...patch } : l));
@@ -66,16 +122,21 @@ export default function NewOrderPage() {
   async function submit(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
-    if (!clientName.trim() && !clientPhone.trim()) { setError('Nom ou téléphone client requis'); return; }
+    if (!client) { setError('Choisir ou créer un client est obligatoire'); return; }
     if (lines.some(l => !l.productId || l.quantity <= 0 || l.unitPrice < 0)) {
       setError('Chaque ligne doit avoir un produit, une quantité et un prix valides'); return;
+    }
+    if (advanceAmount > 0) {
+      if (!currentMethod) { setError('Sélectionner un mode de paiement pour l\'avance'); return; }
+      if (requiredWalletType && !advanceWalletId) { setError(`Sélectionner un wallet ${requiredWalletType} pour l\'avance`); return; }
     }
 
     setSubmitting(true);
     try {
       const body: any = {
-        clientName: clientName.trim() || undefined,
-        clientPhone: clientPhone.trim() || undefined,
+        clientId: client.id,
+        clientName: client.companyName || client.name,
+        clientPhone: client.phone || undefined,
         totalAmount: totalLines,
         notes: notes || undefined,
         requestedDeliveryDate: requestedDeliveryDate || undefined,
@@ -88,7 +149,7 @@ export default function NewOrderPage() {
       if (advanceAmount > 0) {
         body.initialAdvance = {
           amount: Number(advanceAmount),
-          paymentMethod: advanceMethod,
+          paymentMethod: advanceMethodCode,
           walletId: advanceWalletId || undefined,
         };
       }
@@ -119,11 +180,11 @@ export default function NewOrderPage() {
 
         <form onSubmit={submit} className="space-y-4">
           {/* Client */}
-          <Section title="Client">
-            <div className="grid grid-cols-2 gap-3">
-              <Field label="Nom"      value={clientName}  onChange={setClientName}  placeholder="Nom du client" />
-              <Field label="Téléphone" value={clientPhone} onChange={setClientPhone} placeholder="Téléphone" />
-            </div>
+          <Section title="Client grossiste">
+            <p className="text-xs text-gray-600 mb-3">
+              Sélectionne un client existant ou crée-en un nouveau. Chaque commande doit être rattachée à un client tracé pour le suivi du compte.
+            </p>
+            <ClientSelector value={client} onChange={setClient} autoFocus={!initialClientId} />
           </Section>
 
           {/* Produits */}
@@ -167,7 +228,7 @@ export default function NewOrderPage() {
 
           {/* Logistique */}
           <Section title="Logistique">
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
               <div>
                 <label className="text-xs text-gray-600 block mb-1">Date livraison souhaitée</label>
                 <input type="date" value={requestedDeliveryDate} onChange={e => setRequestedDeliveryDate(e.target.value)}
@@ -181,7 +242,7 @@ export default function NewOrderPage() {
                   {warehouses.map(w => <option key={w.Id || w.id} value={w.Id || w.id}>{w.Name || w.name}</option>)}
                 </select>
               </div>
-              <div className="col-span-2">
+              <div className="md:col-span-2">
                 <label className="text-xs text-gray-600 block mb-1">Notes / conditions négociées</label>
                 <textarea value={notes} onChange={e => setNotes(e.target.value)} rows={2}
                   className="w-full px-3 py-2 border rounded" />
@@ -191,7 +252,7 @@ export default function NewOrderPage() {
 
           {/* Avance */}
           <Section title="Avance versée à la création (optionnel)">
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
               <div>
                 <label className="text-xs text-gray-600 block mb-1">Montant avance (XOF)</label>
                 <input type="number" min={0} max={totalLines} value={advanceAmount}
@@ -201,25 +262,34 @@ export default function NewOrderPage() {
               {advanceAmount > 0 && (
                 <>
                   <div>
-                    <label className="text-xs text-gray-600 block mb-1">Mode de paiement</label>
-                    <select value={advanceMethod} onChange={e => setAdvanceMethod(e.target.value as any)}
+                    <label className="text-xs text-gray-600 block mb-1">Mode de paiement <span className="text-red-500">*</span></label>
+                    <select value={advanceMethodCode} onChange={e => setAdvanceMethodCode(e.target.value)}
                       className="w-full px-3 py-2 border rounded">
-                      <option value="cash">Espèces</option>
-                      <option value="mobile_money">Mobile Money</option>
-                      <option value="card">TPE / Carte</option>
+                      {methods.length === 0 && <option value="">Aucun moyen configuré</option>}
+                      {methods.map(m => (
+                        <option key={m.PaymentMethodId} value={m.Code}>{m.Label}</option>
+                      ))}
                     </select>
                   </div>
-                  <div className="col-span-2">
-                    <label className="text-xs text-gray-600 block mb-1">Wallet d'encaissement</label>
-                    <select value={advanceWalletId} onChange={e => setAdvanceWalletId(e.target.value)}
-                      className="w-full px-3 py-2 border rounded">
-                      <option value="">— Sélectionner —</option>
-                      {filteredWallets.map(w => <option key={w.Id || w.id} value={w.Id || w.id}>{w.Name || w.name}</option>)}
-                    </select>
-                    {filteredWallets.length === 0 && (
-                      <p className="text-xs text-amber-700 mt-1">Aucun wallet de type {requiredWalletType}. <a href="/treasury/wallets/new" className="underline">En créer</a>.</p>
-                    )}
-                  </div>
+                  {requiredWalletType && (
+                    <div className="md:col-span-2">
+                      <label className="text-xs text-gray-600 block mb-1">
+                        Portefeuille d'encaissement <span className="text-red-500">*</span>
+                        <span className="ml-2 text-gray-400">({requiredWalletType})</span>
+                      </label>
+                      <select value={advanceWalletId} onChange={e => setAdvanceWalletId(e.target.value)}
+                        className="w-full px-3 py-2 border rounded">
+                        <option value="">— Sélectionner —</option>
+                        {filteredWallets.map(w => <option key={w.Id || w.id} value={w.Id || w.id}>{w.Name || w.name}</option>)}
+                      </select>
+                      {filteredWallets.length === 0 && (
+                        <p className="text-xs text-amber-700 mt-1">
+                          Aucun portefeuille de type <strong>{requiredWalletType}</strong>.{' '}
+                          <Link href="/treasury/wallets/new" className="underline">En créer un</Link>.
+                        </p>
+                      )}
+                    </div>
+                  )}
                 </>
               )}
             </div>
@@ -248,16 +318,6 @@ function Section({ title, children }: { title: string; children: React.ReactNode
     <div className="bg-white p-5 rounded-2xl border">
       <h2 className="font-bold mb-3">{title}</h2>
       {children}
-    </div>
-  );
-}
-
-function Field({ label, value, onChange, placeholder }: { label: string; value: string; onChange: (v: string) => void; placeholder?: string }) {
-  return (
-    <div>
-      <label className="text-xs text-gray-600 block mb-1">{label}</label>
-      <input value={value} onChange={e => onChange(e.target.value)} placeholder={placeholder}
-        className="w-full px-3 py-2 border rounded" />
     </div>
   );
 }

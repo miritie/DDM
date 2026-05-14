@@ -32,6 +32,7 @@ import {
   Calculator,
   ShoppingBag,
   Eye,
+  Wallet as WalletIcon,
 } from 'lucide-react';
 import Link from 'next/link';
 import { LogoutButton } from '@/components/auth/logout-button';
@@ -353,6 +354,25 @@ export default function AdminDashboardPage() {
               </Card>
             </Link>
 
+            <Link href="/treasury">
+              <Card className="h-full border-2 border-emerald-200 hover:border-emerald-400 cursor-pointer transform hover:-translate-y-1 transition-all duration-200 group">
+                <CardHeader className="pb-4">
+                  <div className="w-14 h-14 rounded-xl bg-gradient-to-br from-emerald-500 to-emerald-600 flex items-center justify-center mb-3 shadow-medium group-hover:scale-110 transition-transform">
+                    <WalletIcon className="w-8 h-8 text-white" />
+                  </div>
+                  <CardTitle className="text-xl">Comptes & Moyens de paiement</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <p className="text-sm text-brown-600 mb-4">
+                    Portefeuilles (caisses, banques, Mobile Money) et méthodes acceptées — activer / désactiver
+                  </p>
+                  <div className="flex items-center gap-2 text-emerald-600 font-semibold text-sm group-hover:gap-3 transition-all">
+                    Configurer →
+                  </div>
+                </CardContent>
+              </Card>
+            </Link>
+
             <Link href="/dashboard/dg">
               <Card className="h-full border-2 border-green-200 hover:border-green-400 cursor-pointer transform hover:-translate-y-1 transition-all duration-200 group">
                 <CardHeader className="pb-4">
@@ -404,6 +424,44 @@ export default function AdminDashboardPage() {
                     P&L par stand, perf commerciaux, journaux de caisse
                   </p>
                   <div className="flex items-center gap-2 text-cyan-600 font-semibold text-sm group-hover:gap-3 transition-all">
+                    Accéder →
+                  </div>
+                </CardContent>
+              </Card>
+            </Link>
+
+            <Link href="/clients">
+              <Card className="h-full border-2 border-blue-200 hover:border-blue-400 cursor-pointer transform hover:-translate-y-1 transition-all duration-200 group">
+                <CardHeader className="pb-4">
+                  <div className="w-14 h-14 rounded-xl bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center mb-3 shadow-medium group-hover:scale-110 transition-transform">
+                    <Building2 className="w-8 h-8 text-white" />
+                  </div>
+                  <CardTitle className="text-xl">Clients grossistes</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <p className="text-sm text-brown-600 mb-4">
+                    Comptes B2B pour les commandes négociées
+                  </p>
+                  <div className="flex items-center gap-2 text-blue-600 font-semibold text-sm group-hover:gap-3 transition-all">
+                    Accéder →
+                  </div>
+                </CardContent>
+              </Card>
+            </Link>
+
+            <Link href="/replenishments">
+              <Card className="h-full border-2 border-violet-200 hover:border-violet-400 cursor-pointer transform hover:-translate-y-1 transition-all duration-200 group">
+                <CardHeader className="pb-4">
+                  <div className="w-14 h-14 rounded-xl bg-gradient-to-br from-violet-500 to-purple-600 flex items-center justify-center mb-3 shadow-medium group-hover:scale-110 transition-transform">
+                    <Boxes className="w-8 h-8 text-white" />
+                  </div>
+                  <CardTitle className="text-xl">Approvisionnements stands</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <p className="text-sm text-brown-600 mb-4">
+                    Commandes internes : production + distribution vers stands
+                  </p>
+                  <div className="flex items-center gap-2 text-violet-600 font-semibold text-sm group-hover:gap-3 transition-all">
                     Accéder →
                   </div>
                 </CardContent>

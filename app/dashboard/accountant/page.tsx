@@ -253,6 +253,13 @@ export default function AccountantDashboardPage() {
             >
               Gérer la trésorerie <ArrowRight className="w-4 h-4 ml-2" />
             </Button>
+            <Button
+              onClick={() => router.push('/treasury')}
+              variant="outline"
+              className="w-full mt-2 border-emerald-600 text-emerald-700 hover:bg-emerald-50"
+            >
+              Comptes & moyens de paiement <ArrowRight className="w-4 h-4 ml-2" />
+            </Button>
           </CardContent>
         </Card>
 

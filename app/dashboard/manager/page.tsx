@@ -349,7 +349,7 @@ export default function ManagerDashboardPage() {
               Saisissez les commandes clients négociées (multi-produits, prix négociés, avance).
               Elles déclenchent — après validation admin — une production et un transfert vers l'entrepôt destination.
             </p>
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
               <Button onClick={() => router.push('/orders/new')}
                 className="h-16 bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-700 hover:to-blue-700 text-white font-bold">
                 <Plus className="w-5 h-5 mr-1" /> Nouvelle commande
@@ -357,6 +357,14 @@ export default function ManagerDashboardPage() {
               <Button onClick={() => router.push('/orders')} variant="outline"
                 className="h-16 border-2 border-cyan-300 font-semibold">
                 <ClipboardList className="w-5 h-5 mr-1" /> Toutes les commandes
+              </Button>
+              <Button onClick={() => router.push('/clients')} variant="outline"
+                className="h-16 border-2 border-blue-300 text-blue-700 font-semibold hover:bg-blue-50">
+                <span className="text-base">🏢</span> Clients grossistes
+              </Button>
+              <Button onClick={() => router.push('/replenishments')} variant="outline"
+                className="h-16 border-2 border-violet-300 text-violet-700 font-semibold hover:bg-violet-50">
+                <span className="text-base">🚚</span> Approvisionner stands
               </Button>
             </div>
           </CardContent>
