@@ -4,7 +4,7 @@
  * Création d'un approvisionnement stand.
  * - 1+ produits avec quantité demandée
  * - pour chaque produit : ventilation sur 1+ stands cibles (somme = qty demandée)
- * - valorisation auto via products.unit_cost (modifiable par ligne)
+ * - valorisation auto au prix de vente (products.unit_price)
  */
 
 import { useEffect, useState } from 'react';
@@ -15,7 +15,7 @@ import { PERMISSIONS } from '@/lib/rbac';
 import { Button } from '@/components/ui/button';
 import { ArrowLeft, Plus, Trash2, Loader2, Truck } from 'lucide-react';
 
-interface Product { id: string; name: string; code: string; costPrice: number }
+interface Product { id: string; name: string; code: string; unitPrice: number }
 interface Outlet { id: string; code: string; name: string }
 
 interface LineForm {
@@ -43,7 +43,7 @@ export default function NewReplenishmentPage() {
       fetch('/api/stock/outlets').then(r => r.json()),
     ]).then(([p, o]) => {
       setProducts((p.data || []).map((x: any) => ({
-        id: x.id, name: x.name, code: x.code, costPrice: Number(x.costPrice || 0),
+        id: x.id, name: x.name, code: x.code, unitPrice: Number(x.unitPrice || 0),
       })));
       setOutlets((o.data || []).filter((x: any) => x.isActive).map((x: any) => ({
         id: x.id, code: x.slug, name: x.name,
@@ -75,7 +75,7 @@ export default function NewReplenishmentPage() {
 
   function onProductChange(i: number, productId: string) {
     const p = products.find(x => x.id === productId);
-    updateLine(i, { productId, unitCost: p?.costPrice || 0 });
+    updateLine(i, { productId, unitCost: p?.unitPrice || 0 });
   }
 
   function lineTotal(l: LineForm): number {
@@ -184,8 +184,8 @@ export default function NewReplenishmentPage() {
                       </div>
                       <div className="md:col-span-3">
                         <label className="text-xs text-gray-600 block mb-1">
-                          Coût unitaire
-                          <span className="ml-1 text-[10px] text-gray-400">(auto)</span>
+                          Prix unitaire
+                          <span className="ml-1 text-[10px] text-gray-400">(auto · prix de vente)</span>
                         </label>
                         <input type="number" value={l.unitCost} readOnly disabled
                           className="w-full px-2 py-1.5 border rounded text-sm text-right bg-gray-100 cursor-not-allowed" />
