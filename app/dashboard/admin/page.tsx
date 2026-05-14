@@ -36,6 +36,7 @@ import {
 } from 'lucide-react';
 import Link from 'next/link';
 import { LogoutButton } from '@/components/auth/logout-button';
+import { ApprovalQueue } from '@/components/dashboard/approval-queue';
 
 interface SystemStats {
   totalUsers: number;
@@ -133,6 +134,9 @@ export default function AdminDashboardPage() {
       </div>
 
       <div className="container mx-auto p-6 space-y-8">
+        {/* File de validation — sollicitations en attente */}
+        <ApprovalQueue />
+
         {/* Stats Système */}
         <div>
           <h2 className="text-2xl font-display font-bold text-brown-900 mb-4 flex items-center gap-2">

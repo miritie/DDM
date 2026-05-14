@@ -34,16 +34,40 @@ interface OrderSummary {
 }
 
 const STATUS_LABELS: Record<string, { label: string; color: string }> = {
-  draft:        { label: 'À valider',  color: 'amber' },
-  planned:      { label: 'Validé',     color: 'blue' },
-  in_progress:  { label: 'En cours',   color: 'purple' },
-  completed:    { label: 'Terminé',    color: 'emerald' },
-  cancelled:    { label: 'Annulé',     color: 'gray' },
+  draft:        { label: 'Brouillon',   color: 'gray'    },
+  submitted:    { label: 'À valider',   color: 'amber'   },
+  approved:     { label: 'Approuvée',   color: 'emerald' },
+  planned:      { label: 'Validé',      color: 'blue'    },
+  in_progress:  { label: 'En cours',    color: 'purple'  },
+  completed:    { label: 'Terminé',     color: 'emerald' },
+  cancelled:    { label: 'Annulé',      color: 'gray'    },
 };
+
+const fmt = (n: number | string | undefined) =>
+  new Intl.NumberFormat('fr-FR').format(Math.round(Number(n ?? 0)));
+
+interface AlertMP {
+  IngredientId: string;
+  Name: string;
+  CurrentStock: number;
+  MinimumStock: number;
+  Unit: string;
+}
+
+interface PRSummary {
+  id: string;
+  ExpenseRequestId: string;
+  RequestNumber: string;
+  Title: string;
+  Amount: number;
+  Status: string;
+}
 
 export default function ProductionDashboardPage() {
   const router = useRouter();
   const [orders, setOrders] = useState<OrderSummary[]>([]);
+  const [alertsMP, setAlertsMP] = useState<AlertMP[]>([]);
+  const [pendingPRs, setPendingPRs] = useState<PRSummary[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
 
@@ -52,10 +76,17 @@ export default function ProductionDashboardPage() {
   async function load() {
     setLoading(true);
     try {
-      const r = await fetch('/api/production/orders');
-      if (r.ok) {
-        const { data } = await r.json();
-        setOrders(data || []);
+      const [orderR, ingR, prR] = await Promise.all([
+        fetch('/api/production/orders'),
+        fetch('/api/production/ingredients?belowMinimum=true&isActive=true'),
+        fetch('/api/production/purchase-requests'),
+      ]);
+      if (orderR.ok) setOrders(((await orderR.json()).data) || []);
+      if (ingR.ok) setAlertsMP(((await ingR.json()).data) || []);
+      if (prR.ok) {
+        const data = ((await prR.json()).data) || [];
+        // On affiche les drafts et submitted (à suivre côté manager_prod)
+        setPendingPRs(data.filter((p: any) => ['draft', 'submitted', 'approved'].includes(p.Status)).slice(0, 10));
       }
     } finally { setLoading(false); }
   }
@@ -66,6 +97,7 @@ export default function ProductionDashboardPage() {
 
   const buckets = {
     draft:       orders.filter(o => o.Status === 'draft'),
+    submitted:   orders.filter(o => o.Status === 'submitted'),
     planned:     orders.filter(o => o.Status === 'planned'),
     in_progress: orders.filter(o => o.Status === 'in_progress'),
     completed:   orders.filter(o => o.Status === 'completed'),
@@ -94,33 +126,110 @@ export default function ProductionDashboardPage() {
         <div className="p-6 space-y-6">
 
           {/* KPIs par statut */}
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-            <KpiCard count={buckets.draft.length}        label="À valider"        color="amber"   icon={AlertTriangle} />
-            <KpiCard count={buckets.planned.length}      label="Validés à produire" color="blue"   icon={CheckCircle} />
+          <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+            <KpiCard count={buckets.draft.length}        label="Brouillons"       color="gray"    icon={Clock} />
+            <KpiCard count={buckets.submitted.length}    label="À valider"        color="amber"   icon={AlertTriangle} />
+            <KpiCard count={buckets.planned.length}      label="Validés"          color="blue"    icon={CheckCircle} />
             <KpiCard count={buckets.in_progress.length}  label="En cours"         color="purple"  icon={Play} />
             <KpiCard count={buckets.completed.length}    label="Terminés"         color="emerald" icon={CheckCircle} />
           </div>
 
-          {/* Bandeaux d'ordres */}
-          <Section title="Ordres en attente de validation" tone="amber"
-            description="Saisis par le manager commercial — à approuver par l'administrateur avant exécution."
-            orders={buckets.draft}
-            actionLabel="Voir & valider"
-            onItemClick={(o) => router.push('/production/orders')}
-            emptyText="Aucun ordre en attente." />
+          {/* Alerte MP sous mini */}
+          {alertsMP.length > 0 && (
+            <Card className="border-2 border-orange-300 bg-orange-50">
+              <CardHeader className="pb-2">
+                <CardTitle className="flex items-center gap-2 text-orange-900">
+                  <AlertTriangle className="w-5 h-5" />
+                  Matières premières sous le minimum
+                  <span className="ml-auto text-sm font-bold">{alertsMP.length}</span>
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2">
+                  {alertsMP.map((mp) => (
+                    <button
+                      key={mp.IngredientId}
+                      onClick={() => router.push(`/production/ingredients/${mp.IngredientId}`)}
+                      className="bg-white hover:bg-orange-100 rounded-lg p-2.5 text-left flex items-center gap-2 border border-orange-200"
+                    >
+                      <Package className="w-4 h-4 text-orange-600 shrink-0" />
+                      <div className="min-w-0 flex-1">
+                        <p className="font-medium text-sm truncate">{mp.Name}</p>
+                        <p className="text-xs text-gray-600">
+                          {fmt(mp.CurrentStock)} / min {fmt(mp.MinimumStock)} {mp.Unit}
+                        </p>
+                      </div>
+                    </button>
+                  ))}
+                </div>
+                <div className="mt-3 flex justify-end">
+                  <Link href="/production/purchase-requests/new" className="text-sm text-amber-700 font-semibold hover:underline flex items-center gap-1">
+                    Créer une sollicitation d'achat <ArrowRight className="w-3 h-3" />
+                  </Link>
+                </div>
+              </CardContent>
+            </Card>
+          )}
 
-          <Section title="Ordres validés à exécuter" tone="blue"
-            description="Ordres approuvés et prêts à démarrer. Vérifiez le stock d'ingrédients avant lancement."
+          {/* Achats MP en attente */}
+          {pendingPRs.length > 0 && (
+            <Card className="border-2 border-amber-200 bg-white">
+              <CardHeader className="pb-2">
+                <CardTitle className="flex items-center gap-2">
+                  <Package className="w-5 h-5 text-amber-600" />
+                  Sollicitations d'achat MP
+                  <span className="ml-auto text-xs bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full">{pendingPRs.length}</span>
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="space-y-2">
+                  {pendingPRs.slice(0, 5).map((pr) => (
+                    <button
+                      key={pr.id}
+                      onClick={() => router.push(`/production/purchase-requests/${pr.ExpenseRequestId}`)}
+                      className="w-full flex items-center justify-between p-3 bg-gray-50 hover:bg-gray-100 rounded border text-left"
+                    >
+                      <div>
+                        <p className="font-semibold text-sm">{pr.Title}</p>
+                        <p className="text-xs text-gray-600">
+                          {pr.RequestNumber} · {fmt(pr.Amount)} XOF · <span className="font-semibold">{STATUS_LABELS[pr.Status]?.label || pr.Status}</span>
+                        </p>
+                      </div>
+                      <ArrowRight className="w-4 h-4 text-gray-400" />
+                    </button>
+                  ))}
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
+          {/* Bandeaux d'ordres */}
+          <Section title="OP à soumettre (mes brouillons)" tone="gray"
+            description="Vos brouillons d'ordres en cours d'édition — à soumettre pour validation admin."
+            orders={buckets.draft}
+            actionLabel="Reprendre"
+            onItemClick={(o) => router.push(`/production/orders/${o.ProductionOrderId || o.id}`)}
+            emptyText="Aucun brouillon." />
+
+          <Section title="OP en attente de validation" tone="amber"
+            description="Soumis à l'administrateur — vous serez débloqué dès qu'il approuve."
+            orders={buckets.submitted}
+            actionLabel="Voir"
+            onItemClick={(o) => router.push(`/production/orders/${o.ProductionOrderId || o.id}`)}
+            emptyText="Aucun OP en validation." />
+
+          <Section title="OP validés à exécuter" tone="blue"
+            description="Approuvés par l'admin et prêts à démarrer. Vérifiez le stock d'ingrédients avant lancement."
             orders={buckets.planned}
             actionLabel="Démarrer"
-            onItemClick={(o) => router.push('/production/orders')}
+            onItemClick={(o) => router.push(`/production/orders/${o.ProductionOrderId || o.id}`)}
             emptyText="Aucun ordre prêt." />
 
-          <Section title="Ordres en cours de production" tone="purple"
-            description="Suivez l'avancement, consommez les intrants, créez les batches."
+          <Section title="OP en cours de production" tone="purple"
+            description="Suivez l'avancement, consommez les intrants, créez les lots."
             orders={buckets.in_progress}
             actionLabel="Suivre"
-            onItemClick={(o) => router.push('/production/orders')}
+            onItemClick={(o) => router.push(`/production/orders/${o.ProductionOrderId || o.id}`)}
             emptyText="Aucune production en cours." />
 
           {/* Actions rapides */}
@@ -157,9 +266,10 @@ function KpiCard({ count, label, color, icon: Icon }: { count: number; label: st
     blue: 'border-blue-200 bg-blue-50 text-blue-800',
     purple: 'border-purple-200 bg-purple-50 text-purple-800',
     emerald: 'border-emerald-200 bg-emerald-50 text-emerald-800',
+    gray: 'border-gray-200 bg-gray-50 text-gray-800',
   };
   return (
-    <div className={`p-4 rounded-2xl border-2 ${palette[color]}`}>
+    <div className={`p-4 rounded-2xl border-2 ${palette[color] || palette.gray}`}>
       <div className="flex items-center justify-between">
         <Icon className="w-6 h-6" />
         <span className="text-3xl font-bold">{count}</span>
@@ -170,13 +280,14 @@ function KpiCard({ count, label, color, icon: Icon }: { count: number; label: st
 }
 
 function Section({ title, tone, description, orders, actionLabel, onItemClick, emptyText }: {
-  title: string; tone: 'amber' | 'blue' | 'purple'; description: string;
+  title: string; tone: 'amber' | 'blue' | 'purple' | 'gray'; description: string;
   orders: OrderSummary[]; actionLabel: string; onItemClick: (o: OrderSummary) => void; emptyText: string;
 }) {
   const palette = {
     amber:  { card: 'border-amber-200 bg-white', badge: 'bg-amber-100 text-amber-700' },
     blue:   { card: 'border-blue-200 bg-white',  badge: 'bg-blue-100 text-blue-700' },
     purple: { card: 'border-purple-200 bg-white',badge: 'bg-purple-100 text-purple-700' },
+    gray:   { card: 'border-gray-200 bg-white',  badge: 'bg-gray-100 text-gray-700' },
   }[tone];
   return (
     <Card className={`border-2 ${palette.card}`}>
