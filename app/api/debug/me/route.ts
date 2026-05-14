@@ -1,5 +1,8 @@
 /**
- * GET /api/_debug/me — diagnostic session/RBAC.
+ * GET /api/debug/me — diagnostic session/RBAC.
+ *
+ * NB : dossier `debug` (sans underscore) car Next.js ignore les
+ * dossiers commençant par `_` dans le routing (private folders).
  *
  * Renvoie : userId, workspaceId, activeRoleId, liste des rôles assignés
  * (avec leur nom métier), union des permissions, et permissions du rôle

@@ -103,7 +103,7 @@ function AccessDeniedDiagnostic({
   const [diag, setDiag] = useState<any | null>(null);
 
   useEffect(() => {
-    fetch('/api/_debug/me', { cache: 'no-store' })
+    fetch('/api/debug/me', { cache: 'no-store' })
       .then(r => r.ok ? r.json() : null)
       .then(setDiag)
       .catch(() => setDiag(null));
