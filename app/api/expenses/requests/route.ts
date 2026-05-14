@@ -4,7 +4,7 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import { getCurrentWorkspaceId } from '@/lib/auth/get-session';
+import { getCurrentWorkspaceId, getCurrentUserId } from '@/lib/auth/get-session';
 import { ExpenseRequestService } from '@/lib/modules/expenses/expense-request-service';
 import { requirePermission, PERMISSIONS } from '@/lib/rbac/server';
 
@@ -45,17 +45,22 @@ export async function GET(request: NextRequest) {
 
 /**
  * POST /api/expenses/requests - Créer une demande
+ *
+ * Le requesterId est toujours déduit de la session (l'utilisateur courant est
+ * automatiquement le demandeur — jamais usurpable depuis le body).
  */
 export async function POST(request: NextRequest) {
   try {
     await requirePermission(PERMISSIONS.EXPENSE_CREATE);
 
     const workspaceId = await getCurrentWorkspaceId();
+    const requesterId = await getCurrentUserId();
     const body = await request.json();
 
     const expenseRequest = await service.create({
       ...body,
       workspaceId,
+      requesterId,
     });
 
     return NextResponse.json({ data: expenseRequest }, { status: 201 });

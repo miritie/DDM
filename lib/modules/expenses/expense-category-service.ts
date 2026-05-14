@@ -67,6 +67,48 @@ export class ExpenseCategoryService {
     });
   }
 
+  /**
+   * Liste les catégories accessibles à un utilisateur donné selon ses rôles.
+   * Une catégorie est accessible si :
+   *   - allowed_role_ids est NULL ou vide (public, accessible à tous)
+   *   - OU si l'un des rôles de l'utilisateur figure dans allowed_role_ids
+   *
+   * Utilise une requête SQL directe pour exploiter l'opérateur d'intersection
+   * de tableaux Postgres `&&` (plus efficace qu'un filterByFormula côté JS).
+   */
+  async listAccessibleForUser(
+    workspaceId: string,
+    userRoleIds: string[],
+    options: { onlyActive?: boolean } = { onlyActive: true }
+  ): Promise<any[]> {
+    const conds: string[] = ['workspace_id = $1'];
+    const params: any[] = [workspaceId];
+
+    if (options.onlyActive !== false) {
+      conds.push('is_active = true');
+    }
+
+    // Soit pas de restriction (public), soit au moins un rôle de l'utilisateur autorisé.
+    if (userRoleIds && userRoleIds.length > 0) {
+      params.push(userRoleIds);
+      conds.push(`(allowed_role_ids IS NULL OR cardinality(allowed_role_ids) = 0 OR allowed_role_ids && $${params.length}::uuid[])`);
+    } else {
+      // Utilisateur sans rôle : ne voit que les catégories publiques.
+      conds.push('(allowed_role_ids IS NULL OR cardinality(allowed_role_ids) = 0)');
+    }
+
+    const r = await postgresClient.query<any>(
+      `SELECT id, expense_category_id, label, code, description,
+              requires_pre_approval, icon, color, is_active,
+              allowed_role_ids, workspace_id, created_at, updated_at
+       FROM expense_categories
+       WHERE ${conds.join(' AND ')}
+       ORDER BY label ASC`,
+      params
+    );
+    return r.rows;
+  }
+
   async update(
     categoryId: string,
     updates: {

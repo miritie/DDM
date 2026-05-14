@@ -55,11 +55,27 @@ export class ExpenseRequestService {
     return created;
   }
 
-  async getById(requestId: string): Promise<ExpenseRequest | null> {
+  async getById(requestId: string): Promise<any | null> {
     const requests = await postgresClient.list<ExpenseRequest>('expense_requests', {
       filterByFormula: `{expense_request_id} = '${requestId}'`,
     });
-    return requests.length > 0 ? requests[0] : null;
+    if (requests.length === 0) return null;
+    const req = requests[0] as any;
+
+    // Enrichir avec les infos de la catégorie (label + code) — la page de
+    // détail en a besoin pour l'affichage et il n'y a pas (encore) de
+    // sous-catégorie distincte dans le nouveau modèle.
+    if (req.CategoryId) {
+      const catR = await postgresClient.query<any>(
+        `SELECT label, code FROM expense_categories WHERE id = $1 LIMIT 1`,
+        [req.CategoryId]
+      );
+      if (catR.rows[0]) {
+        req.CategoryLabel = catR.rows[0].label;
+        req.CategoryCode = catR.rows[0].code;
+      }
+    }
+    return req;
   }
 
   async list(

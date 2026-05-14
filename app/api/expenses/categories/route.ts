@@ -4,14 +4,23 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import { getCurrentWorkspaceId } from '@/lib/auth/get-session';
+import { getCurrentWorkspaceId, getCurrentUserRoleIds } from '@/lib/auth/get-session';
 import { ExpenseCategoryService } from '@/lib/modules/expenses/expense-category-service';
 import { requirePermission, PERMISSIONS } from '@/lib/rbac/server';
 
 const service = new ExpenseCategoryService();
 
 /**
- * GET /api/expenses/categories - Liste des catégories
+ * GET /api/expenses/categories
+ *
+ * Query params :
+ *   - isActive=true/false : filtre par statut actif
+ *   - accessibleFor=me    : ne retourne que les catégories accessibles à
+ *                           l'utilisateur courant selon ses rôles (à utiliser
+ *                           dans les formulaires de demande de dépense)
+ *
+ * Sans accessibleFor=me, retourne toutes les catégories du workspace
+ * (utilisé par la page admin pour gestion).
  */
 export async function GET(request: NextRequest) {
   try {
@@ -19,6 +28,13 @@ export async function GET(request: NextRequest) {
 
     const workspaceId = await getCurrentWorkspaceId();
     const { searchParams } = new URL(request.url);
+
+    if (searchParams.get('accessibleFor') === 'me') {
+      const userRoleIds = await getCurrentUserRoleIds();
+      const onlyActive = searchParams.get('isActive') !== 'false';
+      const data = await service.listAccessibleForUser(workspaceId, userRoleIds, { onlyActive });
+      return NextResponse.json({ data });
+    }
 
     const filters: any = {};
     if (searchParams.get('isActive')) {

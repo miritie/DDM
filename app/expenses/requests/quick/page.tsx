@@ -6,7 +6,7 @@
  * Accessible depuis partout: stands, terrain, usine, etc.
  */
 
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import {
   DollarSign,
@@ -17,10 +17,38 @@ import {
   AlertTriangle,
   Calendar,
   FileText,
+  Loader2,
 } from 'lucide-react';
-import { ExpenseCategory, ExpenseSubcategory, ExpenseUrgency } from '@/types/modules';
+import { ExpenseUrgency } from '@/types/modules';
 import { Button } from '@/components/ui/button';
 import Image from 'next/image';
+
+// Mapping code de catégorie → icône + gradient. Les catégories non listées
+// utilisent un fallback générique. Permet de garder un visuel cohérent même
+// quand l'admin ajoute de nouvelles catégories en BDD.
+const CATEGORY_VISUALS: Record<string, { icon: string; gradient: string }> = {
+  transport:           { icon: '🚗', gradient: 'from-blue-500 to-cyan-600' },
+  communication:       { icon: '📱', gradient: 'from-purple-500 to-pink-600' },
+  fournitures_bureau:  { icon: '📦', gradient: 'from-green-500 to-emerald-600' },
+  maintenance_equip:   { icon: '🔧', gradient: 'from-orange-500 to-red-600' },
+  entretien_locaux:    { icon: '🧹', gradient: 'from-teal-500 to-emerald-600' },
+  marketing_pub:       { icon: '📣', gradient: 'from-pink-500 to-rose-600' },
+  frais_compta:        { icon: '📊', gradient: 'from-slate-500 to-gray-700' },
+  fiscalite:           { icon: '🏛️', gradient: 'from-amber-600 to-orange-700' },
+  formation:           { icon: '🎓', gradient: 'from-indigo-500 to-purple-600' },
+  achat_mp:            { icon: '🌾', gradient: 'from-amber-500 to-yellow-600' },
+  divers:              { icon: '💼', gradient: 'from-gray-500 to-gray-700' },
+};
+const DEFAULT_VISUAL = { icon: '💼', gradient: 'from-gray-500 to-gray-700' };
+
+interface ApiCategory {
+  id: string;
+  expense_category_id: string;
+  label: string;
+  code: string;
+  description: string | null;
+  is_active: boolean;
+}
 
 const urgencyConfig: Record<ExpenseUrgency, { label: string; color: string; gradient: string }> = {
   low: {
@@ -45,59 +73,17 @@ const urgencyConfig: Record<ExpenseUrgency, { label: string; color: string; grad
   },
 };
 
-const quickCategories = [
-  {
-    category: 'fonctionnelle' as unknown as ExpenseCategory,
-    subcategory: 'transport' as unknown as ExpenseSubcategory,
-    label: 'Transport',
-    icon: '🚗',
-    gradient: 'from-blue-500 to-cyan-600',
-  },
-  {
-    category: 'fonctionnelle' as unknown as ExpenseCategory,
-    subcategory: 'communication' as unknown as ExpenseSubcategory,
-    label: 'Communication',
-    icon: '📱',
-    gradient: 'from-purple-500 to-pink-600',
-  },
-  {
-    category: 'fonctionnelle' as unknown as ExpenseCategory,
-    subcategory: 'fourniture' as unknown as ExpenseSubcategory,
-    label: 'Fourniture',
-    icon: '📦',
-    gradient: 'from-green-500 to-emerald-600',
-  },
-  {
-    category: 'fonctionnelle' as unknown as ExpenseCategory,
-    subcategory: 'maintenance' as unknown as ExpenseSubcategory,
-    label: 'Maintenance',
-    icon: '🔧',
-    gradient: 'from-orange-500 to-red-600',
-  },
-  {
-    category: 'structurelle' as unknown as ExpenseCategory,
-    subcategory: 'equipement' as unknown as ExpenseSubcategory,
-    label: 'Équipement',
-    icon: '⚙️',
-    gradient: 'from-indigo-500 to-purple-600',
-  },
-  {
-    category: 'fonctionnelle' as unknown as ExpenseCategory,
-    subcategory: 'autres_charges' as unknown as ExpenseSubcategory,
-    label: 'Autre',
-    icon: '💼',
-    gradient: 'from-gray-500 to-gray-700',
-  },
-];
-
 export default function QuickExpenseRequestPage() {
   const router = useRouter();
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  // Catégories accessibles à l'utilisateur courant (fetch dynamique selon ses rôles)
+  const [categories, setCategories] = useState<ApiCategory[]>([]);
+  const [loadingCategories, setLoadingCategories] = useState(true);
+
   // Form state (minimal pour rapidité)
   const [amount, setAmount] = useState<number>(0);
-  const [category, setCategory] = useState<ExpenseCategory>('fonctionnelle' as unknown as ExpenseCategory);
-  const [subcategory, setSubcategory] = useState<ExpenseSubcategory>('transport' as unknown as ExpenseSubcategory);
+  const [categoryId, setCategoryId] = useState<string>('');  // UUID PK de la catégorie sélectionnée
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [urgency, setUrgency] = useState<ExpenseUrgency>('normal');
@@ -105,6 +91,13 @@ export default function QuickExpenseRequestPage() {
   const [neededByDate, setNeededByDate] = useState('');
 
   const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    fetch('/api/expenses/categories?accessibleFor=me&isActive=true')
+      .then((r) => r.ok ? r.json() : { data: [] })
+      .then((j) => setCategories(j.data || []))
+      .finally(() => setLoadingCategories(false));
+  }, []);
 
   // Gérer prise de photo
   function handlePhotoCapture(e: React.ChangeEvent<HTMLInputElement>) {
@@ -126,9 +119,8 @@ export default function QuickExpenseRequestPage() {
     setPhotos(newPhotos);
   }
 
-  function handleQuickCategory(cat: typeof quickCategories[0]) {
-    setCategory(cat.category);
-    setSubcategory(cat.subcategory);
+  function handleQuickCategory(cat: ApiCategory) {
+    setCategoryId(cat.id);
     if (!title) {
       setTitle(`Dépense ${cat.label}`);
     }
@@ -139,16 +131,21 @@ export default function QuickExpenseRequestPage() {
       alert('Veuillez saisir un montant');
       return;
     }
+    if (!categoryId) {
+      alert('Choisissez une catégorie');
+      return;
+    }
+
+    const selectedCat = categories.find((c) => c.id === categoryId);
 
     try {
       setSaving(true);
 
       // 1. Créer la demande
       const requestPayload = {
-        title: title || `Dépense ${subcategory}`,
+        title: title || (selectedCat ? `Dépense ${selectedCat.label}` : 'Demande de dépense'),
         description: description || 'Demande rapide depuis terrain',
-        category,
-        subcategory,
+        categoryId,
         amount,
         urgency,
         neededByDate: neededByDate || undefined,
@@ -195,9 +192,7 @@ export default function QuickExpenseRequestPage() {
     }
   }
 
-  const selectedQuickCategory = quickCategories.find(
-    (c) => c.subcategory === subcategory
-  );
+  const selectedCategory = categories.find((c) => c.id === categoryId);
 
   return (
     <div className="min-h-screen bg-gray-50 pb-20">
@@ -259,33 +254,47 @@ export default function QuickExpenseRequestPage() {
             </div>
           </div>
 
-          {/* 2. CATÉGORIE RAPIDE */}
+          {/* 2. CATÉGORIE — filtrée selon les rôles de l'utilisateur courant */}
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-3">
               Type de dépense <span className="text-red-600">*</span>
             </label>
-            <div className="grid grid-cols-2 gap-3">
-              {quickCategories.map((cat) => (
-                <button
-                  key={cat.subcategory}
-                  onClick={() => handleQuickCategory(cat)}
-                  className={`p-4 rounded-xl border-2 transition-all ${
-                    subcategory === cat.subcategory
-                      ? `bg-gradient-to-br ${cat.gradient} text-white border-transparent`
-                      : 'border-gray-200 bg-white hover:border-gray-300'
-                  }`}
-                >
-                  <div className="text-3xl mb-2">{cat.icon}</div>
-                  <p
-                    className={`font-semibold text-sm ${
-                      subcategory === cat.subcategory ? 'text-white' : 'text-gray-700'
-                    }`}
-                  >
-                    {cat.label}
-                  </p>
-                </button>
-              ))}
-            </div>
+            {loadingCategories ? (
+              <div className="flex items-center gap-2 text-sm text-gray-500 py-4">
+                <Loader2 className="w-4 h-4 animate-spin" /> Chargement des catégories…
+              </div>
+            ) : categories.length === 0 ? (
+              <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 text-sm text-amber-800">
+                Aucune catégorie n'est accessible à ton rôle. Contacte l'administrateur.
+              </div>
+            ) : (
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                {categories.map((cat) => {
+                  const visual = CATEGORY_VISUALS[cat.code] || DEFAULT_VISUAL;
+                  const selected = categoryId === cat.id;
+                  return (
+                    <button
+                      key={cat.id}
+                      onClick={() => handleQuickCategory(cat)}
+                      className={`p-4 rounded-xl border-2 transition-all text-left ${
+                        selected
+                          ? `bg-gradient-to-br ${visual.gradient} text-white border-transparent`
+                          : 'border-gray-200 bg-white hover:border-gray-300'
+                      }`}
+                    >
+                      <div className="text-3xl mb-2">{visual.icon}</div>
+                      <p
+                        className={`font-semibold text-sm leading-tight ${
+                          selected ? 'text-white' : 'text-gray-700'
+                        }`}
+                      >
+                        {cat.label}
+                      </p>
+                    </button>
+                  );
+                })}
+              </div>
+            )}
           </div>
 
           {/* 3. PHOTO (très important pour justification) */}
@@ -402,7 +411,7 @@ export default function QuickExpenseRequestPage() {
                   type="text"
                   value={title}
                   onChange={(e) => setTitle(e.target.value)}
-                  placeholder={`Dépense ${selectedQuickCategory?.label || ''}`}
+                  placeholder={`Dépense ${selectedCategory?.label || ''}`}
                   className="w-full h-12 px-4 border-2 border-gray-300 rounded-xl focus:outline-none focus:border-red-500"
                 />
               </div>
@@ -437,7 +446,7 @@ export default function QuickExpenseRequestPage() {
                 </div>
                 <div className="flex justify-between">
                   <span className="text-gray-600">Type:</span>
-                  <span className="font-semibold">{selectedQuickCategory?.label}</span>
+                  <span className="font-semibold">{selectedCategory?.label}</span>
                 </div>
                 <div className="flex justify-between">
                   <span className="text-gray-600">Urgence:</span>

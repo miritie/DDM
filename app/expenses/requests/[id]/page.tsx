@@ -312,14 +312,9 @@ export default function ExpenseRequestDetailPage({ params }: PageProps) {
 
             <div className="col-span-2">
               <p className="text-xs text-gray-600 mb-1">Catégorie</p>
-              <div className="flex gap-2 flex-wrap">
-                <span className="px-3 py-1 rounded-full text-xs font-semibold bg-blue-100 text-blue-700">
-                  {getCategoryLabel(request.Category as any)}
-                </span>
-                <span className="px-3 py-1 rounded-full text-xs font-semibold bg-purple-100 text-purple-700">
-                  {getSubcategoryLabel(request.Subcategory as any)}
-                </span>
-              </div>
+              <span className="px-3 py-1 rounded-full text-xs font-semibold bg-blue-100 text-blue-700">
+                {(request as any).CategoryLabel || (request as any).CategoryCode || '—'}
+              </span>
             </div>
 
             <div className="col-span-2">
