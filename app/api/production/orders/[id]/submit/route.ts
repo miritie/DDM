@@ -1,7 +1,7 @@
 /**
- * POST /api/production/orders/[id]/approve
- *   Admin valide un OP soumis : submitted → planned.
- *   Permission : production:approve.
+ * POST /api/production/orders/[id]/submit
+ *   Manager production soumet l'OP pour validation admin : draft → submitted.
+ *   Permission : production:submit.
  */
 import { NextRequest, NextResponse } from 'next/server';
 import { requirePermission, PERMISSIONS } from '@/lib/rbac/server';
@@ -12,10 +12,10 @@ const service = new ProductionOrderService();
 
 export async function POST(_req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
-    await requirePermission(PERMISSIONS.PRODUCTION_APPROVE);
+    await requirePermission(PERMISSIONS.PRODUCTION_SUBMIT);
     const { id } = await params;
     const userId = await getCurrentUserId();
-    const data = await service.approve(id, userId);
+    const data = await service.submit(id, userId);
     return NextResponse.json({ data });
   } catch (e: any) {
     return NextResponse.json(

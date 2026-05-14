@@ -1,44 +1,142 @@
 /**
- * Service - Gestion des Ordres de Production
- * Module Production & Usine
+ * Service - Ordres de production
+ *
+ * Workflow :
+ *   draft → submitted → planned → in_progress → completed
+ *   (à tout moment sauf completed : cancelled)
+ *
+ * - submit()  : manager_production soumet pour validation admin
+ * - approve() : admin valide la soumission (submitted → planned)
+ * - start()   : manager_production lance la fabrication (planned → in_progress)
+ * - consumeIngredients() : déclare conso réelle, décrémente stock MP, met à jour coût total
+ * - createBatch() : enregistre un lot produit, crédite le stock produit fini
+ * - complete() : in_progress → completed
+ * - cancel()  : tout sauf completed
+ *
+ * Snapshot recipe_version à la création : un OP n'est pas impacté par une
+ * édition ultérieure de la recette.
+ *
+ * Convention de retour : PascalCase via alias SQL pour compat UI.
  */
-
 import { getPostgresClient } from '@/lib/database/postgres-client';
 import {
-  ProductionOrder,
-  ProductionOrderStatus,
-  IngredientConsumption,
-  ProductionBatch,
-  Recipe,
-  Ingredient,
+  ProductionOrder, ProductionOrderStatus,
+  IngredientConsumption, ProductionBatch,
 } from '@/types/modules';
 import { v4 as uuidv4 } from 'uuid';
 import { RecipeService } from './recipe-service';
 import { IngredientService } from './ingredient-service';
 import { StockService } from '../stock/stock-service';
 
-const postgresClient = getPostgresClient();
+const db = getPostgresClient();
 const recipeService = new RecipeService();
 const ingredientService = new IngredientService();
 const stockService = new StockService();
 
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+const SELECT_PO = `
+  SELECT
+    id,
+    production_order_id     AS "ProductionOrderId",
+    order_number            AS "OrderNumber",
+    recipe_id               AS "RecipeId",
+    recipe_name             AS "RecipeName",
+    recipe_version          AS "RecipeVersion",
+    product_id              AS "ProductId",
+    product_name            AS "ProductName",
+    status                  AS "Status",
+    planned_quantity        AS "PlannedQuantity",
+    produced_quantity       AS "ProducedQuantity",
+    unit                    AS "Unit",
+    planned_start_date      AS "PlannedStartDate",
+    planned_end_date        AS "PlannedEndDate",
+    actual_start_date       AS "ActualStartDate",
+    actual_end_date         AS "ActualEndDate",
+    priority                AS "Priority",
+    assigned_to_id          AS "AssignedToId",
+    assigned_to_name        AS "AssignedToName",
+    source_warehouse_id     AS "SourceWarehouseId",
+    destination_warehouse_id AS "DestinationWarehouseId",
+    customer_order_id       AS "CustomerOrderId",
+    submitted_by_id         AS "SubmittedById",
+    submitted_at            AS "SubmittedAt",
+    approved_by_id          AS "ApprovedById",
+    approved_at             AS "ApprovedAt",
+    total_cost              AS "TotalCost",
+    yield_rate              AS "YieldRate",
+    notes                   AS "Notes",
+    workspace_id            AS "WorkspaceId",
+    created_at              AS "CreatedAt",
+    updated_at              AS "UpdatedAt"
+  FROM production_orders
+`;
+
+const SELECT_CONSUMPTION = `
+  SELECT
+    id,
+    consumption_id         AS "ConsumptionId",
+    production_order_id    AS "ProductionOrderId",
+    ingredient_id          AS "IngredientId",
+    ingredient_name        AS "IngredientName",
+    planned_quantity       AS "PlannedQuantity",
+    actual_quantity        AS "ActualQuantity",
+    unit                   AS "Unit",
+    unit_cost              AS "UnitCost",
+    total_cost             AS "TotalCost",
+    variance               AS "Variance",
+    consumed_at            AS "ConsumedAt"
+  FROM ingredient_consumptions
+`;
+
+const SELECT_BATCH = `
+  SELECT
+    id,
+    batch_id              AS "BatchId",
+    batch_number          AS "BatchNumber",
+    production_order_id   AS "ProductionOrderId",
+    product_id            AS "ProductId",
+    product_name          AS "ProductName",
+    quantity_produced     AS "QuantityProduced",
+    quantity_defective    AS "QuantityDefective",
+    quantity_good         AS "QuantityGood",
+    unit                  AS "Unit",
+    quality_score         AS "QualityScore",
+    expiry_date           AS "ExpiryDate",
+    production_date       AS "ProductionDate",
+    notes                 AS "Notes",
+    workspace_id          AS "WorkspaceId",
+    created_at            AS "CreatedAt",
+    updated_at            AS "UpdatedAt"
+  FROM production_batches
+`;
+
+async function resolveUuid(table: string, slugCol: string | null, value: string | null | undefined): Promise<string | null> {
+  if (!value) return null;
+  if (UUID_RE.test(value)) return value;
+  if (!slugCol) return null;
+  const r = await db.query(`SELECT id FROM ${table} WHERE ${slugCol} = $1 OR id::text = $1 LIMIT 1`, [value]);
+  return r.rows[0]?.id ?? null;
+}
+
 export interface CreateProductionOrderInput {
   recipeId: string;
   plannedQuantity: number;
-  unit: string;
+  unit?: string;                     // si non fourni, prend recipe.outputUnit
   plannedStartDate: string;
   plannedEndDate: string;
-  priority: 'low' | 'normal' | 'high' | 'urgent';
+  priority?: 'low' | 'normal' | 'high' | 'urgent';
   assignedToId?: string;
   assignedToName?: string;
   sourceWarehouseId?: string;
   destinationWarehouseId?: string;
+  customerOrderId?: string | null;   // OP déclenché par commande négociée
   notes?: string;
   workspaceId: string;
+  createdById?: string;              // qui crée l'OP (manager_production)
 }
 
 export interface UpdateProductionOrderInput {
-  status?: ProductionOrderStatus;
   plannedQuantity?: number;
   plannedStartDate?: string;
   plannedEndDate?: string;
@@ -48,640 +146,538 @@ export interface UpdateProductionOrderInput {
   assignedToId?: string;
   assignedToName?: string;
   notes?: string;
+  destinationWarehouseId?: string;
+  sourceWarehouseId?: string;
 }
 
 export interface ConsumeIngredientsInput {
-  ingredients: Array<{
-    ingredientId: string;
-    actualQuantity: number;
-  }>;
+  ingredients: Array<{ ingredientId: string; actualQuantity: number }>;
 }
 
 export interface CreateBatchInput {
   quantityProduced: number;
-  quantityDefective: number;
+  quantityDefective?: number;
   qualityScore?: number;
   expiryDate?: string;
   notes?: string;
 }
 
-/**
- * Service de gestion des ordres de production
- */
 export class ProductionOrderService {
-  /**
-   * Liste tous les ordres de production
-   */
-  async list(
-    workspaceId: string,
-    filters?: {
-      status?: ProductionOrderStatus;
-      priority?: 'low' | 'normal' | 'high' | 'urgent';
-      assignedToId?: string;
-      productId?: string;
-      fromDate?: string;
-      toDate?: string;
-    }
-  ): Promise<ProductionOrder[]> {
-    const conditions: string[] = [`workspace_id = '${workspaceId}'`];
 
-    if (filters?.status) {
-      conditions.push(`status = '${filters.status}'`);
-    }
+  async list(workspaceId: string, filters?: {
+    status?: ProductionOrderStatus;
+    priority?: 'low' | 'normal' | 'high' | 'urgent';
+    assignedToId?: string;
+    productId?: string;
+    customerOrderId?: string;
+    fromDate?: string;
+    toDate?: string;
+  }): Promise<ProductionOrder[]> {
+    const wsUuid = await resolveUuid('workspaces', 'workspace_id', workspaceId);
+    if (!wsUuid) return [];
 
-    if (filters?.priority) {
-      conditions.push(`priority = '${filters.priority}'`);
-    }
+    const conds: string[] = ['workspace_id = $1'];
+    const params: any[] = [wsUuid];
 
+    if (filters?.status) { params.push(filters.status); conds.push(`status = $${params.length}`); }
+    if (filters?.priority) { params.push(filters.priority); conds.push(`priority = $${params.length}`); }
     if (filters?.assignedToId) {
-      conditions.push(`assigned_to_id = '${filters.assignedToId}'`);
+      const u = await resolveUuid('users', 'user_id', filters.assignedToId);
+      if (u) { params.push(u); conds.push(`assigned_to_id = $${params.length}`); }
     }
-
     if (filters?.productId) {
-      conditions.push(`product_id = '${filters.productId}'`);
+      const p = await resolveUuid('products', 'product_id', filters.productId);
+      if (p) { params.push(p); conds.push(`product_id = $${params.length}`); }
     }
-
-    if (filters?.fromDate) {
-      conditions.push(`planned_start_date >= '${filters.fromDate}'`);
+    if (filters?.customerOrderId) {
+      const co = await resolveUuid('customer_orders', 'order_id', filters.customerOrderId);
+      if (co) { params.push(co); conds.push(`customer_order_id = $${params.length}`); }
     }
+    if (filters?.fromDate) { params.push(filters.fromDate); conds.push(`planned_start_date >= $${params.length}`); }
+    if (filters?.toDate) { params.push(filters.toDate); conds.push(`planned_start_date <= $${params.length}`); }
 
-    if (filters?.toDate) {
-      conditions.push(`planned_start_date <= '${filters.toDate}'`);
-    }
-
-    const orders = await postgresClient.list<ProductionOrder>('production_orders', {
-      filterByFormula: conditions.join(' AND '),
-      orderBy: { field: 'order_number', direction: 'desc' },
-    });
-
-    // Charger les consommations et batches pour chaque ordre
+    const r = await db.query(
+      `${SELECT_PO} WHERE ${conds.join(' AND ')} ORDER BY order_number DESC`,
+      params
+    );
+    const orders: ProductionOrder[] = r.rows;
     for (const order of orders) {
-      order.IngredientConsumptions = await this.getIngredientConsumptions(order.ProductionOrderId);
-      order.Batches = await this.getBatches(order.ProductionOrderId);
+      order.IngredientConsumptions = await this.getIngredientConsumptions(order.id!);
+      order.Batches = await this.getBatches(order.id!);
     }
-
     return orders;
   }
 
-  /**
-   * Récupère un ordre de production par ID
-   */
-  async getById(productionOrderId: string): Promise<ProductionOrder | null> {
-    const results = await postgresClient.list<ProductionOrder>('production_orders', {
-      filterByFormula: `production_order_id = '${productionOrderId}'`,
-    });
-
-    if (results.length === 0) {
-      return null;
-    }
-
-    const order = results[0];
-    order.IngredientConsumptions = await this.getIngredientConsumptions(productionOrderId);
-    order.Batches = await this.getBatches(productionOrderId);
-
+  async getById(idOrSlug: string): Promise<ProductionOrder | null> {
+    const r = await db.query(
+      `${SELECT_PO} WHERE id::text = $1 OR production_order_id = $1 LIMIT 1`,
+      [idOrSlug]
+    );
+    const order = r.rows[0];
+    if (!order) return null;
+    order.IngredientConsumptions = await this.getIngredientConsumptions(order.id);
+    order.Batches = await this.getBatches(order.id);
     return order;
   }
 
-  /**
-   * Récupère un ordre par numéro
-   */
-  async getByNumber(workspaceId: string, orderNumber: string): Promise<ProductionOrder | null> {
-    const results = await postgresClient.list<ProductionOrder>('production_orders', {
-      filterByFormula: `workspace_id = '${workspaceId}' AND order_number = '${orderNumber}'`,
-    });
-
-    if (results.length === 0) {
-      return null;
-    }
-
-    const order = results[0];
-    order.IngredientConsumptions = await this.getIngredientConsumptions(order.ProductionOrderId);
-    order.Batches = await this.getBatches(order.ProductionOrderId);
-
-    return order;
+  async getIngredientConsumptions(orderUuid: string): Promise<IngredientConsumption[]> {
+    const r = await db.query(
+      `${SELECT_CONSUMPTION} WHERE production_order_id = $1 ORDER BY consumed_at ASC`,
+      [orderUuid]
+    );
+    return r.rows;
   }
 
-  /**
-   * Récupère les consommations d'ingrédients d'un ordre
-   */
-  async getIngredientConsumptions(productionOrderId: string): Promise<IngredientConsumption[]> {
-    return await postgresClient.list<IngredientConsumption>('ingredient_consumptions', {
-      filterByFormula: `production_order_id = '${productionOrderId}'`,
-      orderBy: { field: 'consumed_at', direction: 'asc' },
-    });
+  async getBatches(orderUuid: string): Promise<ProductionBatch[]> {
+    const r = await db.query(
+      `${SELECT_BATCH} WHERE production_order_id = $1 ORDER BY production_date DESC`,
+      [orderUuid]
+    );
+    return r.rows;
   }
 
-  /**
-   * Récupère les batches/lots produits d'un ordre
-   */
-  async getBatches(productionOrderId: string): Promise<ProductionBatch[]> {
-    return await postgresClient.list<ProductionBatch>('production_batches', {
-      filterByFormula: `production_order_id = '${productionOrderId}'`,
-      orderBy: { field: 'production_date', direction: 'desc' },
-    });
-  }
-
-  /**
-   * Génère le prochain numéro d'ordre de production
-   */
-  private async generateOrderNumber(workspaceId: string): Promise<string> {
+  private async generateOrderNumber(workspaceUuid: string): Promise<string> {
     const now = new Date();
-    const year = now.getFullYear();
-    const month = String(now.getMonth() + 1).padStart(2, '0');
-    const prefix = `OP-${year}${month}`;
-
-    const existingOrders = await postgresClient.list<ProductionOrder>('production_orders', {
-      filterByFormula: `workspace_id = '${workspaceId}' AND order_number LIKE '${prefix}%'`,
-      orderBy: { field: 'order_number', direction: 'desc' },
-    });
-
-    let nextNumber = 1;
-    if (existingOrders.length > 0) {
-      const lastNumber = existingOrders[0].OrderNumber;
-      const match = lastNumber.match(/-(\d+)$/);
-      if (match) {
-        nextNumber = parseInt(match[1], 10) + 1;
-      }
+    const prefix = `OP-${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}`;
+    const r = await db.query(
+      `SELECT order_number FROM production_orders
+       WHERE workspace_id = $1 AND order_number LIKE $2
+       ORDER BY order_number DESC LIMIT 1`,
+      [workspaceUuid, `${prefix}%`]
+    );
+    let next = 1;
+    if (r.rows[0]) {
+      const m = r.rows[0].order_number.match(/-(\d+)$/);
+      if (m) next = parseInt(m[1], 10) + 1;
     }
+    return `${prefix}-${String(next).padStart(4, '0')}`;
+  }
 
-    return `${prefix}-${String(nextNumber).padStart(4, '0')}`;
+  private async generateBatchNumber(workspaceUuid: string): Promise<string> {
+    const now = new Date();
+    const prefix = `LOT-${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}`;
+    const r = await db.query(
+      `SELECT batch_number FROM production_batches
+       WHERE workspace_id = $1 AND batch_number LIKE $2
+       ORDER BY batch_number DESC LIMIT 1`,
+      [workspaceUuid, `${prefix}%`]
+    );
+    let next = 1;
+    if (r.rows[0]) {
+      const m = r.rows[0].batch_number.match(/-(\d+)$/);
+      if (m) next = parseInt(m[1], 10) + 1;
+    }
+    return `${prefix}-${String(next).padStart(4, '0')}`;
   }
 
   /**
-   * Crée un nouvel ordre de production
+   * Crée un OP en statut 'draft' avec consommations planifiées snapshot
+   * basées sur recipe_lines × scaleFactor. Stocke aussi recipe_version pour
+   * figer la formule.
    */
   async create(input: CreateProductionOrderInput): Promise<ProductionOrder> {
-    // Récupérer la recette
+    const wsUuid = await resolveUuid('workspaces', 'workspace_id', input.workspaceId);
+    if (!wsUuid) throw new Error('Workspace introuvable');
+
     const recipe = await recipeService.getById(input.recipeId);
-    if (!recipe) {
-      throw new Error('Recette non trouvée');
-    }
+    if (!recipe) throw new Error('Recette introuvable');
+    if (!recipe.IsActive) throw new Error('Cette recette est désactivée');
 
-    if (!recipe.IsActive) {
-      throw new Error('Cette recette est désactivée');
-    }
+    const recipeUuid = recipe.id!;
+    const productUuid = recipe.ProductId;
+    const customerOrderUuid = input.customerOrderId
+      ? await resolveUuid('customer_orders', 'order_id', input.customerOrderId)
+      : null;
+    const assignedToUuid = input.assignedToId
+      ? await resolveUuid('users', 'user_id', input.assignedToId)
+      : null;
+    const sourceWhUuid = input.sourceWarehouseId
+      ? await resolveUuid('warehouses', 'warehouse_id', input.sourceWarehouseId)
+      : null;
+    const destWhUuid = input.destinationWarehouseId
+      ? await resolveUuid('warehouses', 'warehouse_id', input.destinationWarehouseId)
+      : null;
 
-    const orderNumber = await this.generateOrderNumber(input.workspaceId);
-    const productionOrderId = uuidv4();
+    const orderNumber = await this.generateOrderNumber(wsUuid);
+    const orderSlug = `PO-${uuidv4().slice(0, 8)}`;
+    const scaleFactor = Number(input.plannedQuantity) / Number(recipe.OutputQuantity);
 
-    // Calculer la quantité d'ingrédients nécessaires
-    const scaleFactor = input.plannedQuantity / recipe.OutputQuantity;
-
-    const order: Partial<ProductionOrder> = {
-      ProductionOrderId: productionOrderId,
-      OrderNumber: orderNumber,
-      RecipeId: input.recipeId,
-      RecipeName: recipe.Name,
-      ProductId: recipe.ProductId,
-      ProductName: recipe.ProductName,
-      Status: 'draft',
-      PlannedQuantity: input.plannedQuantity,
-      ProducedQuantity: 0,
-      Unit: input.unit,
-      PlannedStartDate: input.plannedStartDate,
-      PlannedEndDate: input.plannedEndDate,
-      Priority: input.priority,
-      AssignedToId: input.assignedToId,
-      AssignedToName: input.assignedToName,
-      SourceWarehouseId: input.sourceWarehouseId,
-      DestinationWarehouseId: input.destinationWarehouseId,
-      TotalCost: 0,
-      YieldRate: 0,
-      Notes: input.notes,
-      WorkspaceId: input.workspaceId,
-      CreatedAt: new Date().toISOString(),
-      UpdatedAt: new Date().toISOString(),
-    };
-
-    const createdOrder = await postgresClient.create<ProductionOrder>('production_orders', order);
-
-    // Créer les consommations planifiées d'ingrédients
-    const consumptions: IngredientConsumption[] = [];
-    for (const line of recipe.Lines) {
-      const plannedQty = line.Quantity * scaleFactor;
-
-      // Récupérer le coût unitaire de l'ingrédient
-      const ingredient = await ingredientService.getById(line.IngredientId);
-      const unitCost = ingredient?.UnitCost || 0;
-
-      const consumption: Partial<IngredientConsumption> = {
-        ConsumptionId: uuidv4(),
-        ProductionOrderId: productionOrderId,
-        IngredientId: line.IngredientId,
-        IngredientName: line.IngredientName,
-        PlannedQuantity: plannedQty,
-        ActualQuantity: 0,
-        Unit: line.Unit,
-        UnitCost: unitCost,
-        TotalCost: 0,
-        Variance: 0,
-        ConsumedAt: new Date().toISOString(),
-      };
-
-      const createdConsumption = await postgresClient.create<IngredientConsumption>(
-        'ingredient_consumptions',
-        consumption
+    const orderUuid = await db.transaction(async (client) => {
+      const ins = await client.query(
+        `INSERT INTO production_orders (
+           production_order_id, order_number, recipe_id, recipe_name, recipe_version,
+           product_id, product_name, status, planned_quantity, produced_quantity, unit,
+           planned_start_date, planned_end_date, priority,
+           assigned_to_id, assigned_to_name,
+           source_warehouse_id, destination_warehouse_id,
+           customer_order_id, total_cost, yield_rate, notes, workspace_id
+         ) VALUES ($1,$2,$3,$4,$5,$6,$7,'draft',$8,0,$9,$10,$11,$12,$13,$14,$15,$16,$17,0,0,$18,$19)
+         RETURNING id`,
+        [
+          orderSlug, orderNumber, recipeUuid, recipe.Name, recipe.Version,
+          productUuid, recipe.ProductName ?? null,
+          input.plannedQuantity, input.unit ?? recipe.OutputUnit,
+          input.plannedStartDate, input.plannedEndDate,
+          input.priority ?? 'normal',
+          assignedToUuid, input.assignedToName ?? null,
+          sourceWhUuid, destWhUuid,
+          customerOrderUuid,
+          input.notes ?? null, wsUuid,
+        ]
       );
-      consumptions.push(createdConsumption);
-    }
+      const poUuid = ins.rows[0].id;
 
-    createdOrder.IngredientConsumptions = consumptions;
-    createdOrder.Batches = [];
+      for (const line of recipe.Lines) {
+        const plannedQty = Number(line.Quantity) * scaleFactor;
+        const ingMeta = await client.query(`SELECT unit_cost FROM ingredients WHERE id = $1`, [line.IngredientId]);
+        const unitCost = Number(ingMeta.rows[0]?.unit_cost ?? 0);
 
-    return createdOrder;
-  }
-
-  /**
-   * Met à jour un ordre de production
-   */
-  async update(productionOrderId: string, updates: UpdateProductionOrderInput): Promise<ProductionOrder> {
-    const order = await this.getById(productionOrderId);
-    if (!order) {
-      throw new Error('Ordre de production non trouvé');
-    }
-
-    // Vérifier les transitions de statut autorisées
-    if (updates.status && updates.status !== order.Status) {
-      this.validateStatusTransition(order.Status, updates.status);
-    }
-
-    const records = await postgresClient.list<ProductionOrder>('production_orders', {
-      filterByFormula: `production_order_id = '${productionOrderId}'`,
+        await client.query(
+          `INSERT INTO ingredient_consumptions (
+             consumption_id, production_order_id, ingredient_id, ingredient_name,
+             planned_quantity, actual_quantity, unit, unit_cost, total_cost, variance, consumed_at
+           ) VALUES ($1,$2,$3,$4,$5,0,$6,$7,0,0,CURRENT_TIMESTAMP)`,
+          [
+            `IC-${uuidv4().slice(0, 8)}`, poUuid, line.IngredientId, line.IngredientName ?? null,
+            plannedQty, line.Unit, unitCost,
+          ]
+        );
+      }
+      return poUuid;
     });
 
-    if (records.length === 0) {
-      throw new Error('Ordre de production non trouvé');
-    }
-
-    const recordId = records[0].id;
-    if (!recordId) {
-      throw new Error('ID d\'enregistrement non trouvé');
-    }
-
-    const updateData: Record<string, any> = {
-      UpdatedAt: new Date().toISOString(),
-    };
-    if (updates.status !== undefined) updateData.Status = updates.status;
-    if (updates.plannedQuantity !== undefined) updateData.PlannedQuantity = updates.plannedQuantity;
-    if (updates.plannedStartDate !== undefined) updateData.PlannedStartDate = updates.plannedStartDate;
-    if (updates.plannedEndDate !== undefined) updateData.PlannedEndDate = updates.plannedEndDate;
-    if (updates.actualStartDate !== undefined) updateData.ActualStartDate = updates.actualStartDate;
-    if (updates.actualEndDate !== undefined) updateData.ActualEndDate = updates.actualEndDate;
-    if (updates.priority !== undefined) updateData.Priority = updates.priority;
-    if (updates.assignedToId !== undefined) updateData.AssignedToId = updates.assignedToId;
-    if (updates.assignedToName !== undefined) updateData.AssignedToName = updates.assignedToName;
-    if (updates.notes !== undefined) updateData.Notes = updates.notes;
-
-    const updatedOrder = await postgresClient.update<ProductionOrder>('production_orders', recordId, updateData);
-
-    updatedOrder.IngredientConsumptions = await this.getIngredientConsumptions(productionOrderId);
-    updatedOrder.Batches = await this.getBatches(productionOrderId);
-
-    return updatedOrder;
+    return (await this.getById(orderUuid))!;
   }
 
-  /**
-   * Valide les transitions de statut
-   */
-  private validateStatusTransition(currentStatus: ProductionOrderStatus, newStatus: ProductionOrderStatus): void {
-    const allowedTransitions: Record<ProductionOrderStatus, ProductionOrderStatus[]> = {
-      draft: ['planned', 'cancelled'],
-      planned: ['in_progress', 'cancelled'],
-      in_progress: ['completed', 'cancelled'],
-      completed: [],
-      cancelled: [],
-    };
+  async update(idOrSlug: string, updates: UpdateProductionOrderInput): Promise<ProductionOrder> {
+    const order = await this.getById(idOrSlug);
+    if (!order) throw new Error('Ordre de production introuvable');
 
-    const allowed = allowedTransitions[currentStatus];
-    if (!allowed.includes(newStatus)) {
+    const sets: string[] = ['updated_at = CURRENT_TIMESTAMP'];
+    const params: any[] = [];
+    const push = (col: string, v: any) => { params.push(v); sets.push(`${col} = $${params.length}`); };
+
+    if (updates.plannedQuantity !== undefined) push('planned_quantity', updates.plannedQuantity);
+    if (updates.plannedStartDate !== undefined) push('planned_start_date', updates.plannedStartDate);
+    if (updates.plannedEndDate !== undefined) push('planned_end_date', updates.plannedEndDate);
+    if (updates.actualStartDate !== undefined) push('actual_start_date', updates.actualStartDate);
+    if (updates.actualEndDate !== undefined) push('actual_end_date', updates.actualEndDate);
+    if (updates.priority !== undefined) push('priority', updates.priority);
+    if (updates.assignedToId !== undefined) {
+      const u = updates.assignedToId ? await resolveUuid('users', 'user_id', updates.assignedToId) : null;
+      push('assigned_to_id', u);
+    }
+    if (updates.assignedToName !== undefined) push('assigned_to_name', updates.assignedToName);
+    if (updates.notes !== undefined) push('notes', updates.notes);
+    if (updates.destinationWarehouseId !== undefined) {
+      const w = updates.destinationWarehouseId ? await resolveUuid('warehouses', 'warehouse_id', updates.destinationWarehouseId) : null;
+      push('destination_warehouse_id', w);
+    }
+    if (updates.sourceWarehouseId !== undefined) {
+      const w = updates.sourceWarehouseId ? await resolveUuid('warehouses', 'warehouse_id', updates.sourceWarehouseId) : null;
+      push('source_warehouse_id', w);
+    }
+
+    params.push(order.id);
+    await db.query(`UPDATE production_orders SET ${sets.join(', ')} WHERE id = $${params.length}`, params);
+    return (await this.getById(order.id!))!;
+  }
+
+  // -----------------------------------------------------------------------
+  // WORKFLOW
+
+  async submit(idOrSlug: string, submittedById: string): Promise<ProductionOrder> {
+    const order = await this.getById(idOrSlug);
+    if (!order) throw new Error('Ordre de production introuvable');
+    if (order.Status !== 'draft') {
+      throw new Error(`Seul un OP en brouillon peut être soumis (statut actuel : ${order.Status})`);
+    }
+    const submitterUuid = await resolveUuid('users', 'user_id', submittedById);
+    await db.query(
+      `UPDATE production_orders
+         SET status = 'submitted', submitted_by_id = $2, submitted_at = CURRENT_TIMESTAMP,
+             updated_at = CURRENT_TIMESTAMP
+       WHERE id = $1`,
+      [order.id, submitterUuid]
+    );
+    return (await this.getById(order.id!))!;
+  }
+
+  async approve(idOrSlug: string, approvedById: string): Promise<ProductionOrder> {
+    const order = await this.getById(idOrSlug);
+    if (!order) throw new Error('Ordre de production introuvable');
+    if (order.Status !== 'submitted') {
       throw new Error(
-        `Transition de statut non autorisée: ${currentStatus} → ${newStatus}`
+        `Seul un OP soumis peut être approuvé (statut actuel : ${order.Status}). ` +
+        `Le manager de production doit d'abord soumettre.`
       );
     }
+    const approverUuid = await resolveUuid('users', 'user_id', approvedById);
+    await db.query(
+      `UPDATE production_orders
+         SET status = 'planned', approved_by_id = $2, approved_at = CURRENT_TIMESTAMP,
+             updated_at = CURRENT_TIMESTAMP
+       WHERE id = $1`,
+      [order.id, approverUuid]
+    );
+    return (await this.getById(order.id!))!;
   }
 
-  /**
-   * Approuve un ordre de production : draft → planned.
-   * Réservé à l'admin / au validateur.
-   */
-  async approve(productionOrderId: string): Promise<ProductionOrder> {
-    const order = await this.getById(productionOrderId);
-    if (!order) throw new Error('Ordre de production non trouvé');
-    if (order.Status !== 'draft') {
-      throw new Error(`Seul un ordre en brouillon peut être approuvé (statut actuel : ${order.Status})`);
-    }
-    return await this.update(productionOrderId, { status: 'planned' });
-  }
-
-  /**
-   * Démarre un ordre de production
-   */
-  async start(productionOrderId: string): Promise<ProductionOrder> {
-    const order = await this.getById(productionOrderId);
-    if (!order) {
-      throw new Error('Ordre de production non trouvé');
-    }
-
+  async start(idOrSlug: string): Promise<ProductionOrder> {
+    const order = await this.getById(idOrSlug);
+    if (!order) throw new Error('Ordre de production introuvable');
     if (order.Status !== 'planned') {
-      throw new Error('Seuls les ordres planifiés peuvent être démarrés');
+      throw new Error('Seuls les ordres planifiés (approuvés) peuvent être démarrés');
     }
 
-    // Vérifier la disponibilité des ingrédients
-    for (const consumption of order.IngredientConsumptions) {
-      const ingredient = await ingredientService.getById(consumption.IngredientId);
-      if (!ingredient) {
-        throw new Error(`Ingrédient non trouvé: ${consumption.IngredientName}`);
-      }
-
-      if (ingredient.CurrentStock < consumption.PlannedQuantity) {
+    // Vérification stock MP disponible
+    for (const cons of order.IngredientConsumptions) {
+      const ing = await ingredientService.getById(cons.IngredientId);
+      if (!ing) throw new Error(`Ingrédient ${cons.IngredientName} introuvable`);
+      if (Number(ing.CurrentStock) < Number(cons.PlannedQuantity)) {
         throw new Error(
-          `Stock insuffisant pour ${consumption.IngredientName}: ${ingredient.CurrentStock} ${ingredient.Unit} disponible(s), ${consumption.PlannedQuantity} ${consumption.Unit} requis`
+          `Stock insuffisant pour ${ing.Name} : ${ing.CurrentStock} ${ing.Unit} dispo, ` +
+          `${cons.PlannedQuantity} ${cons.Unit} requis`
         );
       }
     }
 
-    return await this.update(productionOrderId, {
-      status: 'in_progress',
-      actualStartDate: new Date().toISOString(),
-    });
+    await db.query(
+      `UPDATE production_orders
+         SET status = 'in_progress', actual_start_date = CURRENT_TIMESTAMP,
+             updated_at = CURRENT_TIMESTAMP
+       WHERE id = $1`,
+      [order.id]
+    );
+    return (await this.getById(order.id!))!;
   }
 
-  /**
-   * Consomme les ingrédients (sortie de stock)
-   */
-  async consumeIngredients(
-    productionOrderId: string,
-    input: ConsumeIngredientsInput
-  ): Promise<ProductionOrder> {
-    const order = await this.getById(productionOrderId);
-    if (!order) {
-      throw new Error('Ordre de production non trouvé');
-    }
-
+  async consumeIngredients(idOrSlug: string, input: ConsumeIngredientsInput): Promise<ProductionOrder> {
+    const order = await this.getById(idOrSlug);
+    if (!order) throw new Error('Ordre de production introuvable');
     if (order.Status !== 'in_progress') {
       throw new Error('Seuls les ordres en cours peuvent consommer des ingrédients');
     }
 
-    let totalCost = 0;
+    let totalAddedCost = 0;
 
-    for (const consumptionInput of input.ingredients) {
-      // Trouver la consommation correspondante
-      const consumption = order.IngredientConsumptions.find(
-        (c: IngredientConsumption) => c.IngredientId === consumptionInput.ingredientId
-      );
+    await db.transaction(async (client) => {
+      for (const item of input.ingredients) {
+        const ingUuid = await resolveUuid('ingredients', 'ingredient_id', item.ingredientId);
+        if (!ingUuid) throw new Error(`Ingrédient ${item.ingredientId} introuvable`);
 
-      if (!consumption) {
-        throw new Error(`Ingrédient non prévu dans cette recette: ${consumptionInput.ingredientId}`);
-      }
-
-      // Diminuer le stock de l'ingrédient
-      await ingredientService.decreaseStock(
-        consumptionInput.ingredientId,
-        consumptionInput.actualQuantity
-      );
-
-      // Mettre à jour la consommation
-      const variance =
-        ((consumptionInput.actualQuantity - consumption.PlannedQuantity) / consumption.PlannedQuantity) *
-        100;
-
-      const consumptionCost = consumptionInput.actualQuantity * consumption.UnitCost;
-      totalCost += consumptionCost;
-
-      const records = await postgresClient.list<IngredientConsumption>('ingredient_consumptions', {
-        filterByFormula: `consumption_id = '${consumption.ConsumptionId}'`,
-      });
-
-      if (records.length > 0) {
-        const recordId = records[0].id;
-        if (recordId) {
-          await postgresClient.update<IngredientConsumption>('ingredient_consumptions', recordId, {
-            ActualQuantity: consumptionInput.actualQuantity,
-            TotalCost: consumptionCost,
-            Variance: variance,
-            ConsumedAt: new Date().toISOString(),
-          });
+        const cons = order.IngredientConsumptions.find((c) => c.IngredientId === ingUuid);
+        if (!cons) {
+          throw new Error(`Ingrédient ${item.ingredientId} non prévu dans cette recette`);
         }
-      }
-    }
 
-    // Mettre à jour le coût total de l'ordre
-    const orderRecords = await postgresClient.list<ProductionOrder>('production_orders', {
-      filterByFormula: `production_order_id = '${productionOrderId}'`,
+        // Décrémente stock MP (avec verrou)
+        const ingR = await client.query(
+          `SELECT current_stock, unit_cost, name, unit FROM ingredients WHERE id = $1 FOR UPDATE`,
+          [ingUuid]
+        );
+        const ingRow = ingR.rows[0];
+        if (!ingRow) throw new Error(`Ingrédient ${ingUuid} introuvable`);
+        if (Number(ingRow.current_stock) < Number(item.actualQuantity)) {
+          throw new Error(
+            `Stock insuffisant pour ${ingRow.name} : ${ingRow.current_stock} ${ingRow.unit} dispo, ` +
+            `${item.actualQuantity} ${ingRow.unit} demandé(s)`
+          );
+        }
+        await client.query(
+          `UPDATE ingredients SET current_stock = current_stock - $2, updated_at = CURRENT_TIMESTAMP WHERE id = $1`,
+          [ingUuid, item.actualQuantity]
+        );
+
+        // PMP figé à la consommation = unit_cost courant lu à l'instant
+        const unitCost = Number(ingRow.unit_cost);
+        const consCost = Number(item.actualQuantity) * unitCost;
+        const variance = Number(cons.PlannedQuantity) > 0
+          ? ((Number(item.actualQuantity) - Number(cons.PlannedQuantity)) / Number(cons.PlannedQuantity)) * 100
+          : 0;
+
+        await client.query(
+          `UPDATE ingredient_consumptions
+             SET actual_quantity = $2, unit_cost = $3, total_cost = $4,
+                 variance = $5, consumed_at = CURRENT_TIMESTAMP
+           WHERE id = $1`,
+          [cons.id, item.actualQuantity, unitCost, consCost, variance]
+        );
+
+        totalAddedCost += consCost;
+      }
+
+      // Met à jour total_cost de l'OP
+      await client.query(
+        `UPDATE production_orders SET total_cost = total_cost + $2, updated_at = CURRENT_TIMESTAMP WHERE id = $1`,
+        [order.id, totalAddedCost]
+      );
     });
 
-    if (orderRecords.length > 0) {
-      const recordId = orderRecords[0].id;
-      if (recordId) {
-        await postgresClient.update<ProductionOrder>('production_orders', recordId, {
-          TotalCost: order.TotalCost + totalCost,
-        });
-      }
-    }
-
-    const updatedOrder = await this.getById(productionOrderId);
-    if (!updatedOrder) {
-      throw new Error('Ordre de production non trouvé après mise à jour');
-    }
-    return updatedOrder;
+    return (await this.getById(order.id!))!;
   }
 
-  /**
-   * Crée un batch/lot de production
-   */
-  async createBatch(productionOrderId: string, input: CreateBatchInput): Promise<ProductionBatch> {
-    const order = await this.getById(productionOrderId);
-    if (!order) {
-      throw new Error('Ordre de production non trouvé');
-    }
-
+  async createBatch(idOrSlug: string, input: CreateBatchInput): Promise<ProductionBatch> {
+    const order = await this.getById(idOrSlug);
+    if (!order) throw new Error('Ordre de production introuvable');
     if (order.Status !== 'in_progress') {
       throw new Error('Seuls les ordres en cours peuvent créer des lots');
     }
 
+    const defective = Number(input.quantityDefective ?? 0);
+    const good = Number(input.quantityProduced) - defective;
+    if (good < 0) throw new Error('Quantité défectueuse > quantité produite');
+
     const batchNumber = await this.generateBatchNumber(order.WorkspaceId);
+    const batchSlug = `BCH-${uuidv4().slice(0, 8)}`;
 
-    const batch: Partial<ProductionBatch> = {
-      BatchId: uuidv4(),
-      BatchNumber: batchNumber,
-      ProductionOrderId: productionOrderId,
-      ProductId: order.ProductId,
-      ProductName: order.ProductName,
-      QuantityProduced: input.quantityProduced,
-      QuantityDefective: input.quantityDefective,
-      QuantityGood: input.quantityProduced - input.quantityDefective,
-      Unit: order.Unit,
-      QualityScore: input.qualityScore,
-      ExpiryDate: input.expiryDate,
-      ProductionDate: new Date().toISOString(),
-      Notes: input.notes,
-      WorkspaceId: order.WorkspaceId,
-      CreatedAt: new Date().toISOString(),
-      UpdatedAt: new Date().toISOString(),
-    };
+    const newProduced = Number(order.ProducedQuantity) + good;
+    const yieldRate = Number(order.PlannedQuantity) > 0
+      ? (newProduced / Number(order.PlannedQuantity)) * 100
+      : 0;
 
-    const createdBatch = await postgresClient.create<ProductionBatch>('production_batches', batch);
+    await db.transaction(async (client) => {
+      await client.query(
+        `INSERT INTO production_batches (
+           batch_id, batch_number, production_order_id, product_id, product_name,
+           quantity_produced, quantity_defective, quantity_good, unit,
+           quality_score, expiry_date, production_date, notes, workspace_id
+         ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,CURRENT_DATE,$12,$13)`,
+        [
+          batchSlug, batchNumber, order.id, order.ProductId, order.ProductName,
+          input.quantityProduced, defective, good, order.Unit,
+          input.qualityScore ?? null, input.expiryDate ?? null,
+          input.notes ?? null, order.WorkspaceId,
+        ]
+      );
 
-    // Mettre à jour la quantité produite de l'ordre
-    const newProducedQty = order.ProducedQuantity + (input.quantityProduced - input.quantityDefective);
-    const yieldRate = (newProducedQty / order.PlannedQuantity) * 100;
-
-    const orderRecords = await postgresClient.list<ProductionOrder>('production_orders', {
-      filterByFormula: `production_order_id = '${productionOrderId}'`,
+      await client.query(
+        `UPDATE production_orders
+           SET produced_quantity = $2, yield_rate = $3, updated_at = CURRENT_TIMESTAMP
+         WHERE id = $1`,
+        [order.id, newProduced, yieldRate]
+      );
     });
 
-    if (orderRecords.length > 0) {
-      const recordId = orderRecords[0].id;
-      if (recordId) {
-        await postgresClient.update<ProductionOrder>('production_orders', recordId, {
-          ProducedQuantity: newProducedQty,
-          YieldRate: yieldRate,
-        });
-      }
-    }
-
-    // Intégration avec le module Stock: Entrée automatique des produits finis
-    if (order.DestinationWarehouseId && batch.QuantityGood && batch.QuantityGood > 0) {
-      const costPerUnit = order.TotalCost / newProducedQty;
-
+    // Intégration stock produit fini : on passe en dehors de la transaction principale
+    // (stockService gère sa propre transaction interne)
+    if (order.DestinationWarehouseId && good > 0) {
+      const costPerUnit = newProduced > 0 ? Number(order.TotalCost) / newProduced : 0;
       await stockService.upsertStockItem({
         productId: order.ProductId,
         warehouseId: order.DestinationWarehouseId,
-        quantity: batch.QuantityGood,
-        minimumStock: 0, // À définir selon les besoins
+        quantity: good,
+        minimumStock: 0,
         unitCost: costPerUnit,
         workspaceId: order.WorkspaceId,
       });
     }
 
-    return createdBatch;
+    const r = await db.query(`${SELECT_BATCH} WHERE batch_id = $1`, [batchSlug]);
+    return r.rows[0];
   }
 
-  /**
-   * Génère le prochain numéro de batch/lot
-   */
-  private async generateBatchNumber(workspaceId: string): Promise<string> {
-    const now = new Date();
-    const year = now.getFullYear();
-    const month = String(now.getMonth() + 1).padStart(2, '0');
-    const prefix = `LOT-${year}${month}`;
-
-    const existingBatches = await postgresClient.list<ProductionBatch>('production_batches', {
-      filterByFormula: `workspace_id = '${workspaceId}' AND batch_number LIKE '${prefix}%'`,
-      orderBy: { field: 'batch_number', direction: 'desc' },
-    });
-
-    let nextNumber = 1;
-    if (existingBatches.length > 0) {
-      const lastNumber = existingBatches[0].BatchNumber;
-      const match = lastNumber.match(/-(\d+)$/);
-      if (match) {
-        nextNumber = parseInt(match[1], 10) + 1;
-      }
-    }
-
-    return `${prefix}-${String(nextNumber).padStart(4, '0')}`;
-  }
-
-  /**
-   * Complète un ordre de production
-   */
-  async complete(productionOrderId: string): Promise<ProductionOrder> {
-    const order = await this.getById(productionOrderId);
-    if (!order) {
-      throw new Error('Ordre de production non trouvé');
-    }
-
+  async complete(idOrSlug: string): Promise<ProductionOrder> {
+    const order = await this.getById(idOrSlug);
+    if (!order) throw new Error('Ordre de production introuvable');
     if (order.Status !== 'in_progress') {
       throw new Error('Seuls les ordres en cours peuvent être complétés');
     }
-
     if (order.Batches.length === 0) {
       throw new Error('Au moins un lot doit être créé avant de compléter l\'ordre');
     }
-
-    return await this.update(productionOrderId, {
-      status: 'completed',
-      actualEndDate: new Date().toISOString(),
-    });
+    await db.query(
+      `UPDATE production_orders
+         SET status = 'completed', actual_end_date = CURRENT_TIMESTAMP,
+             updated_at = CURRENT_TIMESTAMP
+       WHERE id = $1`,
+      [order.id]
+    );
+    return (await this.getById(order.id!))!;
   }
 
-  /**
-   * Annule un ordre de production
-   */
-  async cancel(productionOrderId: string, reason?: string): Promise<ProductionOrder> {
-    const order = await this.getById(productionOrderId);
-    if (!order) {
-      throw new Error('Ordre de production non trouvé');
-    }
-
+  async cancel(idOrSlug: string, reason?: string): Promise<ProductionOrder> {
+    const order = await this.getById(idOrSlug);
+    if (!order) throw new Error('Ordre de production introuvable');
     if (order.Status === 'completed') {
-      throw new Error('Un ordre complété ne peut pas être annulé');
+      throw new Error('Un OP complété ne peut pas être annulé');
     }
-
-    return await this.update(productionOrderId, {
-      status: 'cancelled',
-      notes: reason ? `${order.Notes || ''}\nAnnulé: ${reason}` : order.Notes,
-    });
+    const newNotes = reason
+      ? `${order.Notes ? order.Notes + '\n' : ''}Annulé: ${reason}`
+      : order.Notes;
+    await db.query(
+      `UPDATE production_orders
+         SET status = 'cancelled', notes = $2, updated_at = CURRENT_TIMESTAMP
+       WHERE id = $1`,
+      [order.id, newNotes]
+    );
+    return (await this.getById(order.id!))!;
   }
 
-  /**
-   * Statistiques des ordres de production
-   */
-  async getStatistics(
-    workspaceId: string,
-    dateRange?: { from: string; to: string }
-  ): Promise<{
+  async getStatistics(workspaceId: string, dateRange?: { from: string; to: string }): Promise<{
     totalOrders: number;
     byStatus: Record<ProductionOrderStatus, number>;
     totalProducedQuantity: number;
     averageYieldRate: number;
     totalCost: number;
     onTimeDelivery: number;
+    ordersInProgress: number;
   }> {
-    let orders = await this.list(workspaceId);
-
-    if (dateRange) {
-      orders = orders.filter(
-        (o) => o.PlannedStartDate >= dateRange.from && o.PlannedStartDate <= dateRange.to
-      );
+    const wsUuid = await resolveUuid('workspaces', 'workspace_id', workspaceId);
+    const byStatus: Record<ProductionOrderStatus, number> = {
+      draft: 0, submitted: 0, planned: 0, in_progress: 0, completed: 0, cancelled: 0,
+    };
+    if (!wsUuid) {
+      return { totalOrders: 0, byStatus, totalProducedQuantity: 0,
+               averageYieldRate: 0, totalCost: 0, onTimeDelivery: 0, ordersInProgress: 0 };
     }
 
-    const byStatus: Record<ProductionOrderStatus, number> = {
-      draft: 0,
-      planned: 0,
-      in_progress: 0,
-      completed: 0,
-      cancelled: 0,
-    };
+    const params: any[] = [wsUuid];
+    const conds: string[] = ['workspace_id = $1'];
+    if (dateRange) {
+      params.push(dateRange.from, dateRange.to);
+      conds.push(`planned_start_date BETWEEN $${params.length - 1} AND $${params.length}`);
+    }
 
-    let totalProducedQuantity = 0;
-    let totalYieldRate = 0;
+    const r = await db.query(
+      `SELECT
+         status,
+         COUNT(*)::int AS n,
+         COALESCE(SUM(produced_quantity), 0)::numeric AS produced,
+         COALESCE(AVG(yield_rate), 0)::numeric        AS avg_yield,
+         COALESCE(SUM(total_cost), 0)::numeric        AS total_cost,
+         SUM(CASE WHEN status='completed' AND actual_end_date <= planned_end_date THEN 1 ELSE 0 END)::int AS on_time,
+         SUM(CASE WHEN status='completed' THEN 1 ELSE 0 END)::int AS completed_count
+       FROM production_orders WHERE ${conds.join(' AND ')} GROUP BY status`,
+      params
+    );
+
+    let totalOrders = 0;
+    let totalProduced = 0;
     let totalCost = 0;
-    let onTimeCount = 0;
-    let completedCount = 0;
-
-    for (const order of orders) {
-      byStatus[order.Status]++;
-      totalProducedQuantity += order.ProducedQuantity;
-      totalYieldRate += order.YieldRate;
-      totalCost += order.TotalCost;
-
-      if (order.Status === 'completed') {
-        completedCount++;
-        if (order.ActualEndDate && order.ActualEndDate <= order.PlannedEndDate) {
-          onTimeCount++;
-        }
-      }
+    let yieldSum = 0;
+    let yieldN = 0;
+    let onTime = 0;
+    let completed = 0;
+    for (const row of r.rows) {
+      byStatus[row.status as ProductionOrderStatus] = row.n;
+      totalOrders += row.n;
+      totalProduced += Number(row.produced);
+      totalCost += Number(row.total_cost);
+      yieldSum += Number(row.avg_yield) * row.n;
+      yieldN += row.n;
+      onTime += row.on_time;
+      completed += row.completed_count;
     }
 
     return {
-      totalOrders: orders.length,
+      totalOrders,
       byStatus,
-      totalProducedQuantity,
-      averageYieldRate: orders.length > 0 ? totalYieldRate / orders.length : 0,
+      totalProducedQuantity: totalProduced,
+      averageYieldRate: yieldN > 0 ? yieldSum / yieldN : 0,
       totalCost,
-      onTimeDelivery: completedCount > 0 ? (onTimeCount / completedCount) * 100 : 0,
+      onTimeDelivery: completed > 0 ? (onTime / completed) * 100 : 0,
+      ordersInProgress: byStatus.in_progress,
     };
   }
 }

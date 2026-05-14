@@ -38,6 +38,13 @@ const getStatusConfig = (status: ProductionOrderStatus) => {
       iconColor: 'text-gray-600',
       gradient: 'from-gray-400 to-gray-600',
     },
+    submitted: {
+      color: 'bg-amber-100 text-amber-800 border-amber-200',
+      label: 'À valider',
+      icon: AlertTriangle,
+      iconColor: 'text-amber-600',
+      gradient: 'from-amber-500 to-orange-500',
+    },
     planned: {
       color: 'bg-blue-100 text-blue-800 border-blue-200',
       label: 'Planifié',

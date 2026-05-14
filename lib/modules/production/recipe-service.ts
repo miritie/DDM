@@ -1,13 +1,63 @@
 /**
- * Service - Gestion des Recettes / BOM (Bill of Materials)
- * Module Production & Usine
+ * Service - Recettes / Bill of Materials (BOM)
+ *
+ * Mise à jour 2026-05-14 :
+ *   - réécriture en SQL direct via pool.query() (plus de filterByFormula).
+ *   - versioning : update() incrémente recipes.version.
+ *   - calculateCost() prend le PMP courant des ingrédients (jointure live).
+ *
+ * Convention de retour : PascalCase via alias SQL pour compat UI existante.
  */
-
 import { getPostgresClient } from '@/lib/database/postgres-client';
 import { Recipe, RecipeLine } from '@/types/modules';
 import { v4 as uuidv4 } from 'uuid';
 
-const postgresClient = getPostgresClient();
+const db = getPostgresClient();
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+const SELECT_RECIPE = `
+  SELECT
+    r.id,
+    r.recipe_id        AS "RecipeId",
+    r.recipe_number    AS "RecipeNumber",
+    r.name             AS "Name",
+    r.product_id       AS "ProductId",
+    r.product_name     AS "ProductName",
+    r.version          AS "Version",
+    r.output_quantity  AS "OutputQuantity",
+    r.output_unit      AS "OutputUnit",
+    r.estimated_duration AS "EstimatedDuration",
+    r.instructions     AS "Instructions",
+    r.yield_rate       AS "YieldRate",
+    r.is_active        AS "IsActive",
+    r.workspace_id     AS "WorkspaceId",
+    r.created_at       AS "CreatedAt",
+    r.updated_at       AS "UpdatedAt"
+  FROM recipes r
+`;
+
+const SELECT_RECIPE_LINE = `
+  SELECT
+    id,
+    recipe_line_id   AS "RecipeLineId",
+    recipe_id        AS "RecipeId",
+    ingredient_id    AS "IngredientId",
+    ingredient_name  AS "IngredientName",
+    quantity         AS "Quantity",
+    unit             AS "Unit",
+    loss             AS "Loss",
+    notes            AS "Notes",
+    created_at       AS "CreatedAt"
+  FROM recipe_lines
+`;
+
+async function resolveUuid(table: string, slugCol: string | null, value: string | null | undefined): Promise<string | null> {
+  if (!value) return null;
+  if (UUID_RE.test(value)) return value;
+  if (!slugCol) return null;
+  const r = await db.query(`SELECT id FROM ${table} WHERE ${slugCol} = $1 OR id::text = $1 LIMIT 1`, [value]);
+  return r.rows[0]?.id ?? null;
+}
 
 export interface CreateRecipeInput {
   name: string;
@@ -15,18 +65,17 @@ export interface CreateRecipeInput {
   productName?: string;
   outputQuantity: number;
   outputUnit: string;
-  estimatedDuration: number;
+  estimatedDuration?: number;
   instructions?: string;
-  yieldRate: number;
+  yieldRate?: number;
   lines: CreateRecipeLineInput[];
   workspaceId: string;
 }
 
 export interface CreateRecipeLineInput {
   ingredientId: string;
-  ingredientName?: string;
   quantity: number;
-  unit: string;
+  unit?: string;
   loss?: number;
   notes?: string;
 }
@@ -34,7 +83,6 @@ export interface CreateRecipeLineInput {
 export interface UpdateRecipeInput {
   name?: string;
   productId?: string;
-  productName?: string;
   outputQuantity?: number;
   outputUnit?: string;
   estimatedDuration?: number;
@@ -43,339 +91,269 @@ export interface UpdateRecipeInput {
   isActive?: boolean;
 }
 
-/**
- * Service de gestion des recettes / BOM
- */
 export class RecipeService {
-  /**
-   * Liste toutes les recettes
-   */
-  async list(
-    workspaceId: string,
-    filters?: {
-      isActive?: boolean;
-      productId?: string;
-    }
-  ): Promise<Recipe[]> {
-    const conditions: string[] = [`workspace_id = '${workspaceId}'`];
+
+  async list(workspaceId: string, filters?: {
+    isActive?: boolean;
+    productId?: string;
+  }): Promise<Recipe[]> {
+    const wsUuid = await resolveUuid('workspaces', 'workspace_id', workspaceId);
+    if (!wsUuid) return [];
+
+    const conds: string[] = ['r.workspace_id = $1'];
+    const params: any[] = [wsUuid];
 
     if (filters?.isActive !== undefined) {
-      conditions.push(`is_active = ${filters.isActive}`);
+      params.push(filters.isActive);
+      conds.push(`r.is_active = $${params.length}`);
     }
-
     if (filters?.productId) {
-      conditions.push(`product_id = '${filters.productId}'`);
-    }
-
-    const recipes = await postgresClient.list<Recipe>('recipes', {
-      filterByFormula: conditions.join(' AND '),
-      orderBy: { field: 'recipe_number', direction: 'desc' },
-    });
-
-    // Charger les lignes pour chaque recette
-    for (const recipe of recipes) {
-      recipe.Lines = await this.getRecipeLines(recipe.RecipeId);
-    }
-
-    return recipes;
-  }
-
-  /**
-   * Récupère une recette par ID
-   */
-  async getById(recipeId: string): Promise<Recipe | null> {
-    const results = await postgresClient.list<Recipe>('recipes', {
-      filterByFormula: `recipe_id = '${recipeId}'`,
-    });
-
-    if (results.length === 0) {
-      return null;
-    }
-
-    const recipe = results[0];
-    recipe.Lines = await this.getRecipeLines(recipeId);
-
-    return recipe;
-  }
-
-  /**
-   * Récupère une recette par numéro
-   */
-  async getByNumber(workspaceId: string, recipeNumber: string): Promise<Recipe | null> {
-    const results = await postgresClient.list<Recipe>('recipes', {
-      filterByFormula: `workspace_id = '${workspaceId}' AND recipe_number = '${recipeNumber}'`,
-    });
-
-    if (results.length === 0) {
-      return null;
-    }
-
-    const recipe = results[0];
-    recipe.Lines = await this.getRecipeLines(recipe.RecipeId);
-
-    return recipe;
-  }
-
-  /**
-   * Récupère les lignes d'une recette
-   */
-  async getRecipeLines(recipeId: string): Promise<RecipeLine[]> {
-    return await postgresClient.list<RecipeLine>('recipe_lines', {
-      filterByFormula: `recipe_id = '${recipeId}'`,
-      orderBy: { field: 'created_at', direction: 'asc' },
-    });
-  }
-
-  /**
-   * Génère le prochain numéro de recette
-   */
-  private async generateRecipeNumber(workspaceId: string): Promise<string> {
-    const now = new Date();
-    const year = now.getFullYear();
-    const month = String(now.getMonth() + 1).padStart(2, '0');
-    const prefix = `REC-${year}${month}`;
-
-    const existingRecipes = await postgresClient.list<Recipe>('recipes', {
-      filterByFormula: `workspace_id = '${workspaceId}' AND recipe_number LIKE '${prefix}%'`,
-      orderBy: { field: 'recipe_number', direction: 'desc' },
-    });
-
-    let nextNumber = 1;
-    if (existingRecipes.length > 0) {
-      const lastNumber = existingRecipes[0].RecipeNumber;
-      const match = lastNumber.match(/-(\d+)$/);
-      if (match) {
-        nextNumber = parseInt(match[1], 10) + 1;
+      const pUuid = await resolveUuid('products', 'product_id', filters.productId);
+      if (pUuid) {
+        params.push(pUuid);
+        conds.push(`r.product_id = $${params.length}`);
       }
     }
 
-    return `${prefix}-${String(nextNumber).padStart(4, '0')}`;
+    const r = await db.query(
+      `${SELECT_RECIPE} WHERE ${conds.join(' AND ')} ORDER BY r.recipe_number DESC`,
+      params
+    );
+    const recipes: Recipe[] = r.rows;
+    for (const recipe of recipes) {
+      recipe.Lines = await this.getRecipeLines(recipe.id!);
+    }
+    return recipes;
   }
 
-  /**
-   * Crée une nouvelle recette avec ses lignes
-   */
+  async getById(idOrSlug: string): Promise<Recipe | null> {
+    const r = await db.query(
+      `${SELECT_RECIPE} WHERE r.id::text = $1 OR r.recipe_id = $1 LIMIT 1`,
+      [idOrSlug]
+    );
+    const recipe = r.rows[0];
+    if (!recipe) return null;
+    recipe.Lines = await this.getRecipeLines(recipe.id);
+    return recipe;
+  }
+
+  async getRecipeLines(recipeUuid: string): Promise<RecipeLine[]> {
+    const r = await db.query(
+      `${SELECT_RECIPE_LINE} WHERE recipe_id = $1 ORDER BY created_at ASC`,
+      [recipeUuid]
+    );
+    return r.rows;
+  }
+
+  private async generateRecipeNumber(workspaceUuid: string): Promise<string> {
+    const now = new Date();
+    const prefix = `REC-${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}`;
+    const r = await db.query(
+      `SELECT recipe_number FROM recipes
+       WHERE workspace_id = $1 AND recipe_number LIKE $2
+       ORDER BY recipe_number DESC LIMIT 1`,
+      [workspaceUuid, `${prefix}%`]
+    );
+    let next = 1;
+    if (r.rows[0]) {
+      const m = r.rows[0].recipe_number.match(/-(\d+)$/);
+      if (m) next = parseInt(m[1], 10) + 1;
+    }
+    return `${prefix}-${String(next).padStart(4, '0')}`;
+  }
+
   async create(input: CreateRecipeInput): Promise<Recipe> {
     if (!input.lines || input.lines.length === 0) {
       throw new Error('Une recette doit contenir au moins un ingrédient');
     }
 
-    const recipeNumber = await this.generateRecipeNumber(input.workspaceId);
-    const recipeId = uuidv4();
+    const wsUuid = await resolveUuid('workspaces', 'workspace_id', input.workspaceId);
+    if (!wsUuid) throw new Error('Workspace introuvable');
 
-    // Créer la recette
-    const recipe: Partial<Recipe> = {
-      RecipeId: recipeId,
-      RecipeNumber: recipeNumber,
-      Name: input.name,
-      ProductId: input.productId,
-      ProductName: input.productName,
-      Version: 1,
-      OutputQuantity: input.outputQuantity,
-      OutputUnit: input.outputUnit,
-      EstimatedDuration: input.estimatedDuration,
-      Instructions: input.instructions,
-      YieldRate: input.yieldRate,
-      IsActive: true,
-      WorkspaceId: input.workspaceId,
-      CreatedAt: new Date().toISOString(),
-      UpdatedAt: new Date().toISOString(),
-    };
+    const productUuid = await resolveUuid('products', 'product_id', input.productId);
+    if (!productUuid) throw new Error('Produit introuvable');
 
-    const createdRecipe = await postgresClient.create<Recipe>('recipes', recipe);
+    const recipeId = `REC-${uuidv4().slice(0, 8)}`;
+    const recipeNumber = await this.generateRecipeNumber(wsUuid);
 
-    // Créer les lignes de la recette
-    const lines: RecipeLine[] = [];
-    for (const lineInput of input.lines) {
-      const line: Partial<RecipeLine> = {
-        RecipeLineId: uuidv4(),
-        RecipeId: recipeId,
-        IngredientId: lineInput.ingredientId,
-        IngredientName: lineInput.ingredientName,
-        Quantity: lineInput.quantity,
-        Unit: lineInput.unit,
-        Loss: lineInput.loss,
-        Notes: lineInput.notes,
-      };
+    const createdRecipe = await db.transaction(async (client) => {
+      const ins = await client.query(
+        `INSERT INTO recipes (
+           recipe_id, recipe_number, name, product_id, product_name,
+           version, output_quantity, output_unit, estimated_duration,
+           instructions, yield_rate, is_active, workspace_id
+         ) VALUES ($1,$2,$3,$4,$5,1,$6,$7,$8,$9,$10,true,$11)
+         RETURNING id`,
+        [
+          recipeId, recipeNumber, input.name, productUuid, input.productName ?? null,
+          input.outputQuantity, input.outputUnit, input.estimatedDuration ?? null,
+          input.instructions ?? null, input.yieldRate ?? 100, wsUuid,
+        ]
+      );
+      const recipeUuid = ins.rows[0].id;
 
-      const createdLine = await postgresClient.create<RecipeLine>('recipe_lines', line);
-      lines.push(createdLine);
-    }
+      for (const line of input.lines) {
+        const ingUuid = await resolveUuid('ingredients', 'ingredient_id', line.ingredientId);
+        if (!ingUuid) throw new Error(`Ingrédient introuvable : ${line.ingredientId}`);
+        const ingMeta = await client.query(
+          `SELECT name, unit FROM ingredients WHERE id = $1`,
+          [ingUuid]
+        );
+        const ingName = ingMeta.rows[0]?.name;
+        const ingUnit = line.unit ?? ingMeta.rows[0]?.unit ?? 'unit';
 
-    createdRecipe.Lines = lines;
-    return createdRecipe;
-  }
-
-  /**
-   * Met à jour une recette (crée une nouvelle version)
-   */
-  async update(recipeId: string, updates: UpdateRecipeInput): Promise<Recipe> {
-    const recipe = await this.getById(recipeId);
-    if (!recipe) {
-      throw new Error('Recette non trouvée');
-    }
-
-    const records = await postgresClient.list<Recipe>('recipes', {
-      filterByFormula: `recipe_id = '${recipeId}'`,
+        await client.query(
+          `INSERT INTO recipe_lines (
+             recipe_line_id, recipe_id, ingredient_id, ingredient_name,
+             quantity, unit, loss, notes
+           ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
+          [
+            `RL-${uuidv4().slice(0, 8)}`, recipeUuid, ingUuid, ingName,
+            line.quantity, ingUnit, line.loss ?? 0, line.notes ?? null,
+          ]
+        );
+      }
+      return recipeUuid;
     });
 
-    if (records.length === 0) {
-      throw new Error('Recette non trouvée');
-    }
-
-    const recordId = records[0].id;
-    if (!recordId) {
-      throw new Error('ID d\'enregistrement non trouvé');
-    }
-
-    const updateData: Record<string, any> = {
-      Version: recipe.Version + 1,
-      UpdatedAt: new Date().toISOString(),
-    };
-    if (updates.name !== undefined) updateData.Name = updates.name;
-    if (updates.productId !== undefined) updateData.ProductId = updates.productId;
-    if (updates.productName !== undefined) updateData.ProductName = updates.productName;
-    if (updates.outputQuantity !== undefined) updateData.OutputQuantity = updates.outputQuantity;
-    if (updates.outputUnit !== undefined) updateData.OutputUnit = updates.outputUnit;
-    if (updates.estimatedDuration !== undefined) updateData.EstimatedDuration = updates.estimatedDuration;
-    if (updates.instructions !== undefined) updateData.Instructions = updates.instructions;
-    if (updates.yieldRate !== undefined) updateData.YieldRate = updates.yieldRate;
-    if (updates.isActive !== undefined) updateData.IsActive = updates.isActive;
-
-    const updatedRecipe = await postgresClient.update<Recipe>('recipes', recordId, updateData);
-
-    updatedRecipe.Lines = await this.getRecipeLines(recipeId);
-    return updatedRecipe;
+    return (await this.getById(createdRecipe))!;
   }
 
   /**
-   * Ajoute une ligne à une recette
+   * Met à jour la recette ET incrémente version. Les OP en cours qui ont snapshot
+   * recipe_version restent figés sur l'ancienne version.
    */
-  async addLine(recipeId: string, lineInput: CreateRecipeLineInput): Promise<RecipeLine> {
-    const recipe = await this.getById(recipeId);
-    if (!recipe) {
-      throw new Error('Recette non trouvée');
+  async update(idOrSlug: string, updates: UpdateRecipeInput): Promise<Recipe> {
+    const recipe = await this.getById(idOrSlug);
+    if (!recipe) throw new Error('Recette introuvable');
+
+    const sets: string[] = ['version = version + 1'];
+    const params: any[] = [];
+    const push = (col: string, v: any) => { params.push(v); sets.push(`${col} = $${params.length}`); };
+
+    if (updates.name !== undefined) push('name', updates.name);
+    if (updates.productId !== undefined) {
+      const pUuid = await resolveUuid('products', 'product_id', updates.productId);
+      push('product_id', pUuid);
     }
+    if (updates.outputQuantity !== undefined) push('output_quantity', updates.outputQuantity);
+    if (updates.outputUnit !== undefined) push('output_unit', updates.outputUnit);
+    if (updates.estimatedDuration !== undefined) push('estimated_duration', updates.estimatedDuration);
+    if (updates.instructions !== undefined) push('instructions', updates.instructions);
+    if (updates.yieldRate !== undefined) push('yield_rate', updates.yieldRate);
+    if (updates.isActive !== undefined) push('is_active', updates.isActive);
 
-    const line: Partial<RecipeLine> = {
-      RecipeLineId: uuidv4(),
-      RecipeId: recipeId,
-      IngredientId: lineInput.ingredientId,
-      IngredientName: lineInput.ingredientName,
-      Quantity: lineInput.quantity,
-      Unit: lineInput.unit,
-      Loss: lineInput.loss,
-      Notes: lineInput.notes,
-    };
-
-    const created = await postgresClient.create<RecipeLine>('recipe_lines', line);
-    return created;
+    params.push(recipe.id);
+    await db.query(`UPDATE recipes SET ${sets.join(', ')} WHERE id = $${params.length}`, params);
+    return (await this.getById(recipe.id!))!;
   }
 
-  /**
-   * Met à jour une ligne de recette
-   */
-  async updateLine(
-    recipeLineId: string,
-    updates: {
-      quantity?: number;
-      unit?: string;
-      loss?: number;
-      notes?: string;
-    }
-  ): Promise<RecipeLine> {
-    const records = await postgresClient.list<RecipeLine>('recipe_lines', {
-      filterByFormula: `recipe_line_id = '${recipeLineId}'`,
-    });
+  async addLine(recipeIdOrSlug: string, line: CreateRecipeLineInput): Promise<RecipeLine> {
+    const recipe = await this.getById(recipeIdOrSlug);
+    if (!recipe) throw new Error('Recette introuvable');
 
-    if (records.length === 0) {
-      throw new Error('Ligne de recette non trouvée');
-    }
+    const ingUuid = await resolveUuid('ingredients', 'ingredient_id', line.ingredientId);
+    if (!ingUuid) throw new Error('Ingrédient introuvable');
 
-    const recordId = records[0].id;
-    if (!recordId) {
-      throw new Error('ID d\'enregistrement non trouvé');
-    }
+    const meta = await db.query(`SELECT name, unit FROM ingredients WHERE id = $1`, [ingUuid]);
+    const lineUuid = uuidv4();
+    const lineSlug = `RL-${lineUuid.slice(0, 8)}`;
 
-    const data: Record<string, any> = {};
-    if (updates.quantity !== undefined) data.Quantity = updates.quantity;
-    if (updates.unit !== undefined) data.Unit = updates.unit;
-    if (updates.loss !== undefined) data.Loss = updates.loss;
-    if (updates.notes !== undefined) data.Notes = updates.notes;
+    await db.query(
+      `INSERT INTO recipe_lines (
+         recipe_line_id, recipe_id, ingredient_id, ingredient_name,
+         quantity, unit, loss, notes
+       ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
+      [
+        lineSlug, recipe.id, ingUuid, meta.rows[0]?.name ?? null,
+        line.quantity, line.unit ?? meta.rows[0]?.unit ?? 'unit', line.loss ?? 0, line.notes ?? null,
+      ]
+    );
 
-    const updated = await postgresClient.update<RecipeLine>('recipe_lines', recordId, data);
-    return updated;
+    // Bump version
+    await db.query(`UPDATE recipes SET version = version + 1 WHERE id = $1`, [recipe.id]);
+
+    const r = await db.query(`${SELECT_RECIPE_LINE} WHERE recipe_line_id = $1`, [lineSlug]);
+    return r.rows[0];
   }
 
-  /**
-   * Supprime une ligne de recette
-   */
-  async deleteLine(recipeLineId: string): Promise<void> {
-    const records = await postgresClient.list<RecipeLine>('recipe_lines', {
-      filterByFormula: `recipe_line_id = '${recipeLineId}'`,
-    });
+  async updateLine(lineIdOrSlug: string, updates: {
+    quantity?: number; unit?: string; loss?: number; notes?: string;
+  }): Promise<RecipeLine> {
+    const sets: string[] = [];
+    const params: any[] = [];
+    const push = (col: string, v: any) => { params.push(v); sets.push(`${col} = $${params.length}`); };
 
-    if (records.length === 0) {
-      throw new Error('Ligne de recette non trouvée');
-    }
+    if (updates.quantity !== undefined) push('quantity', updates.quantity);
+    if (updates.unit !== undefined) push('unit', updates.unit);
+    if (updates.loss !== undefined) push('loss', updates.loss);
+    if (updates.notes !== undefined) push('notes', updates.notes);
 
-    const recordId = records[0].id;
-    if (!recordId) {
-      throw new Error('ID d\'enregistrement non trouvé');
-    }
-    await postgresClient.delete('recipe_lines', recordId);
+    if (sets.length === 0) throw new Error('Aucune modification fournie');
+
+    params.push(lineIdOrSlug);
+    const where = `id::text = $${params.length} OR recipe_line_id = $${params.length}`;
+    const r = await db.query(
+      `UPDATE recipe_lines SET ${sets.join(', ')} WHERE ${where} RETURNING recipe_id`,
+      params
+    );
+    if (r.rowCount === 0) throw new Error('Ligne de recette introuvable');
+
+    await db.query(`UPDATE recipes SET version = version + 1 WHERE id = $1`, [r.rows[0].recipe_id]);
+
+    const out = await db.query(
+      `${SELECT_RECIPE_LINE} WHERE id::text = $1 OR recipe_line_id = $1 LIMIT 1`,
+      [lineIdOrSlug]
+    );
+    return out.rows[0];
   }
 
-  /**
-   * Duplique une recette (nouvelle version)
-   */
-  async duplicate(recipeId: string, newName?: string): Promise<Recipe> {
-    const originalRecipe = await this.getById(recipeId);
-    if (!originalRecipe) {
-      throw new Error('Recette non trouvée');
-    }
+  async deleteLine(lineIdOrSlug: string): Promise<void> {
+    const r = await db.query(
+      `DELETE FROM recipe_lines WHERE id::text = $1 OR recipe_line_id = $1 RETURNING recipe_id`,
+      [lineIdOrSlug]
+    );
+    if (r.rowCount === 0) throw new Error('Ligne de recette introuvable');
+    await db.query(`UPDATE recipes SET version = version + 1 WHERE id = $1`, [r.rows[0].recipe_id]);
+  }
 
-    const duplicateInput: CreateRecipeInput = {
-      name: newName || `${originalRecipe.Name} (Copie)`,
-      productId: originalRecipe.ProductId,
-      productName: originalRecipe.ProductName,
-      outputQuantity: originalRecipe.OutputQuantity,
-      outputUnit: originalRecipe.OutputUnit,
-      estimatedDuration: originalRecipe.EstimatedDuration,
-      instructions: originalRecipe.Instructions,
-      yieldRate: originalRecipe.YieldRate,
-      lines: originalRecipe.Lines.map((line) => ({
-        ingredientId: line.IngredientId,
-        ingredientName: line.IngredientName,
-        quantity: line.Quantity,
-        unit: line.Unit,
-        loss: line.Loss,
-        notes: line.Notes,
+  async duplicate(recipeIdOrSlug: string, newName?: string): Promise<Recipe> {
+    const original = await this.getById(recipeIdOrSlug);
+    if (!original) throw new Error('Recette introuvable');
+
+    return this.create({
+      name: newName ?? `${original.Name} (Copie)`,
+      productId: original.ProductId,
+      productName: original.ProductName,
+      outputQuantity: Number(original.OutputQuantity),
+      outputUnit: original.OutputUnit,
+      estimatedDuration: original.EstimatedDuration,
+      instructions: original.Instructions,
+      yieldRate: Number(original.YieldRate),
+      lines: original.Lines.map((l) => ({
+        ingredientId: l.IngredientId,
+        quantity: Number(l.Quantity),
+        unit: l.Unit,
+        loss: l.Loss ? Number(l.Loss) : 0,
+        notes: l.Notes,
       })),
-      workspaceId: originalRecipe.WorkspaceId,
-    };
+      workspaceId: original.WorkspaceId,
+    });
+  }
 
-    return await this.create(duplicateInput);
+  async deactivate(idOrSlug: string): Promise<Recipe> {
+    return this.update(idOrSlug, { isActive: false });
+  }
+
+  async activate(idOrSlug: string): Promise<Recipe> {
+    return this.update(idOrSlug, { isActive: true });
   }
 
   /**
-   * Désactive une recette
+   * Calcule le coût total de la recette en utilisant le PMP courant
+   * des ingrédients (jointure live, pas un snapshot).
    */
-  async deactivate(recipeId: string): Promise<Recipe> {
-    return await this.update(recipeId, { isActive: false });
-  }
-
-  /**
-   * Active une recette
-   */
-  async activate(recipeId: string): Promise<Recipe> {
-    return await this.update(recipeId, { isActive: true });
-  }
-
-  /**
-   * Calcule le coût total d'une recette
-   */
-  async calculateCost(recipeId: string): Promise<{
+  async calculateCost(recipeIdOrSlug: string): Promise<{
     totalCost: number;
     costPerUnit: number;
     ingredientCosts: Array<{
@@ -386,65 +364,85 @@ export class RecipeService {
       totalCost: number;
     }>;
   }> {
-    const recipe = await this.getById(recipeId);
-    if (!recipe) {
-      throw new Error('Recette non trouvée');
-    }
+    const recipe = await this.getById(recipeIdOrSlug);
+    if (!recipe) throw new Error('Recette introuvable');
 
-    const ingredientCosts = [];
+    const r = await db.query(
+      `SELECT
+         rl.ingredient_id  AS ingredient_uuid,
+         i.ingredient_id   AS ingredient_slug,
+         COALESCE(rl.ingredient_name, i.name) AS ingredient_name,
+         rl.quantity::numeric AS quantity,
+         i.unit_cost::numeric AS unit_cost
+       FROM recipe_lines rl
+       JOIN ingredients i ON i.id = rl.ingredient_id
+       WHERE rl.recipe_id = $1`,
+      [recipe.id]
+    );
+
     let totalCost = 0;
+    const ingredientCosts = r.rows.map((row) => {
+      const qty = Number(row.quantity);
+      const uc = Number(row.unit_cost);
+      const tc = qty * uc;
+      totalCost += tc;
+      return {
+        ingredientId: row.ingredient_slug,
+        ingredientName: row.ingredient_name,
+        quantity: qty,
+        unitCost: uc,
+        totalCost: tc,
+      };
+    });
 
-    for (const line of recipe.Lines) {
-      // Récupérer le coût unitaire de l'ingrédient
-      const ingredients = await postgresClient.list('ingredients', {
-        filterByFormula: `ingredient_id = '${line.IngredientId}'`,
-      });
+    const costPerUnit = Number(recipe.OutputQuantity) > 0
+      ? totalCost / Number(recipe.OutputQuantity)
+      : 0;
 
-      if (ingredients.length > 0) {
-        const ingredient = ingredients[0] as any;
-        const lineCost = line.Quantity * ingredient.UnitCost;
-        totalCost += lineCost;
-
-        ingredientCosts.push({
-          ingredientId: line.IngredientId,
-          ingredientName: line.IngredientName || ingredient.Name,
-          quantity: line.Quantity,
-          unitCost: ingredient.UnitCost,
-          totalCost: lineCost,
-        });
-      }
-    }
-
-    const costPerUnit = totalCost / recipe.OutputQuantity;
-
-    return {
-      totalCost,
-      costPerUnit,
-      ingredientCosts,
-    };
+    return { totalCost, costPerUnit, ingredientCosts };
   }
 
-  /**
-   * Statistiques des recettes
-   */
   async getStatistics(workspaceId: string): Promise<{
     totalRecipes: number;
     activeRecipes: number;
     inactiveRecipes: number;
     averageDuration: number;
     averageYieldRate: number;
+    avgYieldRate: number;        // alias compat
+    totalIngredients: number;    // nb d'ingrédients distincts utilisés
   }> {
-    const recipes = await this.list(workspaceId);
-    const activeRecipes = recipes.filter((r) => r.IsActive);
-    const totalDuration = recipes.reduce((sum, r) => sum + r.EstimatedDuration, 0);
-    const totalYield = recipes.reduce((sum, r) => sum + r.YieldRate, 0);
-
+    const wsUuid = await resolveUuid('workspaces', 'workspace_id', workspaceId);
+    if (!wsUuid) {
+      return { totalRecipes: 0, activeRecipes: 0, inactiveRecipes: 0,
+               averageDuration: 0, averageYieldRate: 0, avgYieldRate: 0, totalIngredients: 0 };
+    }
+    const r = await db.query(
+      `SELECT
+         COUNT(*)::int                                   AS total,
+         SUM(CASE WHEN is_active THEN 1 ELSE 0 END)::int AS active,
+         SUM(CASE WHEN NOT is_active THEN 1 ELSE 0 END)::int AS inactive,
+         COALESCE(AVG(estimated_duration), 0)::numeric   AS avg_dur,
+         COALESCE(AVG(yield_rate), 0)::numeric           AS avg_yield
+       FROM recipes WHERE workspace_id = $1`,
+      [wsUuid]
+    );
+    const ing = await db.query(
+      `SELECT COUNT(DISTINCT rl.ingredient_id)::int AS n
+         FROM recipe_lines rl
+         JOIN recipes r ON r.id = rl.recipe_id
+        WHERE r.workspace_id = $1`,
+      [wsUuid]
+    );
+    const row = r.rows[0];
+    const avgY = Number(row.avg_yield);
     return {
-      totalRecipes: recipes.length,
-      activeRecipes: activeRecipes.length,
-      inactiveRecipes: recipes.filter((r) => !r.IsActive).length,
-      averageDuration: recipes.length > 0 ? totalDuration / recipes.length : 0,
-      averageYieldRate: recipes.length > 0 ? totalYield / recipes.length : 0,
+      totalRecipes: row.total,
+      activeRecipes: row.active,
+      inactiveRecipes: row.inactive,
+      averageDuration: Number(row.avg_dur),
+      averageYieldRate: avgY,
+      avgYieldRate: avgY,
+      totalIngredients: ing.rows[0]?.n ?? 0,
     };
   }
 }

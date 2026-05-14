@@ -14,11 +14,15 @@ export async function GET(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    await requirePermission(PERMISSIONS.PRODUCTION_VIEW);
+    // Coût détaillé = secret de fabrication → PCA + admin uniquement
+    await requirePermission(PERMISSIONS.RECIPE_VIEW_FORMULA);
     const { id } = await params;
     const cost = await service.calculateCost(id);
     return NextResponse.json({ data: cost });
   } catch (error: any) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    return NextResponse.json(
+      { error: error.message },
+      { status: error.message?.includes('Permission') ? 403 : 500 }
+    );
   }
 }
