@@ -247,51 +247,56 @@ export class ReplenishmentService {
 
   /** Transitions de statut (workflow). */
   async submit(id: string): Promise<any> {
-    await this.requireStatus(id, 'draft');
-    await db.query(`UPDATE stand_replenishment_orders SET status='submitted', updated_at=CURRENT_TIMESTAMP WHERE id=$1`, [id]);
-    return this.getById(id);
+    const uuid = await this.resolveOrderUuid(id);
+    await this.requireStatus(uuid, 'draft');
+    await db.query(`UPDATE stand_replenishment_orders SET status='submitted', updated_at=CURRENT_TIMESTAMP WHERE id=$1`, [uuid]);
+    return this.getById(uuid);
   }
 
   async approve(id: string, approvedById: string): Promise<any> {
-    await this.requireStatus(id, 'submitted');
+    const uuid = await this.resolveOrderUuid(id);
+    await this.requireStatus(uuid, 'submitted');
     const userUuid = await resolveUserUuid(approvedById);
     await db.query(
       `UPDATE stand_replenishment_orders
        SET status='approved', approved_by_id=$2, approved_at=CURRENT_TIMESTAMP, updated_at=CURRENT_TIMESTAMP
        WHERE id=$1`,
-      [id, userUuid]
+      [uuid, userUuid]
     );
-    return this.getById(id);
+    return this.getById(uuid);
   }
 
   async linkProductionOrder(id: string, productionOrderId: string): Promise<any> {
+    const uuid = await this.resolveOrderUuid(id);
     await db.query(
       `UPDATE stand_replenishment_orders
        SET production_order_id=$2, status='in_production', updated_at=CURRENT_TIMESTAMP
        WHERE id=$1 AND status IN ('approved','in_production')`,
-      [id, productionOrderId]
+      [uuid, productionOrderId]
     );
-    return this.getById(id);
+    return this.getById(uuid);
   }
 
   async markProduced(id: string): Promise<any> {
+    const uuid = await this.resolveOrderUuid(id);
     await db.query(
       `UPDATE stand_replenishment_orders
        SET status='produced', updated_at=CURRENT_TIMESTAMP
        WHERE id=$1 AND status IN ('in_production','approved')`,
-      [id]
+      [uuid]
     );
-    return this.getById(id);
+    return this.getById(uuid);
   }
 
   async cancel(id: string, reason?: string): Promise<any> {
+    const uuid = await this.resolveOrderUuid(id);
     await db.query(
       `UPDATE stand_replenishment_orders
        SET status='cancelled', notes = COALESCE(notes,'') || $2, updated_at=CURRENT_TIMESTAMP
        WHERE id=$1 AND status NOT IN ('distributed','cancelled')`,
-      [id, reason ? `\n[annulée: ${reason}]` : '\n[annulée]']
+      [uuid, reason ? `\n[annulée: ${reason}]` : '\n[annulée]']
     );
-    return this.getById(id);
+    return this.getById(uuid);
   }
 
   /**
@@ -423,5 +428,22 @@ export class ReplenishmentService {
     if (r.rows[0].status !== expected) {
       throw new Error(`Statut invalide : attendu '${expected}', actuel '${r.rows[0].status}'`);
     }
+  }
+
+  /**
+   * Résout n'importe quel identifiant (UUID PK, replenishment_id business code,
+   * replenishment_number "APR-…") vers l'UUID PK. Garantit que les UPDATE
+   * en aval (qui filtrent strictement sur id=$1) trouvent la bonne ligne,
+   * même si l'URL passe un autre identifiant.
+   */
+  private async resolveOrderUuid(idOrBusinessId: string): Promise<string> {
+    const r = await db.query(
+      `SELECT id FROM stand_replenishment_orders
+       WHERE id::text = $1 OR replenishment_id = $1 OR replenishment_number = $1
+       LIMIT 1`,
+      [idOrBusinessId]
+    );
+    if (r.rows.length === 0) throw new Error('Approvisionnement introuvable');
+    return r.rows[0].id;
   }
 }
