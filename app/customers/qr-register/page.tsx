@@ -5,7 +5,7 @@
  * Le client scanne le QR et remplit lui-même ses infos
  */
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import {
   QrCode,
@@ -19,7 +19,7 @@ import {
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 
-export default function QRRegisterPage() {
+function QRRegisterContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const [step, setStep] = useState<'qr' | 'form' | 'success'>('qr');
@@ -405,5 +405,13 @@ export default function QRRegisterPage() {
         </p>
       </div>
     </div>
+  );
+}
+
+export default function QRRegisterPage() {
+  return (
+    <Suspense fallback={<div />}>
+      <QRRegisterContent />
+    </Suspense>
   );
 }

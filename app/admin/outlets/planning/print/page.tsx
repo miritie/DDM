@@ -9,7 +9,7 @@
  *   - scope : 'week' | 'month' (informationnel, change juste le titre)
  */
 
-import { useEffect, useState, useMemo } from 'react';
+import { useEffect, useState, useMemo, Suspense } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { Loader2, Printer } from 'lucide-react';
 
@@ -23,7 +23,7 @@ const DAY_NAMES = ['Lun', 'Mar', 'Mer', 'Jeu', 'Ven', 'Sam', 'Dim'];
 function isoDate(d: Date): string { return d.toISOString().slice(0, 10); }
 function addDays(d: Date, n: number): Date { const r = new Date(d); r.setDate(d.getDate() + n); return r; }
 
-export default function PlanningPrintPage() {
+function PlanningPrintContent() {
   const params = useSearchParams();
   const from = params.get('from') || isoDate(new Date());
   const to   = params.get('to')   || from;
@@ -163,5 +163,13 @@ export default function PlanningPrintPage() {
         }
       `}</style>
     </div>
+  );
+}
+
+export default function PlanningPrintPage() {
+  return (
+    <Suspense fallback={<div className="p-12 text-center"><Loader2 className="w-8 h-8 animate-spin mx-auto text-blue-600" /></div>}>
+      <PlanningPrintContent />
+    </Suspense>
   );
 }

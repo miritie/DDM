@@ -5,7 +5,7 @@
  * Interface simplifiée pour lancer rapidement une production
  */
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import {
   Factory,
@@ -48,7 +48,7 @@ const priorityConfig: Record<Priority, { label: string; color: string; gradient:
   },
 };
 
-export default function NewProductionOrderPage() {
+function NewProductionOrderContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const customerOrderSlug = searchParams?.get('customerOrderId') ?? null;
@@ -652,5 +652,13 @@ export default function NewProductionOrderPage() {
         )}
       </div>
     </div>
+  );
+}
+
+export default function NewProductionOrderPage() {
+  return (
+    <Suspense fallback={<div />}>
+      <NewProductionOrderContent />
+    </Suspense>
   );
 }

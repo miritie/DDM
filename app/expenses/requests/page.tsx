@@ -4,7 +4,7 @@
  * Page - Liste Complète des Demandes de Dépenses (Mobile-First)
  */
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import {
   DollarSign,
@@ -19,7 +19,7 @@ import { ExpenseRequest, ExpenseRequestStatus, ExpenseUrgency } from '@/types/mo
 import { ExpenseRequestCard } from '@/components/expenses/expense-request-card';
 import { Button } from '@/components/ui/button';
 
-export default function ExpenseRequestsListPage() {
+function ExpenseRequestsListContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
 
@@ -407,5 +407,13 @@ export default function ExpenseRequestsListPage() {
         )}
       </div>
     </div>
+  );
+}
+
+export default function ExpenseRequestsListPage() {
+  return (
+    <Suspense fallback={<div />}>
+      <ExpenseRequestsListContent />
+    </Suspense>
   );
 }

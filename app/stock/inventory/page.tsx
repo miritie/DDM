@@ -6,7 +6,7 @@
  * Usage: Stands, dépôts partenaires, entrepôts, production
  */
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import {
   Package,
@@ -35,7 +35,7 @@ interface LocationOption {
   name: string;
 }
 
-export default function InventoryPage() {
+function InventoryContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const warehouseId = searchParams.get('warehouseId');
@@ -548,5 +548,13 @@ export default function InventoryPage() {
         </div>
       )}
     </div>
+  );
+}
+
+export default function InventoryPage() {
+  return (
+    <Suspense fallback={<div />}>
+      <InventoryContent />
+    </Suspense>
   );
 }

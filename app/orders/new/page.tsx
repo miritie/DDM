@@ -10,7 +10,7 @@
  * - L'avance, si > 0, exige mode + wallet explicites.
  */
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, Suspense } from 'react';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { ProtectedPage } from '@/components/rbac/protected-page';
@@ -30,7 +30,7 @@ interface PaymentMethod {
   RequiredWalletType?: string | null;
 }
 
-export default function NewOrderPage() {
+function NewOrderContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const initialClientId = searchParams?.get('clientId') || null;
@@ -331,6 +331,14 @@ export default function NewOrderPage() {
         </form>
       </div>
     </ProtectedPage>
+  );
+}
+
+export default function NewOrderPage() {
+  return (
+    <Suspense fallback={<div />}>
+      <NewOrderContent />
+    </Suspense>
   );
 }
 

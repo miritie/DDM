@@ -4,7 +4,7 @@
  * Page - Liste des Ordres de Production (Mobile-First)
  */
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import {
   Factory,
@@ -20,7 +20,7 @@ import { ProductionOrder, ProductionOrderStatus } from '@/types/modules';
 import { ProductionOrderCard } from '@/components/production/production-order-card';
 import { Button } from '@/components/ui/button';
 
-export default function ProductionOrdersPage() {
+function ProductionOrdersContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const [orders, setOrders] = useState<ProductionOrder[]>([]);
@@ -321,5 +321,13 @@ export default function ProductionOrdersPage() {
         </div>
       </div>
     </div>
+  );
+}
+
+export default function ProductionOrdersPage() {
+  return (
+    <Suspense fallback={<div />}>
+      <ProductionOrdersContent />
+    </Suspense>
   );
 }
