@@ -288,15 +288,49 @@ function ReceiveLineModal({ line, prId, onClose, onReceived }: {
   onClose: () => void;
   onReceived: () => void;
 }) {
-  const remaining = Number(line.QtyRequested) - Number(line.QtyReceived);
-  const [qty, setQty] = useState(String(remaining));
-  const [price, setPrice] = useState(String(line.EstimatedUnitPrice));
+  // Unité native de la ligne (telle que définie sur l'ingrédient). En général
+  // "g" pour les MP de pâtisserie. On garde un sélecteur kg/g côté UI pour
+  // que le manager saisisse dans l'unité qui lui parle, on convertit avant
+  // d'envoyer au backend.
+  const nativeUnit = (line.Unit || 'g').toString().toLowerCase();
+  const remainingNative = Number(line.QtyRequested) - Number(line.QtyReceived);
+
+  // L'unité de saisie par défaut suit l'unité native si c'est kg/g, sinon kg.
+  const defaultInputUnit: 'kg' | 'g' = (nativeUnit === 'kg' || nativeUnit === 'g') ? (nativeUnit as any) : 'kg';
+  const [inputUnit, setInputUnit] = useState<'kg' | 'g'>(defaultInputUnit);
+  const [qtyInput, setQtyInput] = useState('');
+  const [totalAmount, setTotalAmount] = useState('');
   const [notes, setNotes] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // Conversions entre l'unité saisie et l'unité native de la ligne (au cas
+  // où l'ingrédient est défini avec une unité différente de celle saisie).
+  function toNative(value: number, fromUnit: 'kg' | 'g'): number {
+    if (fromUnit === nativeUnit) return value;
+    if (fromUnit === 'kg' && nativeUnit === 'g') return value * 1000;
+    if (fromUnit === 'g' && nativeUnit === 'kg') return value / 1000;
+    return value;
+  }
+  function fromNative(value: number, toUnit: 'kg' | 'g'): number {
+    if (toUnit === nativeUnit) return value;
+    if (toUnit === 'kg' && nativeUnit === 'g') return value / 1000;
+    if (toUnit === 'g' && nativeUnit === 'kg') return value * 1000;
+    return value;
+  }
+
+  const remainingInInputUnit = fromNative(remainingNative, inputUnit);
+  const qtyN = Number(qtyInput) || 0;
+  const totalN = Number(totalAmount) || 0;
+  const qtyNative = toNative(qtyN, inputUnit);
+  const unitPriceNative = qtyNative > 0 ? totalN / qtyNative : 0;
+  const unitPriceInInputUnit = qtyN > 0 ? totalN / qtyN : 0;
+
+  const fmtPrice = (n: number) => new Intl.NumberFormat('fr-FR', { maximumFractionDigits: 2 }).format(n);
+
   async function submit() {
-    if (!qty || Number(qty) <= 0) { setError('Quantité > 0'); return; }
+    if (!qtyN || qtyN <= 0) { setError('Quantité reçue requise (> 0)'); return; }
+    if (!totalN || totalN <= 0) { setError('Montant total payé requis (> 0)'); return; }
     setBusy(true);
     setError(null);
     try {
@@ -305,8 +339,8 @@ function ReceiveLineModal({ line, prId, onClose, onReceived }: {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           purchaseRequestLineId: line.PurchaseRequestLineId,
-          qty: Number(qty),
-          unitPrice: Number(price),
+          qty: qtyNative,
+          unitPrice: unitPriceNative,
           notes: notes || undefined,
         }),
       });
@@ -320,25 +354,65 @@ function ReceiveLineModal({ line, prId, onClose, onReceived }: {
   return (
     <Modal title={`Réception : ${line.IngredientName}`} onClose={onClose}>
       {error && <div className="bg-red-50 border border-red-200 text-red-700 rounded-lg p-3 text-sm">{error}</div>}
+
       <p className="text-sm bg-gray-50 p-3 rounded-lg">
-        Demandé : {fmt(line.QtyRequested)} {line.Unit} · Déjà reçu : {fmt(line.QtyReceived)} {line.Unit} · Reste : <strong>{fmt(remaining)} {line.Unit}</strong>
+        Demandé : <strong>{fmt(line.QtyRequested)} {nativeUnit}</strong> · Reste à recevoir : <strong>{fmt(remainingInInputUnit)} {inputUnit}</strong>
       </p>
+
+      <div className="grid grid-cols-3 gap-2">
+        <label className="block col-span-2">
+          <span className="block text-sm font-medium text-gray-700 mb-1">Quantité reçue*</span>
+          <input
+            type="number" min="0" step="0.001"
+            className={INP}
+            value={qtyInput}
+            onChange={(e) => setQtyInput(e.target.value)}
+            placeholder={`ex: ${fmt(remainingInInputUnit)}`}
+          />
+        </label>
+        <label className="block">
+          <span className="block text-sm font-medium text-gray-700 mb-1">Unité</span>
+          <select
+            className={INP}
+            value={inputUnit}
+            onChange={(e) => setInputUnit(e.target.value as 'kg' | 'g')}
+          >
+            <option value="kg">kg</option>
+            <option value="g">g</option>
+          </select>
+        </label>
+      </div>
+
       <label className="block">
-        <span className="block text-sm font-medium text-gray-700 mb-1">Quantité reçue ({line.Unit})*</span>
-        <input type="number" min="0" step="0.001" className={INP} value={qty} onChange={(e) => setQty(e.target.value)} />
+        <span className="block text-sm font-medium text-gray-700 mb-1">Montant total payé (XOF)*</span>
+        <input
+          type="number" min="0" step="1"
+          className={INP}
+          value={totalAmount}
+          onChange={(e) => setTotalAmount(e.target.value)}
+          placeholder="ex: 25000"
+        />
       </label>
-      <label className="block">
-        <span className="block text-sm font-medium text-gray-700 mb-1">Prix unitaire réel (XOF/{line.Unit})*</span>
-        <input type="number" min="0" step="0.01" className={INP} value={price} onChange={(e) => setPrice(e.target.value)} />
-        <span className="text-xs text-gray-500 mt-1 block">Estimé : {fmt(line.EstimatedUnitPrice)} XOF/{line.Unit}</span>
-      </label>
+
+      {qtyN > 0 && totalN > 0 && (
+        <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 text-sm">
+          <span className="text-gray-600">Coût unitaire effectif : </span>
+          <strong className="text-amber-900">{fmtPrice(unitPriceInInputUnit)} XOF/{inputUnit}</strong>
+          {inputUnit !== nativeUnit && (
+            <span className="text-xs text-gray-500 ml-2">(soit {fmtPrice(unitPriceNative)} XOF/{nativeUnit})</span>
+          )}
+        </div>
+      )}
+
       <label className="block">
         <span className="block text-sm font-medium text-gray-700 mb-1">Notes</span>
         <textarea className={INP + ' h-auto py-2'} rows={2} value={notes} onChange={(e) => setNotes(e.target.value)} />
       </label>
+
       <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 text-xs text-blue-700">
-        Cette réception va incrémenter le stock MP, recalculer le PMP courant et tracer l'opération.
+        Cette réception va incrémenter le stock MP de {fmt(qtyNative)} {nativeUnit}, recalculer le PMP courant et tracer l'opération.
       </div>
+
       <div className="flex gap-2 pt-2">
         <Button variant="outline" onClick={onClose} className="flex-1 h-11">Annuler</Button>
         <Button onClick={submit} disabled={busy} className="flex-1 h-11 bg-green-600 hover:bg-green-700">
