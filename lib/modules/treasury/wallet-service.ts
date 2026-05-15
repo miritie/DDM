@@ -9,6 +9,12 @@ import { v4 as uuidv4 } from 'uuid';
 
 const postgresClient = getPostgresClient();
 
+// SQL direct pour les hot paths : le mapper PascalCase legacy de
+// postgres-client renomme `id` en `Id` ET le parser filterByFormula
+// ne reconnaît pas le pattern `wallet_id = '...'` sans accolades →
+// plante en silence. On contourne en SQL direct via pool.query().
+const db = postgresClient as any;
+
 export interface CreateWalletInput {
   name: string;
   type: WalletType;
@@ -57,13 +63,38 @@ export class WalletService {
   }
 
   /**
-   * Récupère un wallet par ID
+   * Récupère un wallet par ID (slug `wallet_id` ou UUID interne).
+   * SQL direct (le filterByFormula legacy ne reconnaît pas ce pattern et
+   * renvoie alors toutes les lignes en silence — bug critique).
    */
   async getById(walletId: string): Promise<Wallet | null> {
-    const results = await postgresClient.list<Wallet>('wallets', {
-      filterByFormula: `wallet_id = '${walletId}'`,
-    });
-    return results[0] || null;
+    const r = await db.query(
+      `SELECT
+         id,
+         wallet_id        AS "WalletId",
+         name             AS "Name",
+         code             AS "Code",
+         type             AS "Type",
+         currency         AS "Currency",
+         balance          AS "Balance",
+         initial_balance  AS "InitialBalance",
+         bank_name        AS "BankName",
+         account_number   AS "AccountNumber",
+         description      AS "Description",
+         status           AS "Status",
+         is_active        AS "IsActive",
+         workspace_id     AS "WorkspaceId",
+         chart_account_id AS "ChartAccountId",
+         created_at       AS "CreatedAt",
+         updated_at       AS "UpdatedAt"
+       FROM wallets
+       WHERE id::text = $1 OR wallet_id = $1
+       LIMIT 1`,
+      [walletId]
+    );
+    if (r.rows.length === 0) return null;
+    // On force la présence du champ Id (utilisé par certains callers legacy)
+    return { ...r.rows[0], Id: r.rows[0].id } as any;
   }
 
   /**
@@ -95,7 +126,8 @@ export class WalletService {
   }
 
   /**
-   * Met à jour un wallet
+   * Met à jour un wallet (SQL direct — le path legacy via postgres-client
+   * était cassé : record.id renvoyait undefined à cause du mapper PascalCase).
    */
   async update(walletId: string, updates: Partial<Wallet> & { ChartAccountId?: string | null }): Promise<Wallet> {
     const wallet = await this.getById(walletId);
@@ -103,35 +135,31 @@ export class WalletService {
       throw new Error('Wallet non trouvé');
     }
 
-    const records = await postgresClient.list<Wallet>('wallets', {
-      filterByFormula: `wallet_id = '${walletId}'`,
-    });
+    const sets: string[] = ['updated_at = CURRENT_TIMESTAMP'];
+    const params: any[] = [];
+    const push = (col: string, v: any) => { params.push(v); sets.push(`${col} = $${params.length}`); };
 
-    if (records.length === 0) {
-      throw new Error('Wallet non trouvé');
+    if (updates.Name !== undefined) push('name', updates.Name);
+    if (updates.Description !== undefined) push('description', updates.Description);
+    if (updates.BankName !== undefined) push('bank_name', updates.BankName);
+    if (updates.AccountNumber !== undefined) push('account_number', updates.AccountNumber);
+    if (updates.Balance !== undefined) push('balance', updates.Balance);
+    if (updates.Status !== undefined) push('status', updates.Status);
+    if (updates.IsActive !== undefined) push('is_active', updates.IsActive);
+    if ((updates as any).ChartAccountId !== undefined) push('chart_account_id', (updates as any).ChartAccountId);
+
+    if (sets.length === 1) {
+      // Rien à mettre à jour
+      return wallet;
     }
 
-    const recordId = records[0].id;
-    if (!recordId) {
-      throw new Error('Wallet ID non trouvé');
-    }
-
-    const updateData: Record<string, any> = {
-      UpdatedAt: new Date().toISOString(),
-    };
-
-    // Map updates to PascalCase
-    if (updates.Name !== undefined) updateData.Name = updates.Name;
-    if (updates.Description !== undefined) updateData.Description = updates.Description;
-    if (updates.BankName !== undefined) updateData.BankName = updates.BankName;
-    if (updates.AccountNumber !== undefined) updateData.AccountNumber = updates.AccountNumber;
-    if (updates.Balance !== undefined) updateData.Balance = updates.Balance;
-    if (updates.Status !== undefined) updateData.Status = updates.Status;
-    if (updates.IsActive !== undefined) updateData.IsActive = updates.IsActive;
-    if (updates.ChartAccountId !== undefined) updateData.ChartAccountId = updates.ChartAccountId;
-
-    const updated = await postgresClient.update<Wallet>('wallets', recordId, updateData);
-    return updated;
+    params.push((wallet as any).id);
+    await db.query(
+      `UPDATE wallets SET ${sets.join(', ')} WHERE id = $${params.length}`,
+      params
+    );
+    const updated = await this.getById(walletId);
+    return updated!;
   }
 
   /**
