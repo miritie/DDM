@@ -171,9 +171,11 @@ export class WalletService {
       throw new Error('Wallet non trouvé');
     }
 
-    const newBalance = operation === 'add'
-      ? wallet.Balance + amount
-      : wallet.Balance - amount;
+    // pg renvoie les NUMERIC en string par défaut → forcer le cast pour
+    // éviter `"0.00" + 450000 === "0.00450000"` (concat string).
+    const current = Number(wallet.Balance);
+    const delta = Number(amount);
+    const newBalance = operation === 'add' ? current + delta : current - delta;
 
     if (newBalance < 0) {
       throw new Error('Solde insuffisant');
@@ -211,7 +213,7 @@ export class WalletService {
       throw new Error('Wallet non trouvé');
     }
 
-    if (wallet.Balance !== 0) {
+    if (Number(wallet.Balance) !== 0) {
       throw new Error('Impossible de clôturer un wallet avec un solde non nul');
     }
 
@@ -235,7 +237,7 @@ export class WalletService {
     return wallets.map((wallet) => ({
       walletId: wallet.WalletId,
       walletName: wallet.Name,
-      balance: wallet.Balance,
+      balance: Number(wallet.Balance),
       currency: wallet.Currency,
     }));
   }
@@ -245,7 +247,7 @@ export class WalletService {
    */
   async getTotalBalance(workspaceId: string): Promise<number> {
     const wallets = await this.list(workspaceId, { isActive: true });
-    return wallets.reduce((sum, wallet) => sum + wallet.Balance, 0);
+    return wallets.reduce((sum, wallet) => sum + Number(wallet.Balance), 0);
   }
 
   /**
