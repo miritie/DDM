@@ -67,7 +67,7 @@ function ExpenseRequestsListContent() {
       const my = searchParams.get('my');
       const needsMyApproval = searchParams.get('needsMyApproval');
 
-      if (my === 'true') params.append('my', 'true');
+      if (my === 'true') params.append('requesterId', 'me');
       if (needsMyApproval === 'true') params.append('needsMyApproval', 'true');
 
       const response = await fetch(`/api/expenses/requests?${params.toString()}`);

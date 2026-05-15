@@ -235,8 +235,8 @@ export class ExpenseService {
     if (expR.rows.length === 0) throw new Error('Dépense introuvable');
     const expense = expR.rows[0];
 
-    if (expense.status !== 'approved') {
-      throw new Error(`Seules les dépenses approuvées peuvent être payées (statut actuel : ${expense.status})`);
+    if (expense.status !== 'approved' && expense.status !== 'scheduled') {
+      throw new Error(`Seules les dépenses approuvées ou planifiées peuvent être payées (statut actuel : ${expense.status})`);
     }
 
     const total = input.allocations.reduce((s, a) => s + a.amount, 0);
@@ -304,6 +304,49 @@ export class ExpenseService {
     }
 
     return { expense: paidR.rows[0], transactions, journalEntryId, journalError };
+  }
+
+  /**
+   * Planifie le paiement d'une dépense approuvée à une date future.
+   * approved → scheduled. La dépense reste payable directement sans passer
+   * par scheduled (le statut intermédiaire est optionnel).
+   *
+   * scheduled → paid se fait via payFromWallets — qui accepte aussi bien
+   * 'approved' que 'scheduled' (cf. logique mise à jour ci-dessous).
+   */
+  async schedule(input: {
+    expenseId: string;
+    scheduledDate: string; // ISO date YYYY-MM-DD
+    payerId: string;
+  }): Promise<any> {
+    const expR = await postgresClient.query<any>(
+      `SELECT id, expense_id, status FROM expenses
+       WHERE id::text = $1 OR expense_id = $1 LIMIT 1`,
+      [input.expenseId]
+    );
+    if (expR.rows.length === 0) throw new Error('Dépense introuvable');
+    const exp = expR.rows[0];
+    if (exp.status !== 'approved') {
+      throw new Error(`Seules les dépenses approuvées peuvent être planifiées (statut actuel : ${exp.status})`);
+    }
+
+    const userR = await postgresClient.query<any>(
+      `SELECT id FROM users WHERE id::text = $1 OR user_id = $1 LIMIT 1`,
+      [input.payerId]
+    );
+    if (userR.rows.length === 0) throw new Error('Utilisateur introuvable');
+
+    const r = await postgresClient.query<any>(
+      `UPDATE expenses
+       SET status = 'scheduled',
+           scheduled_payment_date = $2,
+           payer_id = $3,
+           updated_at = CURRENT_TIMESTAMP
+       WHERE id = $1
+       RETURNING *`,
+      [exp.id, input.scheduledDate, userR.rows[0].id]
+    );
+    return r.rows[0];
   }
 
   /**

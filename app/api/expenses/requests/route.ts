@@ -25,7 +25,9 @@ export async function GET(request: NextRequest) {
       filters.status = searchParams.get('status');
     }
     if (searchParams.get('requesterId')) {
-      filters.requesterId = searchParams.get('requesterId');
+      // 'me' = alias pour l'utilisateur courant (évite de devoir transmettre son UUID côté client)
+      const raw = searchParams.get('requesterId');
+      filters.requesterId = raw === 'me' ? await getCurrentUserId() : raw;
     }
     if (searchParams.get('categoryId')) {
       filters.categoryId = searchParams.get('categoryId');

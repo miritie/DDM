@@ -20,7 +20,7 @@ import { useEffect, useState } from 'react';
 import { Can } from '@/components/rbac/can';
 import { PERMISSIONS } from '@/lib/rbac';
 import { Button } from '@/components/ui/button';
-import { Wallet, Loader2, Plus, Trash2, CheckCircle2, AlertCircle, Clock, BookOpen } from 'lucide-react';
+import { Wallet, Loader2, Plus, Trash2, CheckCircle2, AlertCircle, Clock, BookOpen, CalendarClock } from 'lucide-react';
 
 interface ExpenseLite {
   id: string;
@@ -28,8 +28,9 @@ interface ExpenseLite {
   expense_number: string;
   title: string;
   amount: number | string;
-  status: 'pending' | 'approved' | 'paid' | 'rejected';
+  status: 'pending' | 'approved' | 'scheduled' | 'paid' | 'rejected';
   payment_date: string | null;
+  scheduled_payment_date?: string | null;
   payer_name: string | null;
 }
 
@@ -90,6 +91,7 @@ export function ExpensePaymentPanel({ expenseRequestId }: { expenseRequestId: st
   const [allocations, setAllocations] = useState<AllocationRow[]>([{ walletId: '', amount: 0 }]);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [scheduledDate, setScheduledDate] = useState<string>('');
 
   async function load() {
     setLoading(true);
@@ -110,7 +112,7 @@ export function ExpensePaymentPanel({ expenseRequestId }: { expenseRequestId: st
           const jeJ = await jeR.json();
           setJournalEntry(jeJ.data ?? null);
         }
-        if (exp.status === 'approved') {
+        if (exp.status === 'approved' || exp.status === 'scheduled') {
           const wr = await fetch('/api/treasury/wallets?isActive=true');
           const wj = await wr.json();
           const ws: WalletOption[] = (wj.data || [])
@@ -138,6 +140,30 @@ export function ExpensePaymentPanel({ expenseRequestId }: { expenseRequestId: st
   const expenseAmount = expense ? Number(expense.amount) : 0;
   const diff = total - expenseAmount;
   const balanced = Math.abs(diff) < 0.01;
+
+  async function submitSchedule() {
+    if (!expense) return;
+    if (!scheduledDate) {
+      setError('Choisis une date prévue de paiement');
+      return;
+    }
+    setSubmitting(true);
+    setError(null);
+    try {
+      const r = await fetch(`/api/expenses/${expense.id}/schedule`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ scheduledDate }),
+      });
+      const j = await r.json();
+      if (!r.ok) throw new Error(j?.error || `HTTP ${r.status}`);
+      await load();
+    } catch (e: any) {
+      setError(e?.message || 'Erreur lors de la planification');
+    } finally {
+      setSubmitting(false);
+    }
+  }
 
   async function submitPayment() {
     if (!expense) return;
@@ -292,13 +318,48 @@ export function ExpensePaymentPanel({ expenseRequestId }: { expenseRequestId: st
         </div>
       )}
 
-      {expense.status === 'approved' && (
+      {(expense.status === 'approved' || expense.status === 'scheduled') && (
         <Can permission={PERMISSIONS.EXPENSE_PAY} fallback={
           <p className="text-sm text-gray-600 bg-amber-50 rounded-lg p-3">
-            Dépense approuvée et prête à être payée — un utilisateur avec la permission "expense:pay" (comptable) doit exécuter le règlement.
+            {expense.status === 'scheduled'
+              ? `Paiement planifié pour le ${expense.scheduled_payment_date ? new Date(expense.scheduled_payment_date).toLocaleDateString('fr-FR') : '—'} — un utilisateur avec la permission "expense:pay" (comptable) exécutera le règlement.`
+              : 'Dépense approuvée et prête à être payée — un utilisateur avec la permission "expense:pay" (comptable) doit exécuter le règlement.'}
           </p>
         }>
           <div className="space-y-3">
+            {expense.status === 'scheduled' && expense.scheduled_payment_date && (
+              <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 text-sm text-blue-900 flex items-center gap-2">
+                <CalendarClock className="w-4 h-4 flex-none" />
+                <span>
+                  Paiement <strong>planifié</strong> pour le{' '}
+                  <strong>{new Date(expense.scheduled_payment_date).toLocaleDateString('fr-FR')}</strong>.
+                  Tu peux l'exécuter dès maintenant ou attendre la date prévue.
+                </span>
+              </div>
+            )}
+
+            {expense.status === 'approved' && (
+              <div className="bg-gray-50 border border-gray-200 rounded-lg p-3 flex items-end gap-2">
+                <div className="flex-1">
+                  <label className="text-xs text-gray-600 block mb-1">Planifier le paiement pour…</label>
+                  <input
+                    type="date"
+                    value={scheduledDate}
+                    onChange={(e) => setScheduledDate(e.target.value)}
+                    min={new Date().toISOString().slice(0, 10)}
+                    className="w-full px-2 py-1.5 border rounded text-sm"
+                  />
+                </div>
+                <Button
+                  onClick={submitSchedule}
+                  disabled={submitting || !scheduledDate}
+                  variant="outline"
+                  className="border-blue-400 text-blue-700 hover:bg-blue-50"
+                >
+                  <CalendarClock className="w-4 h-4 mr-1" /> Planifier
+                </Button>
+              </div>
+            )}
             <p className="text-xs text-gray-600">
               Répartis le montant sur un ou plusieurs wallets. La somme doit égaler exactement {formatXof(expenseAmount)}.
             </p>
@@ -382,7 +443,7 @@ export function ExpensePaymentPanel({ expenseRequestId }: { expenseRequestId: st
               className="w-full bg-amber-600 hover:bg-amber-700 text-white"
             >
               {submitting ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <Wallet className="w-4 h-4 mr-2" />}
-              {submitting ? 'Paiement en cours…' : 'Exécuter le paiement'}
+              {submitting ? 'Paiement en cours…' : expense.status === 'scheduled' ? 'Exécuter le paiement maintenant' : 'Exécuter le paiement'}
             </Button>
           </div>
         </Can>
@@ -393,10 +454,11 @@ export function ExpensePaymentPanel({ expenseRequestId }: { expenseRequestId: st
 
 function StatusBadge({ status }: { status: ExpenseLite['status'] }) {
   const map: Record<ExpenseLite['status'], { label: string; className: string }> = {
-    pending:  { label: 'En attente',   className: 'bg-gray-100 text-gray-700' },
-    approved: { label: 'Approuvée',    className: 'bg-amber-100 text-amber-800' },
-    paid:     { label: 'Payée',        className: 'bg-green-100 text-green-800' },
-    rejected: { label: 'Rejetée',      className: 'bg-red-100 text-red-700' },
+    pending:   { label: 'En attente',  className: 'bg-gray-100 text-gray-700' },
+    approved:  { label: 'Approuvée',   className: 'bg-amber-100 text-amber-800' },
+    scheduled: { label: 'Planifiée',   className: 'bg-blue-100 text-blue-800' },
+    paid:      { label: 'Payée',       className: 'bg-green-100 text-green-800' },
+    rejected:  { label: 'Rejetée',     className: 'bg-red-100 text-red-700' },
   };
   const m = map[status];
   return <span className={`text-xs font-semibold px-2 py-1 rounded-full ${m.className}`}>{m.label}</span>;
