@@ -8,6 +8,7 @@ import { Inter } from 'next/font/google';
 import { SessionProvider } from '@/lib/auth/session-provider';
 import { UserMenu } from '@/components/auth/user-menu';
 import { HomeButton } from '@/components/auth/home-button';
+import { QuickExpenseButton } from '@/components/expenses/quick-expense-button';
 import './globals.css';
 
 const inter = Inter({ subsets: ['latin'] });
@@ -27,6 +28,7 @@ export default function RootLayout({
       <body className={inter.className} suppressHydrationWarning>
         <SessionProvider>
           <HomeButton />
+          <QuickExpenseButton />
           <UserMenu />
           {children}
         </SessionProvider>
