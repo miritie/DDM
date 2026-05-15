@@ -6,6 +6,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getCurrentWorkspaceId } from '@/lib/auth/get-session';
 import { WalletService } from '@/lib/modules/treasury/wallet-service';
 import { requirePermission, PERMISSIONS } from '@/lib/rbac/server';
+import { cachedJson } from '@/lib/http/cache-headers';
 
 const service = new WalletService();
 
@@ -32,7 +33,10 @@ export async function GET(request: NextRequest) {
 
     const wallets = await service.list(workspaceId, filters);
 
-    return NextResponse.json({ data: wallets });
+    // Cache court : les soldes wallet changent en cours de journée mais on
+    // peut tolérer un cache 60s pour les pickers / dropdowns. Le dashboard
+    // qui veut le solde live met explicitement cache: 'no-store' côté client.
+    return cachedJson(wallets, 'shortLived');
   } catch (error: any) {
     console.error('Error fetching wallets:', error);
     return NextResponse.json(

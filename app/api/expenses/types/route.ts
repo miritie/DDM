@@ -11,6 +11,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getCurrentWorkspaceId, getCurrentUserRoleIds } from '@/lib/auth/get-session';
 import { ExpenseTypeService } from '@/lib/modules/expenses/expense-type-service';
 import { requirePermission, PERMISSIONS } from '@/lib/rbac/server';
+import { cachedJson } from '@/lib/http/cache-headers';
 
 const service = new ExpenseTypeService();
 
@@ -23,14 +24,14 @@ export async function GET(request: NextRequest) {
     if (searchParams.get('accessibleFor') === 'me') {
       const userRoleIds = await getCurrentUserRoleIds();
       const data = await service.listAccessibleForUser(workspaceId, userRoleIds);
-      return NextResponse.json({ data });
+      return cachedJson(data, 'reference');
     }
 
     const data = await service.list(workspaceId, {
       categoryId: searchParams.get('categoryId') || undefined,
       isActive: searchParams.get('isActive') === null ? undefined : searchParams.get('isActive') === 'true',
     });
-    return NextResponse.json({ data });
+    return cachedJson(data, 'reference');
   } catch (e: any) {
     return NextResponse.json(
       { error: e.message },

@@ -11,6 +11,7 @@ import { NextResponse } from 'next/server';
 import { getCurrentWorkspaceId } from '@/lib/auth/get-session';
 import { requirePermission, PERMISSIONS } from '@/lib/rbac/server';
 import { getPostgresClient } from '@/lib/database/postgres-client';
+import { cachedJson } from '@/lib/http/cache-headers';
 
 const db = getPostgresClient();
 
@@ -25,7 +26,7 @@ export async function GET() {
        ORDER BY name ASC`,
       [workspaceId]
     );
-    return NextResponse.json({ data: r.rows });
+    return cachedJson(r.rows, 'reference');
   } catch (e: any) {
     return NextResponse.json(
       { error: e.message },
