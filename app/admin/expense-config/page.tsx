@@ -17,7 +17,7 @@
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import {
-  ArrowLeft, Settings, Tag, BookOpen, Wallet as WalletIcon,
+  ArrowLeft, Settings, Tag, BookOpen, Wallet as WalletIcon, Layers,
   Plus, Edit2, X, Save, Loader2, AlertTriangle, Check, Trash2,
 } from 'lucide-react';
 import { ProtectedPage } from '@/components/rbac/protected-page';
@@ -120,7 +120,7 @@ function pickWalletAccountId(w: Wallet): string | null {
 // Page
 // ----------------------------------------------------------------------------
 
-type Tab = 'categories' | 'accounts' | 'wallets';
+type Tab = 'categories' | 'types' | 'accounts' | 'wallets';
 
 export default function ExpenseConfigPage() {
   return (
@@ -156,6 +156,9 @@ function Content() {
           <TabButton active={tab === 'categories'} onClick={() => setTab('categories')} icon={Tag}>
             Catégories
           </TabButton>
+          <TabButton active={tab === 'types'} onClick={() => setTab('types')} icon={Layers}>
+            Types
+          </TabButton>
           <TabButton active={tab === 'accounts'} onClick={() => setTab('accounts')} icon={BookOpen}>
             Plan comptable
           </TabButton>
@@ -165,6 +168,7 @@ function Content() {
         </div>
 
         {tab === 'categories' && <CategoriesPanel />}
+        {tab === 'types' && <TypesPanel />}
         {tab === 'accounts' && <AccountsPanel />}
         {tab === 'wallets' && <WalletsPanel />}
       </div>
@@ -794,6 +798,289 @@ function WalletsPanel() {
             </div>
           );
         })}
+      </div>
+    </div>
+  );
+}
+
+// ============================================================================
+// PANNEAU 4 : Types de dépense
+// ============================================================================
+
+interface ExpenseType {
+  id: string;
+  expense_type_id: string;
+  category_id: string;
+  category_label: string;
+  category_code: string;
+  label: string;
+  code: string;
+  description: string | null;
+  is_active: boolean;
+  allowed_role_ids: string[] | null;
+  charge_account_id: string | null;
+  charge_account_number: string | null;
+  charge_account_label: string | null;
+  tva_account_id: string | null;
+  tva_account_number: string | null;
+  tva_rate: number | string | null;
+}
+
+function TypesPanel() {
+  const [types, setTypes] = useState<ExpenseType[]>([]);
+  const [categories, setCategories] = useState<Category[]>([]);
+  const [accounts, setAccounts] = useState<ChartAccount[]>([]);
+  const [roles, setRoles] = useState<RoleOption[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [editing, setEditing] = useState<ExpenseType | null>(null);
+  const [creating, setCreating] = useState(false);
+  const [filterCategoryId, setFilterCategoryId] = useState<string>('');
+
+  async function load() {
+    setLoading(true);
+    try {
+      const [tR, cR, aR, rR] = await Promise.all([
+        fetch('/api/expenses/types').then(r => r.json()),
+        fetch('/api/expenses/categories').then(r => r.json()),
+        fetch('/api/accounting/accounts').then(r => r.json()),
+        fetch('/api/expenses/role-options').then(r => r.json()),
+      ]);
+      setTypes(tR.data || []);
+      setCategories(cR.data || []);
+      setAccounts(aR.data || []);
+      setRoles(rR.data || []);
+    } finally {
+      setLoading(false);
+    }
+  }
+  useEffect(() => { load(); }, []);
+
+  const chargeAccounts = accounts.filter(a => pickAccountClass(a) === 'class_6');
+  const tvaAccounts = accounts.filter(a => pickAccountNumber(a).startsWith('445'));
+  const filtered = filterCategoryId ? types.filter(t => t.category_id === filterCategoryId) : types;
+
+  if (loading) {
+    return <div className="bg-white rounded-2xl shadow-xl p-8 text-center text-gray-500"><Loader2 className="w-6 h-6 animate-spin mx-auto" /></div>;
+  }
+
+  return (
+    <div className="bg-white rounded-2xl shadow-xl p-4 sm:p-6">
+      <div className="flex flex-wrap items-center justify-between gap-2 mb-4">
+        <h2 className="font-bold text-lg">Types de dépense ({filtered.length})</h2>
+        <Button onClick={() => setCreating(true)} className="bg-amber-600 hover:bg-amber-700 text-white">
+          <Plus className="w-4 h-4 mr-1" /> Nouveau type
+        </Button>
+      </div>
+
+      <div className="flex flex-wrap gap-1 mb-4">
+        <button
+          onClick={() => setFilterCategoryId('')}
+          className={`text-xs px-3 py-1.5 rounded-full ${!filterCategoryId ? 'bg-amber-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}
+        >
+          Toutes
+        </button>
+        {categories.filter(c => c.is_active).map(c => (
+          <button
+            key={c.id}
+            onClick={() => setFilterCategoryId(c.id)}
+            className={`text-xs px-3 py-1.5 rounded-full ${filterCategoryId === c.id ? 'bg-amber-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}
+          >
+            {c.label}
+          </button>
+        ))}
+      </div>
+
+      <div className="overflow-x-auto">
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="text-xs uppercase text-gray-500 border-b">
+              <th className="text-left py-2">Type · Code</th>
+              <th className="text-left py-2">Catégorie</th>
+              <th className="text-left py-2">Compte charge</th>
+              <th className="text-right py-2">TVA</th>
+              <th className="text-center py-2">Actif</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody>
+            {filtered.map(t => (
+              <tr key={t.id} className="border-b border-gray-100 hover:bg-gray-50">
+                <td className="py-2">
+                  <div className="font-semibold">{t.label}</div>
+                  <div className="text-xs text-gray-500 font-mono">{t.code}</div>
+                </td>
+                <td className="py-2 text-xs">{t.category_label}</td>
+                <td className="py-2 text-xs">
+                  {t.charge_account_number ? (
+                    <span className="font-mono">{t.charge_account_number} {t.charge_account_label}</span>
+                  ) : (
+                    <span className="text-gray-400 italic">hérite de la catégorie</span>
+                  )}
+                </td>
+                <td className="py-2 text-right text-xs">
+                  {t.tva_rate !== null && Number(t.tva_rate) > 0 ? `${t.tva_rate}%` : <span className="text-gray-400">—</span>}
+                </td>
+                <td className="py-2 text-center">
+                  {t.is_active ? <Check className="w-4 h-4 text-green-600 mx-auto" /> : <X className="w-4 h-4 text-gray-400 mx-auto" />}
+                </td>
+                <td className="py-2 text-right">
+                  <button onClick={() => setEditing(t)} className="text-amber-600 hover:text-amber-800">
+                    <Edit2 className="w-4 h-4" />
+                  </button>
+                </td>
+              </tr>
+            ))}
+            {filtered.length === 0 && (
+              <tr><td colSpan={6} className="text-center text-gray-400 py-6">Aucun type pour cette catégorie.</td></tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+
+      {(editing || creating) && (
+        <TypeEditModal
+          type={editing}
+          isCreate={creating}
+          categories={categories.filter(c => c.is_active)}
+          chargeAccounts={chargeAccounts}
+          tvaAccounts={tvaAccounts}
+          onClose={() => { setEditing(null); setCreating(false); }}
+          onSaved={() => { setEditing(null); setCreating(false); load(); }}
+        />
+      )}
+    </div>
+  );
+}
+
+function TypeEditModal({
+  type, isCreate, categories, chargeAccounts, tvaAccounts, onClose, onSaved,
+}: {
+  type: ExpenseType | null;
+  isCreate: boolean;
+  categories: Category[];
+  chargeAccounts: ChartAccount[];
+  tvaAccounts: ChartAccount[];
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  const [categoryId, setCategoryId] = useState(type?.category_id || (categories[0]?.id || ''));
+  const [label, setLabel] = useState(type?.label || '');
+  const [code, setCode] = useState(type?.code || '');
+  const [description, setDescription] = useState(type?.description || '');
+  const [isActive, setIsActive] = useState(type?.is_active ?? true);
+  const [chargeAccountId, setChargeAccountId] = useState(type?.charge_account_id || '');
+  const [tvaAccountId, setTvaAccountId] = useState(type?.tva_account_id || '');
+  const [tvaRate, setTvaRate] = useState<string>(type?.tva_rate !== null && type?.tva_rate !== undefined ? type.tva_rate.toString() : '');
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function save() {
+    setSaving(true);
+    setError(null);
+    try {
+      const body: any = {
+        categoryId, label, code, description: description || null,
+        isActive,
+        chargeAccountId: chargeAccountId || null,
+        tvaAccountId: tvaAccountId || null,
+        tvaRate: tvaRate === '' ? null : Number(tvaRate),
+      };
+      const url = isCreate ? '/api/expenses/types' : `/api/expenses/types/${type!.expense_type_id}`;
+      const method = isCreate ? 'POST' : 'PATCH';
+      const r = await fetch(url, { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+      const j = await r.json();
+      if (!r.ok) throw new Error(j.error || `HTTP ${r.status}`);
+      onSaved();
+    } catch (e: any) {
+      setError(e?.message || 'Erreur');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+      <div className="bg-white rounded-2xl shadow-2xl max-w-2xl w-full max-h-[90vh] overflow-y-auto">
+        <div className="sticky top-0 bg-white border-b px-6 py-4 flex items-center justify-between">
+          <h3 className="font-bold text-lg">{isCreate ? 'Nouveau type' : 'Modifier le type'}</h3>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-600"><X className="w-5 h-5" /></button>
+        </div>
+
+        <div className="p-6 space-y-4">
+          <div>
+            <label className="text-xs font-medium text-gray-700 block mb-1">Catégorie parente *</label>
+            <select className={INP} value={categoryId} onChange={e => setCategoryId(e.target.value)}>
+              {categories.map(c => <option key={c.id} value={c.id}>{c.label}</option>)}
+            </select>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div>
+              <label className="text-xs font-medium text-gray-700 block mb-1">Label *</label>
+              <input className={INP} value={label} onChange={e => setLabel(e.target.value)} placeholder="ex: Farine" />
+            </div>
+            <div>
+              <label className="text-xs font-medium text-gray-700 block mb-1">Code (kebab-case) *</label>
+              <input className={INP} value={code} onChange={e => setCode(e.target.value)} disabled={!isCreate} placeholder="ex: mp_farine" />
+            </div>
+          </div>
+
+          <div>
+            <label className="text-xs font-medium text-gray-700 block mb-1">Description</label>
+            <textarea className={INP + ' h-auto py-2'} rows={2} value={description} onChange={e => setDescription(e.target.value)} />
+          </div>
+
+          <label className="flex items-center gap-2 text-sm">
+            <input type="checkbox" checked={isActive} onChange={e => setIsActive(e.target.checked)} />
+            Actif
+          </label>
+
+          <div className="border-t pt-4 space-y-3">
+            <p className="text-sm font-semibold">Surcharge comptable (sinon hérite de la catégorie)</p>
+            <div>
+              <label className="text-xs font-medium text-gray-700 block mb-1">Compte de charge spécifique</label>
+              <select className={INP} value={chargeAccountId} onChange={e => setChargeAccountId(e.target.value)}>
+                <option value="">— Hériter de la catégorie —</option>
+                {chargeAccounts.map(a => (
+                  <option key={pickAccountId(a)} value={pickAccountId(a)}>
+                    {pickAccountNumber(a)} — {pickAccountLabel(a)}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="text-xs font-medium text-gray-700 block mb-1">Compte TVA spécifique</label>
+                <select className={INP} value={tvaAccountId} onChange={e => setTvaAccountId(e.target.value)}>
+                  <option value="">— Hériter de la catégorie —</option>
+                  {tvaAccounts.map(a => (
+                    <option key={pickAccountId(a)} value={pickAccountId(a)}>
+                      {pickAccountNumber(a)} — {pickAccountLabel(a)}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="text-xs font-medium text-gray-700 block mb-1">Taux TVA (%)</label>
+                <input type="number" min={0} max={100} step={0.5} className={INP} value={tvaRate} onChange={e => setTvaRate(e.target.value)} placeholder="hérite si vide" />
+              </div>
+            </div>
+          </div>
+
+          {error && (
+            <div className="bg-red-50 border border-red-200 text-red-700 rounded-lg p-2 text-sm flex gap-2">
+              <AlertTriangle className="w-4 h-4 flex-none mt-0.5" /> {error}
+            </div>
+          )}
+        </div>
+
+        <div className="sticky bottom-0 bg-white border-t px-6 py-3 flex justify-end gap-2">
+          <Button variant="outline" onClick={onClose}>Annuler</Button>
+          <Button onClick={save} disabled={saving || !label || !code || !categoryId} className="bg-amber-600 hover:bg-amber-700 text-white">
+            {saving ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <Save className="w-4 h-4 mr-2" />}
+            Enregistrer
+          </Button>
+        </div>
       </div>
     </div>
   );

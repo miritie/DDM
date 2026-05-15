@@ -4,7 +4,7 @@
  * Page - Détail d'une Demande de Dépense (Mobile-First)
  */
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, use } from 'react';
 import { useRouter } from 'next/navigation';
 import {
   ArrowLeft,
@@ -27,9 +27,8 @@ import { Button } from '@/components/ui/button';
 import { ExpensePaymentPanel } from '@/components/expenses/expense-payment-panel';
 
 interface PageProps {
-  params: {
-    id: string;
-  };
+  // Next 15+ : params est asynchrone et doit être unwrap avec React.use()
+  params: Promise<{ id: string }>;
 }
 
 /**
@@ -135,6 +134,7 @@ const getUrgencyLabel = (urgency: ExpenseUrgency) => {
 
 export default function ExpenseRequestDetailPage({ params }: PageProps) {
   const router = useRouter();
+  const { id } = use(params);
   const [request, setRequest] = useState<ExpenseRequest | null>(null);
   const [loading, setLoading] = useState(true);
   const [showApprovalModal, setShowApprovalModal] = useState(false);
@@ -142,12 +142,12 @@ export default function ExpenseRequestDetailPage({ params }: PageProps) {
 
   useEffect(() => {
     loadRequest();
-  }, [params.id]);
+  }, [id]);
 
   async function loadRequest() {
     try {
       setLoading(true);
-      const response = await fetch(`/api/expenses/requests/${params.id}`);
+      const response = await fetch(`/api/expenses/requests/${id}`);
 
       if (response.ok) {
         const data = await response.json();
@@ -166,7 +166,7 @@ export default function ExpenseRequestDetailPage({ params }: PageProps) {
     if (!confirm('Soumettre cette demande pour approbation ?')) return;
 
     try {
-      const response = await fetch(`/api/expenses/requests/${params.id}/submit`, {
+      const response = await fetch(`/api/expenses/requests/${id}/submit`, {
         method: 'POST',
       });
 
@@ -182,7 +182,7 @@ export default function ExpenseRequestDetailPage({ params }: PageProps) {
     if (!confirm('Annuler cette demande ?')) return;
 
     try {
-      const response = await fetch(`/api/expenses/requests/${params.id}`, {
+      const response = await fetch(`/api/expenses/requests/${id}`, {
         method: 'DELETE',
       });
 
@@ -479,7 +479,7 @@ export default function ExpenseRequestDetailPage({ params }: PageProps) {
 
         {/* Paiement multi-wallet (panel partagé) */}
         {(request.Status === 'approved' || request.Status === 'paid') && (
-          <ExpensePaymentPanel expenseRequestId={params.id} />
+          <ExpensePaymentPanel expenseRequestId={id} />
         )}
 
         {/* Actions */}
@@ -497,7 +497,7 @@ export default function ExpenseRequestDetailPage({ params }: PageProps) {
                 Soumettre pour Approbation
               </Button>
               <Button
-                onClick={() => router.push(`/expenses/requests/${params.id}/edit`)}
+                onClick={() => router.push(`/expenses/requests/${id}/edit`)}
                 className="w-full bg-gray-600 hover:bg-gray-700 h-12 text-base"
               >
                 <Edit className="w-5 h-5 mr-2" />
@@ -539,7 +539,7 @@ export default function ExpenseRequestDetailPage({ params }: PageProps) {
       {/* Modal d'approbation */}
       {showApprovalModal && (
         <ApprovalModal
-          requestId={params.id}
+          requestId={id}
           decision={approvalDecision!}
           onClose={() => {
             setShowApprovalModal(false);

@@ -50,6 +50,18 @@ interface ApiCategory {
   is_active: boolean;
 }
 
+interface ApiType {
+  id: string;
+  expense_type_id: string;
+  category_id: string;
+  category_label: string;
+  category_code: string;
+  label: string;
+  code: string;
+  charge_account_number: string | null;
+  charge_account_label: string | null;
+}
+
 const urgencyConfig: Record<ExpenseUrgency, { label: string; color: string; gradient: string }> = {
   low: {
     label: 'Basse',
@@ -77,13 +89,15 @@ export default function QuickExpenseRequestPage() {
   const router = useRouter();
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // Catégories accessibles à l'utilisateur courant (fetch dynamique selon ses rôles)
+  // Catégories + Types accessibles à l'utilisateur (cascade selon ses rôles)
   const [categories, setCategories] = useState<ApiCategory[]>([]);
+  const [allTypes, setAllTypes] = useState<ApiType[]>([]);
   const [loadingCategories, setLoadingCategories] = useState(true);
 
-  // Form state (minimal pour rapidité)
+  // Form state
   const [amount, setAmount] = useState<number>(0);
-  const [categoryId, setCategoryId] = useState<string>('');  // UUID PK de la catégorie sélectionnée
+  const [categoryId, setCategoryId] = useState<string>('');
+  const [typeId, setTypeId] = useState<string>('');
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [urgency, setUrgency] = useState<ExpenseUrgency>('normal');
@@ -93,11 +107,17 @@ export default function QuickExpenseRequestPage() {
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
-    fetch('/api/expenses/categories?accessibleFor=me&isActive=true')
-      .then((r) => r.ok ? r.json() : { data: [] })
-      .then((j) => setCategories(j.data || []))
-      .finally(() => setLoadingCategories(false));
+    Promise.all([
+      fetch('/api/expenses/categories?accessibleFor=me&isActive=true').then(r => r.ok ? r.json() : { data: [] }),
+      fetch('/api/expenses/types?accessibleFor=me').then(r => r.ok ? r.json() : { data: [] }),
+    ]).then(([cR, tR]) => {
+      setCategories(cR.data || []);
+      setAllTypes(tR.data || []);
+    }).finally(() => setLoadingCategories(false));
   }, []);
+
+  // Types filtrés selon la catégorie sélectionnée
+  const typesForCategory = categoryId ? allTypes.filter(t => t.category_id === categoryId) : [];
 
   // Gérer prise de photo
   function handlePhotoCapture(e: React.ChangeEvent<HTMLInputElement>) {
@@ -121,8 +141,17 @@ export default function QuickExpenseRequestPage() {
 
   function handleQuickCategory(cat: ApiCategory) {
     setCategoryId(cat.id);
+    setTypeId('');  // reset type quand on change de catégorie
     if (!title) {
       setTitle(`Dépense ${cat.label}`);
+    }
+  }
+
+  function handleTypeChange(newTypeId: string) {
+    setTypeId(newTypeId);
+    if (newTypeId) {
+      const t = allTypes.find(x => x.id === newTypeId);
+      if (t && !title) setTitle(`${t.category_label} — ${t.label}`);
     }
   }
 
@@ -146,6 +175,7 @@ export default function QuickExpenseRequestPage() {
         title: title || (selectedCat ? `Dépense ${selectedCat.label}` : 'Demande de dépense'),
         description: description || 'Demande rapide depuis terrain',
         categoryId,
+        expenseTypeId: typeId || undefined,
         amount,
         urgency,
         neededByDate: neededByDate || undefined,
@@ -296,6 +326,30 @@ export default function QuickExpenseRequestPage() {
               </div>
             )}
           </div>
+
+          {/* 2bis. TYPE — apparaît dès qu'une catégorie est choisie */}
+          {categoryId && typesForCategory.length > 0 && (
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                Poste précis <span className="text-xs text-gray-500">(facultatif — sinon catégorie générique)</span>
+              </label>
+              <select
+                value={typeId}
+                onChange={(e) => handleTypeChange(e.target.value)}
+                className="w-full h-12 px-3 border-2 border-gray-300 rounded-xl focus:outline-none focus:border-red-500 text-sm"
+              >
+                <option value="">— Aucun (rester sur la catégorie) —</option>
+                {typesForCategory.map(t => (
+                  <option key={t.id} value={t.id}>
+                    {t.label}{t.charge_account_number ? ` · compte ${t.charge_account_number}` : ''}
+                  </option>
+                ))}
+              </select>
+              <p className="text-[10px] text-gray-500 mt-1">
+                Le poste précis détermine le compte de charge OHADA imputé lors du paiement.
+              </p>
+            </div>
+          )}
 
           {/* 3. PHOTO (très important pour justification) */}
           <div>

@@ -14,6 +14,7 @@ export interface CreateExpenseRequestInput {
   description?: string;
   amount: number;
   categoryId: string;
+  expenseTypeId?: string;          // optionnel : poste précis sous la catégorie
   requesterId: string;
   workspaceId: string;
 }
@@ -49,6 +50,7 @@ export class ExpenseRequestService {
       WorkspaceId: input.workspaceId,
       CreatedAt: new Date().toISOString(),
       UpdatedAt: new Date().toISOString(),
+      ...(input.expenseTypeId ? { ExpenseTypeId: input.expenseTypeId } : {}),
     };
 
     const created = await postgresClient.create<ExpenseRequest>('expense_requests', request);
@@ -147,7 +149,8 @@ export class ExpenseRequestService {
       throw new Error('Seules les demandes soumises peuvent être approuvées');
     }
 
-    const recordId = requests[0].id;
+    const req = requests[0] as any;
+    const recordId = req.id;
     if (!recordId) {
       throw new Error('ID not found');
     }
@@ -175,6 +178,46 @@ export class ExpenseRequestService {
         UpdatedAt: new Date().toISOString(),
       }
     );
+
+    // Si la demande est approuvée et qu'aucune expense n'existe encore (cas où
+    // l'approbation passe via le workflow purchase_request, qui crée la sienne),
+    // on crée automatiquement la dépense correspondante en statut 'approved'.
+    // Le comptable pourra alors la planifier/payer via le panel.
+    if (input.status === 'approved') {
+      const existing = await postgresClient.query<any>(
+        `SELECT id FROM expenses WHERE expense_request_id = $1 LIMIT 1`,
+        [recordId]
+      );
+      if (existing.rows.length === 0) {
+        const year = new Date().getFullYear();
+        const cnt = await postgresClient.query<any>(
+          `SELECT COUNT(*)::int AS n FROM expenses
+           WHERE workspace_id = $1 AND EXTRACT(YEAR FROM created_at) = $2`,
+          [req.WorkspaceId, year]
+        );
+        const expenseNumber = `DEP-${year}-${String((cnt.rows[0]?.n || 0) + 1).padStart(4, '0')}`;
+
+        await postgresClient.query<any>(
+          `INSERT INTO expenses (
+             expense_id, expense_number, expense_request_id, title, description,
+             amount, category_id, expense_type_id, payer_id, status, workspace_id
+           ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'approved', $10)`,
+          [
+            `EXP-${uuidv4().slice(0, 8)}`,
+            expenseNumber,
+            recordId,
+            req.Title,
+            req.Description ?? null,
+            req.Amount,
+            req.CategoryId,
+            req.ExpenseTypeId ?? null,
+            input.approverId,  // payeur provisoire = approbateur, le comptable peut le changer au paiement
+            req.WorkspaceId,
+          ]
+        );
+      }
+    }
+
     return updated;
   }
 

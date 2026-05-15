@@ -48,14 +48,22 @@ export class JournalGenerationService {
     );
     if (existing.rows[0]) return existing.rows[0].id;
 
-    // 1. Charger expense + catégorie
+    // 1. Charger expense + résolution du mapping comptable
+    //    Cascade : type.charge_account_id (si renseigné) > catégorie.charge_account_id
+    //    Idem pour TVA et tva_rate. Permet d'utiliser un compte spécifique
+    //    par type de dépense (ex: 6022 pour MP hors région) sans toucher
+    //    à la catégorie globale.
     const expR = await db.query<any>(
       `SELECT e.id, e.expense_id, e.expense_number, e.title, e.amount,
               e.status, e.workspace_id, e.payment_date,
               ec.code AS category_code, ec.label AS category_label,
-              ec.charge_account_id, ec.tva_account_id, ec.tva_rate
+              et.label AS type_label,
+              COALESCE(et.charge_account_id, ec.charge_account_id) AS charge_account_id,
+              COALESCE(et.tva_account_id,    ec.tva_account_id)    AS tva_account_id,
+              COALESCE(et.tva_rate,          ec.tva_rate)           AS tva_rate
        FROM expenses e
        LEFT JOIN expense_categories ec ON ec.id = e.category_id
+       LEFT JOIN expense_types et      ON et.id = e.expense_type_id
        WHERE e.id = $1 LIMIT 1`,
       [expenseId]
     );
@@ -66,7 +74,8 @@ export class JournalGenerationService {
       throw new Error(`Génération comptable impossible : statut '${exp.status}', attendu 'paid'`);
     }
     if (!exp.charge_account_id) {
-      throw new Error(`Catégorie '${exp.category_code}' sans compte de charge configuré — impossible de générer l'écriture.`);
+      const target = exp.type_label ? `type '${exp.type_label}'` : `catégorie '${exp.category_code}'`;
+      throw new Error(`${target} sans compte de charge configuré — impossible de générer l'écriture.`);
     }
 
     // 2. Charger les transactions de paiement + wallets associés
@@ -136,7 +145,7 @@ export class JournalGenerationService {
 
     lines.push({
       accountId: exp.charge_account_id,
-      label: `${exp.category_label || exp.category_code} — ${exp.title}`,
+      label: `${exp.type_label || exp.category_label || exp.category_code} — ${exp.title}`,
       debit: ht,
       credit: 0,
     });
