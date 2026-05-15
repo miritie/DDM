@@ -97,7 +97,7 @@ export class WalletService {
   /**
    * Met à jour un wallet
    */
-  async update(walletId: string, updates: Partial<Wallet>): Promise<Wallet> {
+  async update(walletId: string, updates: Partial<Wallet> & { ChartAccountId?: string | null }): Promise<Wallet> {
     const wallet = await this.getById(walletId);
     if (!wallet) {
       throw new Error('Wallet non trouvé');
@@ -128,6 +128,7 @@ export class WalletService {
     if (updates.Balance !== undefined) updateData.Balance = updates.Balance;
     if (updates.Status !== undefined) updateData.Status = updates.Status;
     if (updates.IsActive !== undefined) updateData.IsActive = updates.IsActive;
+    if (updates.ChartAccountId !== undefined) updateData.ChartAccountId = updates.ChartAccountId;
 
     const updated = await postgresClient.update<Wallet>('wallets', recordId, updateData);
     return updated;

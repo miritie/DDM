@@ -119,40 +119,54 @@ export class ExpenseCategoryService {
       icon?: string;
       color?: string;
       isActive?: boolean;
+      allowedRoleIds?: string[] | null;  // null = supprimer la restriction
+      chargeAccountId?: string | null;
+      tvaAccountId?: string | null;
+      tvaRate?: number;
     }
-  ): Promise<ExpenseCategory> {
-    const categories = await postgresClient.list<ExpenseCategory>('expense_categories', {
-      filterByFormula: `{expense_category_id} = '${categoryId}'`,
-    });
+  ): Promise<any> {
+    // Accepte UUID PK ou business code (expense_category_id)
+    const sets: string[] = [];
+    const params: any[] = [];
+    const pushSet = (col: string, val: any) => { params.push(val); sets.push(`${col} = $${params.length}`); };
 
-    if (categories.length === 0) {
-      throw new Error('Catégorie non trouvée');
+    if (updates.label !== undefined)              pushSet('label', updates.label);
+    if (updates.code !== undefined)               pushSet('code', updates.code);
+    if (updates.description !== undefined)        pushSet('description', updates.description);
+    if (updates.requiresPreApproval !== undefined)pushSet('requires_pre_approval', updates.requiresPreApproval);
+    if (updates.icon !== undefined)               pushSet('icon', updates.icon);
+    if (updates.color !== undefined)              pushSet('color', updates.color);
+    if (updates.isActive !== undefined)           pushSet('is_active', updates.isActive);
+    if (updates.allowedRoleIds !== undefined) {
+      // null / tableau vide ⇒ accessible à tous (NULL en BDD)
+      const arr = updates.allowedRoleIds && updates.allowedRoleIds.length > 0 ? updates.allowedRoleIds : null;
+      params.push(arr);
+      sets.push(`allowed_role_ids = $${params.length}::uuid[]`);
+    }
+    if (updates.chargeAccountId !== undefined)    pushSet('charge_account_id', updates.chargeAccountId);
+    if (updates.tvaAccountId !== undefined)       pushSet('tva_account_id', updates.tvaAccountId);
+    if (updates.tvaRate !== undefined)            pushSet('tva_rate', updates.tvaRate);
+
+    if (sets.length === 0) {
+      // Rien à mettre à jour : on retourne juste la version actuelle
+      const r = await postgresClient.query<any>(
+        `SELECT * FROM expense_categories WHERE id::text = $1 OR expense_category_id = $1 LIMIT 1`,
+        [categoryId]
+      );
+      if (r.rows.length === 0) throw new Error('Catégorie non trouvée');
+      return r.rows[0];
     }
 
-    const recordId = categories[0].id;
-    if (!recordId) {
-      throw new Error('ID not found');
-    }
-
-    const updateData: any = {
-      UpdatedAt: new Date().toISOString(),
-    };
-
-    if (updates.label !== undefined) updateData.Label = updates.label;
-    if (updates.code !== undefined) updateData.Code = updates.code;
-    if (updates.description !== undefined) updateData.Description = updates.description;
-    if (updates.requiresPreApproval !== undefined)
-      updateData.RequiresPreApproval = updates.requiresPreApproval;
-    if (updates.icon !== undefined) updateData.Icon = updates.icon;
-    if (updates.color !== undefined) updateData.Color = updates.color;
-    if (updates.isActive !== undefined) updateData.IsActive = updates.isActive;
-
-    const updated = await postgresClient.update<ExpenseCategory>(
-      'expense_categories',
-      recordId,
-      updateData
+    sets.push(`updated_at = CURRENT_TIMESTAMP`);
+    params.push(categoryId);
+    const r = await postgresClient.query<any>(
+      `UPDATE expense_categories SET ${sets.join(', ')}
+       WHERE id::text = $${params.length} OR expense_category_id = $${params.length}
+       RETURNING *`,
+      params
     );
-    return updated;
+    if (r.rows.length === 0) throw new Error('Catégorie non trouvée');
+    return r.rows[0];
   }
 
   async delete(categoryId: string): Promise<void> {
