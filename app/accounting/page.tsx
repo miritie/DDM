@@ -145,6 +145,30 @@ export default function AccountingPage() {
           </CardContent>
         </Card>
       </div>
+
+      <div className="grid gap-4 md:grid-cols-2">
+        <Card className="cursor-pointer hover:bg-accent border-2 border-amber-200" onClick={() => router.push('/admin/expense-config')}>
+          <CardHeader>
+            <CardTitle className="text-amber-700">⚙ Configuration des dépenses</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <p className="text-muted-foreground">
+              Catégories (avec droits d'accès par rôle), comptes de charge OHADA, taux TVA, mapping wallets ↔ comptes de trésorerie
+            </p>
+          </CardContent>
+        </Card>
+
+        <Card className="cursor-pointer hover:bg-accent border-2 border-emerald-200" onClick={() => router.push('/treasury/wallets/inventory')}>
+          <CardHeader>
+            <CardTitle className="text-emerald-700">🧮 Inventaire trésorerie</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <p className="text-muted-foreground">
+              Comptage du cash réel par wallet et ajustement (écart théorique ↔ physique)
+            </p>
+          </CardContent>
+        </Card>
+      </div>
     </div>
   );
 }

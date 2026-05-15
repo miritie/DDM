@@ -455,6 +455,22 @@ export default function AccountantDashboardPage() {
             <Calculator className="w-6 h-6" />
             <span>Comptabilité</span>
           </Button>
+
+          <Button
+            onClick={() => router.push('/admin/expense-config')}
+            className="h-20 bg-gradient-to-br from-amber-500 to-orange-600 hover:from-amber-600 hover:to-orange-700 text-white font-bold flex flex-col items-center justify-center gap-2"
+          >
+            <Calculator className="w-6 h-6" />
+            <span>Config dépenses</span>
+          </Button>
+
+          <Button
+            onClick={() => router.push('/treasury/wallets/inventory')}
+            className="h-20 bg-gradient-to-br from-teal-500 to-cyan-600 hover:from-teal-600 hover:to-cyan-700 text-white font-bold flex flex-col items-center justify-center gap-2"
+          >
+            <Wallet className="w-6 h-6" />
+            <span>Inventaire trésorerie</span>
+          </Button>
         </div>
 
         {/* Export rapide */}

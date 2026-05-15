@@ -253,6 +253,8 @@ export default function ProductionDashboardPage() {
                   desc="Catalogue + coûts" color="emerald" />
                 <ActionButton href="/production" icon={Package} label="Module production"
                   desc="Vue d'ensemble" color="amber" />
+                <ActionButton href="/production/ingredients/inventory" icon={Package} label="Inventaire MP"
+                  desc="Comptage physique des matières" color="orange" />
               </div>
             </CardContent>
           </Card>

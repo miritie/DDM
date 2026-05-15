@@ -358,6 +358,25 @@ export default function AdminDashboardPage() {
               </Card>
             </Link>
 
+            <Link href="/admin/expense-config">
+              <Card className="h-full border-2 border-amber-200 hover:border-amber-400 cursor-pointer transform hover:-translate-y-1 transition-all duration-200 group">
+                <CardHeader className="pb-4">
+                  <div className="w-14 h-14 rounded-xl bg-gradient-to-br from-amber-500 to-orange-600 flex items-center justify-center mb-3 shadow-medium group-hover:scale-110 transition-transform">
+                    <Calculator className="w-8 h-8 text-white" />
+                  </div>
+                  <CardTitle className="text-xl">Config des dépenses</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <p className="text-sm text-brown-600 mb-4">
+                    Catégories, droits par rôle, plan comptable OHADA, mapping wallets
+                  </p>
+                  <div className="flex items-center gap-2 text-amber-600 font-semibold text-sm group-hover:gap-3 transition-all">
+                    Accéder →
+                  </div>
+                </CardContent>
+              </Card>
+            </Link>
+
             <Link href="/settings">
               <Card className="h-full border-2 border-gray-200 hover:border-gray-400 cursor-pointer transform hover:-translate-y-1 transition-all duration-200 group">
                 <CardHeader className="pb-4">
