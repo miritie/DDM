@@ -28,6 +28,8 @@ import {
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { LogoutButton } from '@/components/auth/logout-button';
+import { PaymentQueue } from '@/components/dashboard/payment-queue';
+import { WalletsOverview } from '@/components/dashboard/wallets-overview';
 
 interface AccountantDashboardData {
   treasury: {
@@ -160,6 +162,15 @@ export default function AccountantDashboardPage() {
       </div>
 
       <div className="p-6 space-y-6">
+        {/* À exécuter — dépenses validées en attente du comptable
+            (approved à planifier/payer + scheduled à exécuter) */}
+        <PaymentQueue />
+
+        {/* État des wallets — vue absolue, sans filtre de période.
+            Les filtres en haut (Today/7j/30j) servent aux analytiques
+            ventes/encaissements/dépenses, pas à la trésorerie réelle. */}
+        <WalletsOverview />
+
         {/* Alertes */}
         {data?.alerts && data.alerts.length > 0 && (
           <div className="space-y-2">
