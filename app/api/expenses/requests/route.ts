@@ -21,20 +21,29 @@ export async function GET(request: NextRequest) {
     const { searchParams } = new URL(request.url);
 
     const filters: any = {};
-    if (searchParams.get('status')) {
-      filters.status = searchParams.get('status');
-    }
+    if (searchParams.get('status'))     filters.status     = searchParams.get('status');
+    if (searchParams.get('categoryId')) filters.categoryId = searchParams.get('categoryId');
+    if (searchParams.get('search'))     filters.search     = searchParams.get('search');
+    if (searchParams.get('startDate'))  filters.startDate  = searchParams.get('startDate');
+    if (searchParams.get('endDate'))    filters.endDate    = searchParams.get('endDate');
+    if (searchParams.get('limit'))      filters.limit      = parseInt(searchParams.get('limit')!, 10);
+    if (searchParams.get('offset'))     filters.offset     = parseInt(searchParams.get('offset')!, 10);
     if (searchParams.get('requesterId')) {
-      // 'me' = alias pour l'utilisateur courant (évite de devoir transmettre son UUID côté client)
       const raw = searchParams.get('requesterId');
       filters.requesterId = raw === 'me' ? await getCurrentUserId() : raw;
     }
-    if (searchParams.get('categoryId')) {
-      filters.categoryId = searchParams.get('categoryId');
+
+    // Si le client demande le total (pour pagination UI), on lance les deux en parallèle.
+    const wantTotal = searchParams.get('withTotal') === '1';
+    if (wantTotal) {
+      const [data, total] = await Promise.all([
+        service.list(workspaceId, filters),
+        service.count(workspaceId, filters),
+      ]);
+      return NextResponse.json({ data, total });
     }
 
     const requests = await service.list(workspaceId, filters);
-
     return NextResponse.json({ data: requests });
   } catch (error: any) {
     console.error('Error fetching expense requests:', error);

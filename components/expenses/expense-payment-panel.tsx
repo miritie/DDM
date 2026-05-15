@@ -21,6 +21,7 @@ import { Can } from '@/components/rbac/can';
 import { PERMISSIONS } from '@/lib/rbac';
 import { Button } from '@/components/ui/button';
 import { Wallet, Loader2, Plus, Trash2, CheckCircle2, AlertCircle, Clock, BookOpen, CalendarClock } from 'lucide-react';
+import { cachedFetch, invalidateCache } from '@/lib/client/cached-fetch';
 
 interface ExpenseLite {
   id: string;
@@ -114,7 +115,9 @@ export function ExpensePaymentPanel({ expenseRequestId }: { expenseRequestId: st
           setJournalEntry(jeJ.data ?? null);
         }
         if (exp.status === 'approved' || exp.status === 'scheduled') {
-          const wj = await fetch('/api/treasury/wallets?isActive=true').then(r => r.json());
+          // Liste wallets cachée 60s (cache shortLived côté HTTP + cache mémoire client).
+          // Le solde affiché reste vrai à 1 min près — acceptable pour préparer un paiement.
+          const wj = await cachedFetch<{ data: any[] }>('/api/treasury/wallets?isActive=true', { ttl: 60_000 });
           const ws: WalletOption[] = (wj.data || [])
             .map((w: any) => ({
               id: w.Id || w.id,
@@ -185,6 +188,9 @@ export function ExpensePaymentPanel({ expenseRequestId }: { expenseRequestId: st
       });
       const j = await r.json();
       if (!r.ok) throw new Error(j?.error || `HTTP ${r.status}`);
+      // Le paiement a modifié les soldes wallets : on invalide le cache pour
+      // que la prochaine lecture refasse un fetch frais.
+      invalidateCache('/api/treasury/wallets?isActive=true');
       await load();
     } catch (e: any) {
       setError(e?.message || 'Erreur lors du paiement');

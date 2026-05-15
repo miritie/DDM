@@ -147,12 +147,27 @@ export class PurchaseRequestService {
     }
 
     const r = await db.query(
-      `${SELECT_PR} WHERE ${conds.join(' AND ')} ORDER BY er.created_at DESC`,
+      `${SELECT_PR} WHERE ${conds.join(' AND ')} ORDER BY er.created_at DESC LIMIT 200`,
       params
     );
     const rows = r.rows;
+    if (rows.length === 0) return rows;
+
+    // Charge TOUTES les lignes en 1 seule requête (au lieu d'un SELECT par PR).
+    // Gain : sur une liste de 50 PR, on passe de 51 requêtes à 2.
+    const prIds = rows.map((r: any) => r.id);
+    const linesR = await db.query(
+      `${SELECT_PRL} WHERE prl.expense_request_id = ANY($1::uuid[]) ORDER BY prl.created_at ASC`,
+      [prIds]
+    );
+    const linesByPr = new Map<string, any[]>();
+    for (const line of linesR.rows) {
+      const k = line.ExpenseRequestId;
+      if (!linesByPr.has(k)) linesByPr.set(k, []);
+      linesByPr.get(k)!.push(line);
+    }
     for (const row of rows) {
-      row.Lines = await this.getLines(row.id);
+      row.Lines = linesByPr.get(row.id) || [];
     }
     return rows;
   }
