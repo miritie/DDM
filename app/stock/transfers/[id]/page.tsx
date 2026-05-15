@@ -38,6 +38,7 @@ const LEG_CONFIG: Record<string, { label: string; color: string }> = {
   confirmed: { label: 'Confirmée', color: 'bg-green-100 text-green-700' },
   adjusted:  { label: 'Ajustée', color: 'bg-orange-100 text-orange-700' },
   refused:   { label: 'Refusée', color: 'bg-red-100 text-red-700' },
+  recalled:  { label: 'Rappelée', color: 'bg-gray-200 text-gray-700' },
 };
 
 const INP = 'w-full h-11 px-3 border-2 border-gray-200 rounded-lg focus:outline-none focus:border-cyan-500';
@@ -59,6 +60,7 @@ function Content({ id }: { id: string }) {
   const [confirmingLine, setConfirmingLine] = useState<any | null>(null);
   const [refusingLine, setRefusingLine] = useState<any | null>(null);
   const [shortfallLine, setShortfallLine] = useState<any | null>(null);
+  const [recallingLine, setRecallingLine] = useState<any | null>(null);
 
   async function load() {
     setLoading(true);
@@ -210,6 +212,11 @@ function Content({ id }: { id: string }) {
                             <button onClick={() => setRefusingLine(l)} className="px-3 py-1.5 bg-red-600 hover:bg-red-700 text-white rounded-lg text-xs font-medium flex items-center gap-1">
                               <XCircle className="w-3 h-3" /> Refuser
                             </button>
+                            {transfer.isInitiator && (
+                              <button onClick={() => setRecallingLine(l)} className="px-3 py-1.5 bg-gray-600 hover:bg-gray-700 text-white rounded-lg text-xs font-medium flex items-center gap-1" title="Récupérer la ligne (seul l'émetteur peut)">
+                                <RotateCcw className="w-3 h-3" /> Rappeler
+                              </button>
+                            )}
                           </>
                         )}
                         {needsDecision && (
@@ -236,7 +243,47 @@ function Content({ id }: { id: string }) {
       {shortfallLine && (
         <ShortfallModal line={shortfallLine} onClose={() => setShortfallLine(null)} onDone={() => { setShortfallLine(null); load(); }} />
       )}
+      {recallingLine && (
+        <RecallModal line={recallingLine} onClose={() => setRecallingLine(null)} onDone={() => { setRecallingLine(null); load(); }} />
+      )}
     </div>
+  );
+}
+
+function RecallModal({ line, onClose, onDone }: { line: any; onClose: () => void; onDone: () => void }) {
+  const [reason, setReason] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  async function submit() {
+    setBusy(true); setError(null);
+    try {
+      const r = await fetch(`/api/stock/transfers/lines/${line.transfer_line_id}/recall`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ reason: reason || undefined }),
+      });
+      if (!r.ok) throw new Error((await r.json()).error || 'Erreur');
+      onDone();
+    } catch (e: any) { setError(e.message); }
+    finally { setBusy(false); }
+  }
+  return (
+    <Modal title={`Rappeler : ${line.product_name}`} onClose={onClose}>
+      {error && <div className="bg-red-50 border border-red-200 text-red-700 rounded-lg p-3 text-sm">{error}</div>}
+      <p className="text-sm bg-gray-50 border border-gray-200 rounded-lg p-3 text-gray-900">
+        En tant qu'émetteur, tu retires cette ligne du destinataire. Les <strong>{fmt(line.qty_sent)} {line.unit}</strong> retournent immédiatement au stock source.
+      </p>
+      <label className="block">
+        <span className="block text-sm font-medium text-gray-700 mb-1">Motif (optionnel)</span>
+        <textarea className={INP + ' h-auto py-2'} rows={2} value={reason} onChange={(e) => setReason(e.target.value)} placeholder="ex: erreur de quantité, redirection vers un autre stand…" />
+      </label>
+      <div className="flex gap-2 pt-2">
+        <Button variant="outline" onClick={onClose} className="flex-1 h-11">Retour</Button>
+        <Button onClick={submit} disabled={busy} className="flex-1 h-11 bg-gray-700 hover:bg-gray-800">
+          <RotateCcw className="w-4 h-4 mr-1" /> {busy ? 'Rappel…' : 'Confirmer le rappel'}
+        </Button>
+      </div>
+    </Modal>
   );
 }
 

@@ -45,6 +45,7 @@ export default function TransfersPage() {
 function Content() {
   const router = useRouter();
   const [items, setItems] = useState<any[]>([]);
+  const [incoming, setIncoming] = useState<any[]>([]);   // filtré par destinations dont user est manager
   const [loading, setLoading] = useState(true);
   const [tab, setTab] = useState<Tab>('pending');
   const [search, setSearch] = useState('');
@@ -52,17 +53,25 @@ function Content() {
   async function load() {
     setLoading(true);
     try {
-      const r = await fetch('/api/stock/transfers', { cache: 'no-store' });
-      if (r.ok) setItems(((await r.json()).data) || []);
+      const [allR, incR] = await Promise.all([
+        fetch('/api/stock/transfers', { cache: 'no-store' }),
+        fetch('/api/stock/transfers/incoming', { cache: 'no-store' }),
+      ]);
+      if (allR.ok) setItems(((await allR.json()).data) || []);
+      if (incR.ok) setIncoming(((await incR.json()).data) || []);
     } finally { setLoading(false); }
   }
   useEffect(() => { load(); }, []);
 
-  const filtered = items.filter((t) => {
-    const hasPending = (t.lines || []).some((l: any) => l.leg_status === 'pending');
+  // Source des items selon onglet
+  const sourceItems = tab === 'pending' ? incoming : items;
+
+  const filtered = sourceItems.filter((t) => {
     const isClosed = t.status === 'fully_received' || t.status === 'cancelled';
-    if (tab === 'pending' && !hasPending) return false;
     if (tab === 'closed' && !isClosed) return false;
+    if (tab === 'all') {
+      // pas de filtre statut
+    }
     if (search) {
       const q = search.toLowerCase();
       const sourceName = (t.source_warehouse_name || t.source_outlet_name || '').toLowerCase();
@@ -72,7 +81,7 @@ function Content() {
   });
 
   const counts = {
-    pending: items.filter((t) => (t.lines || []).some((l: any) => l.leg_status === 'pending')).length,
+    pending: incoming.length,                                                   // ce qui me concerne
     all: items.length,
     closed: items.filter((t) => t.status === 'fully_received' || t.status === 'cancelled').length,
   };

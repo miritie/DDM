@@ -1,12 +1,12 @@
 /**
- * GET /api/dashboard/transfer-alerts
+ * GET /api/stock/transfers/incoming
  *
- * Renvoie le nombre de legs pending pour le badge bandeau.
- *  - admin / pca / manager_compta_stocks : vue globale (tout le workspace)
- *  - autres profils : seulement les destinations dont l'utilisateur est
- *    manager (warehouses.manager_id ou outlets.manager_id)
+ * Transferts ayant au moins une ligne pending dont la destination a
+ * l'utilisateur courant comme manager (warehouses.manager_id ou
+ * outlets.manager_id).
  *
- * Permission : stock:view.
+ * Pour les rôles à vue globale (admin/pca/manager_compta_stocks), retourne
+ * tous les transferts ayant au moins une ligne pending.
  */
 import { NextRequest, NextResponse } from 'next/server';
 import {
@@ -18,7 +18,6 @@ import { StockTransferService } from '@/lib/modules/stock/stock-transfer-service
 
 const db = getPostgresClient();
 const service = new StockTransferService();
-
 const GLOBAL_VIEW_ROLES = ['admin', 'pca', 'manager_compta_stocks'];
 
 export async function GET(_req: NextRequest) {
@@ -28,7 +27,6 @@ export async function GET(_req: NextRequest) {
     const userId = await getCurrentUserId();
     const roleUuids = await getCurrentUserRoleIds();
 
-    // Détecte si l'utilisateur a un rôle "vue globale"
     let hasGlobalView = false;
     if (roleUuids.length > 0) {
       const r = await db.query(
@@ -38,11 +36,13 @@ export async function GET(_req: NextRequest) {
       hasGlobalView = r.rowCount! > 0;
     }
 
-    const pendingLegs = hasGlobalView
-      ? await service.countPendingLegs(workspaceId)
-      : await service.countPendingLegsForUser(workspaceId, userId);
+    const data = hasGlobalView
+      // Vue globale : tous transferts avec ≥1 ligne pending → on filtre côté list
+      ? (await service.list(workspaceId)).filter((t: any) =>
+          (t.lines || []).some((l: any) => l.leg_status === 'pending'))
+      : await service.listIncomingForUser(workspaceId, userId);
 
-    return NextResponse.json({ data: { pendingLegs, scope: hasGlobalView ? 'global' : 'mine' } });
+    return NextResponse.json({ data });
   } catch (e: any) {
     return NextResponse.json(
       { error: e.message },

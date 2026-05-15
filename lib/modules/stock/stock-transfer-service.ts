@@ -445,6 +445,48 @@ export class StockTransferService {
     return await this.getLine(line.id);
   }
 
+  /**
+   * Rappel d'une ligne par l'émetteur du transfert (différent du refus
+   * destinataire). Tant que la ligne est pending, l'émetteur peut la
+   * récupérer : la qty_sent retourne au stock source, leg_status='recalled'.
+   * Caller : la route doit avoir vérifié que userId === transfer.initiated_by_id.
+   */
+  async recallLeg(lineIdOrSlug: string, input: {
+    recalledById: string;
+    reason?: string;
+  }): Promise<any> {
+    const line = await this.getLine(lineIdOrSlug);
+    if (!line) throw new Error('Ligne de transfert introuvable');
+    if (line.leg_status !== 'pending') {
+      throw new Error(`Ligne déjà traitée (statut : ${line.leg_status}), impossible à rappeler`);
+    }
+    const userUuid = await resolveUuid('users', 'user_id', input.recalledById);
+
+    await db.transaction(async (client) => {
+      await this.creditStock(client, {
+        productUuid: line.product_id,
+        warehouseUuid: line.source_warehouse_id,
+        outletUuid: line.source_outlet_id,
+        qty: Number(line.qty_sent),
+        workspaceUuid: line.workspace_id,
+      });
+      await client.query(
+        `UPDATE stock_transfer_lines
+           SET qty_received = 0,
+               leg_status = 'recalled',
+               confirmed_by_id = $2,
+               confirmed_at = CURRENT_TIMESTAMP,
+               adjustment_reason = $3,
+               updated_at = CURRENT_TIMESTAMP
+         WHERE id = $1`,
+        [line.id, userUuid, input.reason ?? null]
+      );
+    });
+
+    await this.recomputeStatus(line.transfer_id);
+    return await this.getLine(line.id);
+  }
+
   async refuseLeg(lineIdOrSlug: string, input: {
     refusedById: string;
     reason?: string;
@@ -584,11 +626,12 @@ export class StockTransferService {
       return;
     }
 
-    // Une ligne "adjusted" est terminale UNIQUEMENT si la décision écart est tranchée
+    // Une ligne "adjusted" est terminale UNIQUEMENT si la décision écart est tranchée.
+    // confirmed/refused/recalled/adjusted+decided sont terminaux.
     const allFinal = r.rows.every((l: any) => {
       if (l.leg_status === 'pending') return false;
       if (l.leg_status === 'adjusted' && l.shortfall_decision === 'pending') return false;
-      return true; // confirmed, refused, adjusted+decided
+      return true;
     });
 
     if (allFinal) {
@@ -610,9 +653,7 @@ export class StockTransferService {
   // Stats / utilitaires
 
   /**
-   * Nombre de legs en attente concernant les destinations dont le user
-   * pourrait être responsable. v1 : on retourne juste le nombre total de
-   * legs 'pending' du workspace (utile pour badge alerte global).
+   * Nombre total de legs pending du workspace (vue globale admin/compta).
    */
   async countPendingLegs(workspaceId: string): Promise<number> {
     const wsUuid = await resolveUuid('workspaces', 'workspace_id', workspaceId);
@@ -625,5 +666,68 @@ export class StockTransferService {
       [wsUuid]
     );
     return r.rows[0]?.n ?? 0;
+  }
+
+  /**
+   * Nombre de legs pending dont la destination (warehouse OU outlet) a
+   * userId comme manager. Vue terrain pour les agents/managers d'un seul
+   * emplacement.
+   */
+  async countPendingLegsForUser(workspaceId: string, userIdOrSlug: string): Promise<number> {
+    const wsUuid = await resolveUuid('workspaces', 'workspace_id', workspaceId);
+    const userUuid = await resolveUuid('users', 'user_id', userIdOrSlug);
+    if (!wsUuid || !userUuid) return 0;
+    const r = await db.query(
+      `SELECT COUNT(*)::int AS n
+       FROM stock_transfer_lines l
+       JOIN stock_transfers t ON t.id = l.transfer_id
+       LEFT JOIN warehouses dw ON dw.id = l.destination_warehouse_id
+       LEFT JOIN outlets    do_ ON do_.id = l.destination_outlet_id
+       WHERE t.workspace_id = $1
+         AND l.leg_status = 'pending'
+         AND (dw.manager_id = $2 OR do_.manager_id = $2)`,
+      [wsUuid, userUuid]
+    );
+    return r.rows[0]?.n ?? 0;
+  }
+
+  /**
+   * Liste les transferts ayant au moins une ligne pending dont la destination
+   * a userId comme manager. Pour l'onglet "À recevoir" filtré côté terrain.
+   */
+  async listIncomingForUser(workspaceId: string, userIdOrSlug: string): Promise<any[]> {
+    const wsUuid = await resolveUuid('workspaces', 'workspace_id', workspaceId);
+    const userUuid = await resolveUuid('users', 'user_id', userIdOrSlug);
+    if (!wsUuid || !userUuid) return [];
+    const r = await db.query(
+      `SELECT DISTINCT t.id
+       FROM stock_transfers t
+       JOIN stock_transfer_lines l ON l.transfer_id = t.id
+       LEFT JOIN warehouses dw ON dw.id = l.destination_warehouse_id
+       LEFT JOIN outlets    do_ ON do_.id = l.destination_outlet_id
+       WHERE t.workspace_id = $1
+         AND l.leg_status = 'pending'
+         AND (dw.manager_id = $2 OR do_.manager_id = $2)
+       ORDER BY t.id DESC`,
+      [wsUuid, userUuid]
+    );
+    if (r.rowCount === 0) return [];
+    const ids = r.rows.map((x: any) => x.id);
+    const detailsR = await db.query(
+      `${SELECT_TRANSFER} WHERE t.id = ANY($1::uuid[]) ORDER BY t.created_at DESC`,
+      [ids]
+    );
+    const transfers = detailsR.rows;
+    const allLines = await db.query(
+      `${SELECT_LINE} WHERE l.transfer_id = ANY($1::uuid[]) ORDER BY l.created_at ASC`,
+      [ids]
+    );
+    const byTransfer = new Map<string, any[]>();
+    for (const line of allLines.rows) {
+      if (!byTransfer.has(line.transfer_id)) byTransfer.set(line.transfer_id, []);
+      byTransfer.get(line.transfer_id)!.push(line);
+    }
+    for (const t of transfers) t.lines = byTransfer.get(t.id) || [];
+    return transfers;
   }
 }
