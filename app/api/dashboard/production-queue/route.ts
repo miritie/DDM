@@ -75,12 +75,10 @@ export async function GET(_req: NextRequest) {
        ORDER BY r.approved_at DESC NULLS LAST, r.updated_at DESC`,
       [workspaceId]
     );
-    // Charge TOUTES les lignes de tous les réappros en 1 seule requête
-    // (auparavant : N+1 — un SELECT par réappro × jusqu'à 50 réappros).
-    const repIds = replenishmentsR.rows.map((r: any) => r.id);
-    if (repIds.length > 0) {
+    // Charge les lignes pour chaque réappro
+    for (const r of replenishmentsR.rows) {
       const linesR = await db.query(
-        `SELECT rl.id, rl.replenishment_id, rl.product_id, rl.product_name,
+        `SELECT rl.id, rl.product_id, rl.product_name,
                 rl.quantity_requested, rl.quantity_produced,
                 p.code AS product_code,
                 (SELECT rc.recipe_id FROM recipes rc
@@ -88,21 +86,11 @@ export async function GET(_req: NextRequest) {
                  ORDER BY rc.version DESC LIMIT 1) AS available_recipe_slug
          FROM stand_replenishment_lines rl
          JOIN products p ON p.id = rl.product_id
-         WHERE rl.replenishment_id = ANY($1::uuid[])
+         WHERE rl.replenishment_id = $1
          ORDER BY rl.created_at`,
-        [repIds, workspaceId]
+        [r.id, workspaceId]
       );
-      const byRep = new Map<string, any[]>();
-      for (const l of linesR.rows) {
-        const k = l.replenishment_id;
-        if (!byRep.has(k)) byRep.set(k, []);
-        byRep.get(k)!.push(l);
-      }
-      for (const r of replenishmentsR.rows) {
-        r.lines = byRep.get(r.id) || [];
-      }
-    } else {
-      for (const r of replenishmentsR.rows) r.lines = [];
+      r.lines = linesR.rows;
     }
 
     return NextResponse.json({

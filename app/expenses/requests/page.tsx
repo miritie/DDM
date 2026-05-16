@@ -49,19 +49,13 @@ function ExpenseRequestsListContent() {
     setFilters(urlFilters);
   }, [searchParams]);
 
-  // Recharge dès qu'un filtre change (debounce sur la recherche texte pour
-  // éviter une requête par frappe). Tous les filtres sont désormais appliqués
-  // CÔTÉ SERVEUR — auparavant on chargeait tout et on filtrait en JS, ce qui
-  // était mortel en 3G dès qu'on dépassait quelques centaines de lignes.
   useEffect(() => {
-    const timer = setTimeout(() => loadRequests(), filters.search ? 250 : 0);
-    return () => clearTimeout(timer);
-  }, [searchParams, filters]);
+    loadRequests();
+  }, [searchParams]);
 
-  // Le filtrage local n'est plus nécessaire — on garde une simple copie.
   useEffect(() => {
-    setFilteredRequests(requests);
-  }, [requests]);
+    applyFilters();
+  }, [requests, filters]);
 
   async function loadRequests() {
     try {
@@ -69,42 +63,69 @@ function ExpenseRequestsListContent() {
 
       const params = new URLSearchParams();
 
-      // Paramètres venus de l'URL (vue "mes demandes", "à approuver")
+      // Paramètres URL
       const my = searchParams.get('my');
       const needsMyApproval = searchParams.get('needsMyApproval');
+
       if (my === 'true') params.append('requesterId', 'me');
       if (needsMyApproval === 'true') params.append('needsMyApproval', 'true');
 
-      // Filtres UI passés au serveur
-      if (filters.search)   params.append('search', filters.search);
-      if (filters.category) params.append('categoryId', filters.category);
-      if (filters.dateFrom) params.append('startDate', filters.dateFrom);
-      if (filters.dateTo)   params.append('endDate', filters.dateTo);
-      // Statut/urgence : si une seule sélection, on envoie au serveur ; sinon (multi)
-      // on récupère plus large et on filtre encore en JS sur ce sous-ensemble.
-      if (filters.status && filters.status.length === 1) {
-        params.append('status', filters.status[0]);
-      }
-      params.append('limit', '100');
-
       const response = await fetch(`/api/expenses/requests?${params.toString()}`);
+
       if (response.ok) {
         const data = await response.json();
-        let rows = data.data || [];
-        // Filtrage résiduel côté JS : statuts multiples + urgence (pas encore en BDD)
-        if (filters.status && filters.status.length > 1) {
-          rows = rows.filter((r: any) => filters.status!.includes(r.Status));
-        }
-        if (filters.urgency && filters.urgency.length > 0) {
-          rows = rows.filter((r: any) => filters.urgency!.includes(r.Urgency));
-        }
-        setRequests(rows);
+        setRequests(data.data || []);
       }
     } catch (error) {
       console.error('Erreur chargement demandes:', error);
     } finally {
       setLoading(false);
     }
+  }
+
+  function applyFilters() {
+    let filtered = [...requests];
+
+    // Recherche textuelle
+    if (filters.search) {
+      const query = filters.search.toLowerCase();
+      filtered = filtered.filter(
+        (r) =>
+          r.RequestNumber.toLowerCase().includes(query) ||
+          r.Title.toLowerCase().includes(query) ||
+          r.RequesterName.toLowerCase().includes(query) ||
+          r.Description?.toLowerCase().includes(query)
+      );
+    }
+
+    // Statut
+    if (filters.status && filters.status.length > 0) {
+      filtered = filtered.filter((r) => filters.status!.includes(r.Status));
+    }
+
+    // Urgence
+    if (filters.urgency && filters.urgency.length > 0) {
+      filtered = filtered.filter((r) => filters.urgency!.includes(r.Urgency));
+    }
+
+    // Catégorie
+    if (filters.category) {
+      filtered = filtered.filter((r) => (r.Category as any) === filters.category);
+    }
+
+    // Date range
+    if (filters.dateFrom) {
+      filtered = filtered.filter(
+        (r) => new Date(r.RequestDate) >= new Date(filters.dateFrom!)
+      );
+    }
+    if (filters.dateTo) {
+      filtered = filtered.filter(
+        (r) => new Date(r.RequestDate) <= new Date(filters.dateTo!)
+      );
+    }
+
+    setFilteredRequests(filtered);
   }
 
   function toggleStatus(status: ExpenseRequestStatus) {

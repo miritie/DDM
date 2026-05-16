@@ -251,21 +251,16 @@ export class ExpenseService {
     if (userR.rows.length === 0) throw new Error('Utilisateur payeur introuvable');
     const payerUuid = userR.rows[0].id;
 
-    // Récupération en 1 seule requête de tous les wallets concernés (au lieu
-    // d'un SELECT par allocation — N+1 mortel en 3G).
-    const walletIds = input.allocations.map(a => a.walletId);
-    const walletsR = await postgresClient.query<any>(
-      `SELECT id, balance, name FROM wallets WHERE id::text = ANY($1)`,
-      [walletIds]
-    );
-    const walletById = new Map<string, any>(walletsR.rows.map((w: any) => [w.id, w]));
     for (const alloc of input.allocations) {
-      const w = walletById.get(alloc.walletId);
-      if (!w) {
+      const wR = await postgresClient.query<any>(
+        `SELECT id, balance, name FROM wallets WHERE id::text = $1 LIMIT 1`,
+        [alloc.walletId]
+      );
+      if (wR.rows.length === 0) {
         throw new Error(`Wallet introuvable : ${alloc.walletId}`);
       }
-      if (Number(w.balance) < alloc.amount) {
-        throw new Error(`Solde insuffisant sur le wallet "${w.name}" (solde : ${w.balance}, requis : ${alloc.amount})`);
+      if (Number(wR.rows[0].balance) < alloc.amount) {
+        throw new Error(`Solde insuffisant sur le wallet "${wR.rows[0].name}" (solde : ${wR.rows[0].balance}, requis : ${alloc.amount})`);
       }
     }
 

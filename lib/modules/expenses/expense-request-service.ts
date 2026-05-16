@@ -80,98 +80,31 @@ export class ExpenseRequestService {
     return req;
   }
 
-  /**
-   * Liste paginée des demandes avec filtres serveur.
-   *
-   * Tous les filtres sont appliqués côté Postgres (auparavant on chargeait
-   * tout et on filtrait en JS, ce qui était mortel en 3G dès qu'on dépassait
-   * quelques centaines de demandes).
-   *
-   * Retourne aussi le label de la catégorie via JOIN pour éviter un second
-   * fetch côté client.
-   */
   async list(
     workspaceId: string,
-    filters: {
-      status?: string;
-      requesterId?: string;
-      categoryId?: string;
-      search?: string;          // recherche texte sur title / request_number
-      startDate?: string;       // YYYY-MM-DD (created_at >=)
-      endDate?: string;         // YYYY-MM-DD (created_at <=)
-      limit?: number;           // défaut 50
-      offset?: number;          // défaut 0
-    } = {}
-  ): Promise<any[]> {
-    const conds: string[] = ['er.workspace_id = $1'];
-    const params: any[] = [workspaceId];
-    const push = (sql: string, val: any) => { params.push(val); conds.push(sql.replace('?', `$${params.length}`)); };
+    filters: { status?: string; requesterId?: string; categoryId?: string } = {}
+  ): Promise<ExpenseRequest[]> {
+    const filterFormulas: string[] = [`{workspace_id} = '${workspaceId}'`];
 
-    if (filters.status)      push('er.status = ?', filters.status);
-    if (filters.requesterId) push('er.requester_id = ?', filters.requesterId);
-    if (filters.categoryId)  push('er.category_id = ?', filters.categoryId);
-    if (filters.startDate)   push('er.created_at >= ?', filters.startDate);
-    if (filters.endDate)     push('er.created_at <= ?', filters.endDate + ' 23:59:59');
-    if (filters.search) {
-      params.push(`%${filters.search}%`);
-      conds.push(`(er.title ILIKE $${params.length} OR er.request_number ILIKE $${params.length})`);
+    if (filters.status) {
+      filterFormulas.push(`{status} = '${filters.status}'`);
+    }
+    if (filters.requesterId) {
+      filterFormulas.push(`{requester_id} = '${filters.requesterId}'`);
+    }
+    if (filters.categoryId) {
+      filterFormulas.push(`{category_id} = '${filters.categoryId}'`);
     }
 
-    const limit = Math.min(Math.max(filters.limit ?? 50, 1), 500);
-    const offset = Math.max(filters.offset ?? 0, 0);
+    const filterByFormula =
+      filterFormulas.length > 1
+        ? `AND(${filterFormulas.join(', ')})`
+        : filterFormulas[0];
 
-    const r = await postgresClient.query<any>(
-      `SELECT
-         er.id,
-         er.expense_request_id  AS "ExpenseRequestId",
-         er.request_number      AS "RequestNumber",
-         er.title               AS "Title",
-         er.description         AS "Description",
-         er.amount              AS "Amount",
-         er.category_id         AS "CategoryId",
-         er.expense_type_id     AS "ExpenseTypeId",
-         er.requester_id        AS "RequesterId",
-         er.status              AS "Status",
-         er.submitted_at        AS "SubmittedAt",
-         er.workspace_id        AS "WorkspaceId",
-         er.created_at          AS "CreatedAt",
-         er.updated_at          AS "UpdatedAt",
-         ec.label               AS "CategoryLabel",
-         ec.code                AS "CategoryCode",
-         et.label               AS "TypeLabel"
-       FROM expense_requests er
-       LEFT JOIN expense_categories ec ON ec.id = er.category_id
-       LEFT JOIN expense_types et      ON et.id = er.expense_type_id
-       WHERE ${conds.join(' AND ')}
-       ORDER BY er.created_at DESC
-       LIMIT ${limit} OFFSET ${offset}`,
-      params
-    );
-    return r.rows;
-  }
-
-  /** Compte total avec mêmes filtres (pour la pagination UI). */
-  async count(
-    workspaceId: string,
-    filters: { status?: string; requesterId?: string; categoryId?: string; search?: string; startDate?: string; endDate?: string } = {}
-  ): Promise<number> {
-    const conds: string[] = ['workspace_id = $1'];
-    const params: any[] = [workspaceId];
-    const push = (sql: string, val: any) => { params.push(val); conds.push(sql.replace('?', `$${params.length}`)); };
-    if (filters.status)      push('status = ?', filters.status);
-    if (filters.requesterId) push('requester_id = ?', filters.requesterId);
-    if (filters.categoryId)  push('category_id = ?', filters.categoryId);
-    if (filters.startDate)   push('created_at >= ?', filters.startDate);
-    if (filters.endDate)     push('created_at <= ?', filters.endDate + ' 23:59:59');
-    if (filters.search) {
-      params.push(`%${filters.search}%`);
-      conds.push(`(title ILIKE $${params.length} OR request_number ILIKE $${params.length})`);
-    }
-    const r = await postgresClient.query<any>(
-      `SELECT COUNT(*)::int AS n FROM expense_requests WHERE ${conds.join(' AND ')}`,
-      params
-    );
-    return r.rows[0]?.n || 0;
+    return await postgresClient.list<ExpenseRequest>('expense_requests', {
+      filterByFormula,
+      sort: [{ field: 'CreatedAt', direction: 'desc' }],
+    });
   }
 
   async submit(requestId: string): Promise<ExpenseRequest> {
