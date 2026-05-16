@@ -7,7 +7,6 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getCurrentWorkspaceId } from '@/lib/auth/get-session';
 import { AccountService } from '@/lib/modules/accounting/account-service';
 import { requirePermission, PERMISSIONS } from '@/lib/rbac/server';
-import { cachedJson } from '@/lib/http/cache-headers';
 
 const service = new AccountService();
 
@@ -16,8 +15,7 @@ export async function GET(request: NextRequest) {
     await requirePermission(PERMISSIONS.ADMIN_SETTINGS_VIEW);
     const workspaceId = await getCurrentWorkspaceId();
     const accounts = await service.list(workspaceId);
-    // Plan comptable : très peu de changements → cache 5 min côté navigateur.
-    return cachedJson(accounts, 'reference');
+    return NextResponse.json({ data: accounts });
   } catch (error: any) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }

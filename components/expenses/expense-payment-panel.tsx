@@ -104,17 +104,17 @@ export function ExpensePaymentPanel({ expenseRequestId }: { expenseRequestId: st
 
       if (exp) {
         if (exp.status === 'paid') {
-          // Les deux fetch sont indépendants — parallélisation pour gagner
-          // un round-trip réseau (impact 3G).
-          const [tj, jeJ] = await Promise.all([
-            fetch(`/api/expenses/${exp.id}/pay`).then(r => r.json()),
-            fetch(`/api/expenses/${exp.id}/journal-entry`).then(r => r.json()),
-          ]);
+          const tr = await fetch(`/api/expenses/${exp.id}/pay`);
+          const tj = await tr.json();
           setPayments(tj.data || []);
+
+          const jeR = await fetch(`/api/expenses/${exp.id}/journal-entry`);
+          const jeJ = await jeR.json();
           setJournalEntry(jeJ.data ?? null);
         }
         if (exp.status === 'approved' || exp.status === 'scheduled') {
-          const wj = await fetch('/api/treasury/wallets?isActive=true').then(r => r.json());
+          const wr = await fetch('/api/treasury/wallets?isActive=true');
+          const wj = await wr.json();
           const ws: WalletOption[] = (wj.data || [])
             .map((w: any) => ({
               id: w.Id || w.id,

@@ -7,7 +7,6 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getCurrentWorkspaceId, getCurrentUserRoleIds } from '@/lib/auth/get-session';
 import { ExpenseCategoryService } from '@/lib/modules/expenses/expense-category-service';
 import { requirePermission, PERMISSIONS } from '@/lib/rbac/server';
-import { cachedJson } from '@/lib/http/cache-headers';
 
 const service = new ExpenseCategoryService();
 
@@ -34,7 +33,7 @@ export async function GET(request: NextRequest) {
       const userRoleIds = await getCurrentUserRoleIds();
       const onlyActive = searchParams.get('isActive') !== 'false';
       const data = await service.listAccessibleForUser(workspaceId, userRoleIds, { onlyActive });
-      return cachedJson(data, 'reference');
+      return NextResponse.json({ data });
     }
 
     const filters: any = {};
@@ -44,7 +43,7 @@ export async function GET(request: NextRequest) {
 
     const categories = await service.list(workspaceId, filters);
 
-    return cachedJson(categories, 'reference');
+    return NextResponse.json({ data: categories });
   } catch (error: any) {
     console.error('Error fetching categories:', error);
     return NextResponse.json(
