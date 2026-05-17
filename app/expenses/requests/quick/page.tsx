@@ -98,6 +98,8 @@ export default function QuickExpenseRequestPage() {
   const [amount, setAmount] = useState<number>(0);
   const [categoryId, setCategoryId] = useState<string>('');
   const [typeId, setTypeId] = useState<string>('');
+  const [customTypeLabel, setCustomTypeLabel] = useState<string>(''); // saisi si "Autre…"
+  const [showOtherType, setShowOtherType] = useState<boolean>(false);
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [urgency, setUrgency] = useState<ExpenseUrgency>('normal');
@@ -141,7 +143,9 @@ export default function QuickExpenseRequestPage() {
 
   function handleQuickCategory(cat: ApiCategory) {
     setCategoryId(cat.id);
-    setTypeId('');  // reset type quand on change de catégorie
+    setTypeId('');                  // reset type quand on change de catégorie
+    setCustomTypeLabel('');
+    setShowOtherType(false);
     if (!title) {
       setTitle(`Dépense ${cat.label}`);
     }
@@ -149,10 +153,17 @@ export default function QuickExpenseRequestPage() {
 
   function handleTypeChange(newTypeId: string) {
     setTypeId(newTypeId);
+    setCustomTypeLabel('');
+    setShowOtherType(false);
     if (newTypeId) {
       const t = allTypes.find(x => x.id === newTypeId);
       if (t && !title) setTitle(`${t.category_label} — ${t.label}`);
     }
+  }
+
+  function handleSelectOther() {
+    setTypeId('');
+    setShowOtherType(true);
   }
 
   async function handleSubmit() {
@@ -171,11 +182,19 @@ export default function QuickExpenseRequestPage() {
       setSaving(true);
 
       // 1. Créer la demande
+      const customLabel = showOtherType ? customTypeLabel.trim() : '';
       const requestPayload = {
-        title: title || (selectedCat ? `Dépense ${selectedCat.label}` : 'Demande de dépense'),
+        title:
+          title ||
+          (customLabel
+            ? `${selectedCat?.label ?? 'Dépense'} — ${customLabel}`
+            : selectedCat
+            ? `Dépense ${selectedCat.label}`
+            : 'Demande de dépense'),
         description: description || 'Demande rapide depuis terrain',
         categoryId,
         expenseTypeId: typeId || undefined,
+        customTypeLabel: customLabel || undefined,
         amount,
         urgency,
         neededByDate: neededByDate || undefined,
@@ -248,26 +267,11 @@ export default function QuickExpenseRequestPage() {
       {/* Contenu */}
       <div className="max-w-7xl mx-auto px-4 -mt-4">
         <div className="bg-white rounded-2xl shadow-xl p-6 space-y-6">
-          {/* 1. MONTANT (le plus important) */}
+          {/* 1. MONTANT (champ libre, le plus important) */}
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-3">
               Montant demandé <span className="text-red-600">*</span>
             </label>
-            <div className="flex gap-2 mb-3">
-              {[1000, 2500, 5000, 10000, 25000, 50000].map((amt) => (
-                <button
-                  key={amt}
-                  onClick={() => setAmount(amt)}
-                  className={`flex-1 h-12 rounded-xl font-bold transition-colors ${
-                    amount === amt
-                      ? 'bg-red-600 text-white'
-                      : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                  }`}
-                >
-                  {new Intl.NumberFormat('fr-FR', { notation: 'compact' }).format(amt)}
-                </button>
-              ))}
-            </div>
             <div className="relative">
               <DollarSign className="absolute left-4 top-1/2 transform -translate-y-1/2 text-gray-400 w-6 h-6" />
               <input
@@ -275,7 +279,7 @@ export default function QuickExpenseRequestPage() {
                 value={amount || ''}
                 onChange={(e) => setAmount(parseInt(e.target.value) || 0)}
                 placeholder="0"
-                className="w-full pl-14 pr-4 h-20 text-center text-4xl font-bold border-2 border-gray-300 rounded-xl focus:outline-none focus:border-red-500"
+                className="w-full pl-14 pr-12 h-20 text-center text-4xl font-bold border-2 border-gray-300 rounded-xl focus:outline-none focus:border-red-500"
                 min="0"
               />
               <span className="absolute right-4 top-1/2 transform -translate-y-1/2 text-2xl font-bold text-gray-400">
@@ -287,7 +291,7 @@ export default function QuickExpenseRequestPage() {
           {/* 2. CATÉGORIE — filtrée selon les rôles de l'utilisateur courant */}
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-3">
-              Type de dépense <span className="text-red-600">*</span>
+              Catégorie <span className="text-red-600">*</span>
             </label>
             {loadingCategories ? (
               <div className="flex items-center gap-2 text-sm text-gray-500 py-4">
@@ -327,27 +331,69 @@ export default function QuickExpenseRequestPage() {
             )}
           </div>
 
-          {/* 2bis. TYPE — apparaît dès qu'une catégorie est choisie */}
-          {categoryId && typesForCategory.length > 0 && (
+          {/* 2bis. TYPE — boutons usuels + "Autre…" pour saisie libre */}
+          {categoryId && (typesForCategory.length > 0 || true) && (
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Poste précis <span className="text-xs text-gray-500">(facultatif — sinon catégorie générique)</span>
+              <label className="block text-sm font-medium text-gray-700 mb-3">
+                Type
+                <span className="text-xs text-gray-500 ml-2">(choisis un type usuel ou saisis le tien)</span>
               </label>
-              <select
-                value={typeId}
-                onChange={(e) => handleTypeChange(e.target.value)}
-                className="w-full h-12 px-3 border-2 border-gray-300 rounded-xl focus:outline-none focus:border-red-500 text-sm"
-              >
-                <option value="">— Aucun (rester sur la catégorie) —</option>
-                {typesForCategory.map(t => (
-                  <option key={t.id} value={t.id}>
-                    {t.label}{t.charge_account_number ? ` · compte ${t.charge_account_number}` : ''}
-                  </option>
-                ))}
-              </select>
-              <p className="text-[10px] text-gray-500 mt-1">
-                Le poste précis détermine le compte de charge OHADA imputé lors du paiement.
-              </p>
+
+              {typesForCategory.length > 0 && (
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 mb-2">
+                  {typesForCategory.map((t) => {
+                    const selected = typeId === t.id;
+                    return (
+                      <button
+                        key={t.id}
+                        onClick={() => handleTypeChange(t.id)}
+                        className={`p-3 rounded-xl border-2 text-sm font-medium text-left transition-all ${
+                          selected
+                            ? 'bg-red-600 text-white border-transparent shadow'
+                            : 'border-gray-200 bg-white hover:border-gray-300'
+                        }`}
+                      >
+                        {t.label}
+                      </button>
+                    );
+                  })}
+                  <button
+                    onClick={handleSelectOther}
+                    className={`p-3 rounded-xl border-2 border-dashed text-sm font-medium text-left transition-all ${
+                      showOtherType
+                        ? 'bg-amber-100 text-amber-900 border-amber-400'
+                        : 'border-gray-300 text-gray-600 hover:border-amber-400 hover:bg-amber-50'
+                    }`}
+                  >
+                    + Autre…
+                  </button>
+                </div>
+              )}
+
+              {typesForCategory.length === 0 && !showOtherType && (
+                <button
+                  onClick={handleSelectOther}
+                  className="w-full p-3 rounded-xl border-2 border-dashed border-gray-300 text-sm font-medium text-gray-600 hover:border-amber-400 hover:bg-amber-50"
+                >
+                  + Préciser un type
+                </button>
+              )}
+
+              {showOtherType && (
+                <div className="mt-2">
+                  <input
+                    type="text"
+                    value={customTypeLabel}
+                    onChange={(e) => setCustomTypeLabel(e.target.value)}
+                    placeholder="ex: Réparation pneu camion"
+                    autoFocus
+                    className="w-full h-12 px-4 border-2 border-amber-300 rounded-xl focus:outline-none focus:border-amber-500 text-sm"
+                  />
+                  <p className="text-[11px] text-gray-500 mt-1">
+                    Ce libellé sera classifié par l'administrateur (ou automatiquement) pour rattachement comptable.
+                  </p>
+                </div>
+              )}
             </div>
           )}
 
