@@ -86,12 +86,15 @@ export async function GET(request: NextRequest) {
     ]);
 
     // ===== Sollicitations de dépense en attente (sur expense_requests) =====
-    // Les pending vivent là, pas dans expenses (créé seulement après validation).
+    // L'enum expense_request_status n'a PAS de valeur 'pending' (il a
+    // 'draft', 'submitted', 'approved', 'rejected', 'cancelled'). Le statut
+    // qui correspond à « en attente d'approbation » est 'submitted'.
+    // Comparer une enum à une valeur inexistante throw → 500 garanti.
     const pendingRequests = await db.query(
       `SELECT COUNT(*)::int AS count
          FROM expense_requests
         WHERE workspace_id = $1
-          AND status = 'pending'`,
+          AND status = 'submitted'`,
       [workspaceId]
     );
 
@@ -134,8 +137,15 @@ export async function GET(request: NextRequest) {
         `SELECT COALESCE(SUM(base_salary), 0)::float AS total FROM employees WHERE workspace_id = $1 AND is_active = true`,
         [workspaceId]
       ),
+      // Table = employee_advances (pas salary_advances) ; status est un
+      // VARCHAR(50) avec default 'pending' donc la valeur littérale marche.
+      // workspace_id n'existe pas directement sur employee_advances → on
+      // joint via employees pour filtrer le workspace.
       db.query(
-        `SELECT COUNT(*)::int AS count FROM salary_advances WHERE workspace_id = $1 AND status = 'pending'`,
+        `SELECT COUNT(*)::int AS count
+           FROM employee_advances ea
+           JOIN employees e ON e.id = ea.employee_id
+          WHERE e.workspace_id = $1 AND ea.status = 'pending'`,
         [workspaceId]
       ),
     ]);
