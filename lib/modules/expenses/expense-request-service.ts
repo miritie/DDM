@@ -115,6 +115,23 @@ export class ExpenseRequestService {
     // Alias pour compat UI legacy qui lit RequestDate.
     req.RequestDate = req.CreatedAt;
 
+    // Statut effectif = celui de l'expense liée (qui va plus loin que le
+    // request : scheduled, paid). Le RequestStatus original est conservé
+    // pour les UI qui en auraient besoin.
+    if (req.id) {
+      const eR = await postgresClient.query<any>(
+        `SELECT status, scheduled_payment_date, payment_date
+         FROM expenses WHERE expense_request_id = $1 LIMIT 1`,
+        [req.id]
+      );
+      if (eR.rows[0]) {
+        req.RequestStatus = req.Status;
+        req.Status = eR.rows[0].status;
+        req.ScheduledPaymentDate = eR.rows[0].scheduled_payment_date;
+        req.PaymentDate = eR.rows[0].payment_date;
+      }
+    }
+
     return req;
   }
 
@@ -167,6 +184,11 @@ export class ExpenseRequestService {
     const limit = Math.min(Math.max(filters.limit ?? 50, 1), 500);
     const offset = Math.max(filters.offset ?? 0, 0);
 
+    // Le "statut effectif" pour la timeline UI = COALESCE(expense.status, request.status).
+    // L'enum expense_request_status s'arrête à 'approved' alors que l'expense
+    // continue ensuite vers 'scheduled' puis 'paid'. Sans cette jointure, le
+    // demandeur voyait sa demande figée sur "approved" même après paiement
+    // côté comptable.
     const r = await postgresClient.query<any>(
       `SELECT
          er.id,
@@ -178,7 +200,10 @@ export class ExpenseRequestService {
          er.category_id         AS "CategoryId",
          er.expense_type_id     AS "ExpenseTypeId",
          er.requester_id        AS "RequesterId",
-         er.status              AS "Status",
+         er.status              AS "RequestStatus",
+         COALESCE(e.status::text, er.status::text) AS "Status",
+         e.scheduled_payment_date AS "ScheduledPaymentDate",
+         e.payment_date           AS "PaymentDate",
          er.submitted_at        AS "SubmittedAt",
          er.workspace_id        AS "WorkspaceId",
          er.created_at          AS "CreatedAt",
@@ -189,6 +214,7 @@ export class ExpenseRequestService {
        FROM expense_requests er
        LEFT JOIN expense_categories ec ON ec.id = er.category_id
        LEFT JOIN expense_types et      ON et.id = er.expense_type_id
+       LEFT JOIN expenses e            ON e.expense_request_id = er.id
        WHERE ${conds.join(' AND ')}
        ORDER BY er.created_at DESC
        LIMIT ${limit} OFFSET ${offset}`,

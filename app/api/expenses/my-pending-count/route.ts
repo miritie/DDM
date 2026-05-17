@@ -22,19 +22,24 @@ export async function GET() {
     const workspaceId = await getCurrentWorkspaceId();
     const userIdSlug = await getCurrentUserId();  // business code USR-…
 
-    // Compte les requests submitted/approved/scheduled qui appartiennent au
-    // user courant. On résout le slug → UUID dans la requête (LEFT JOIN
-    // évite un round-trip supplémentaire).
+    // Compte les demandes du user courant qui sont "en cours" — c'est-à-dire
+    // dont le STATUT EFFECTIF (expense.status si l'expense existe, sinon
+    // request.status) n'est pas un état final.
+    //
+    // L'enum expense_request_status s'arrête à 'approved' ; la suite du
+    // workflow (scheduled, paid) vit dans expense.status. On joint les deux
+    // tables et on COALESCE.
     const r = await db.query<any>(
       `SELECT
-         er.status,
+         COALESCE(e.status::text, er.status::text) AS status,
          COUNT(*)::int AS n
        FROM expense_requests er
        JOIN users u ON u.id = er.requester_id
+       LEFT JOIN expenses e ON e.expense_request_id = er.id
        WHERE er.workspace_id = $1
          AND (u.id::text = $2 OR u.user_id = $2)
-         AND er.status NOT IN ('draft', 'rejected', 'cancelled')
-       GROUP BY er.status`,
+         AND COALESCE(e.status::text, er.status::text) NOT IN ('draft', 'paid', 'rejected', 'cancelled')
+       GROUP BY COALESCE(e.status::text, er.status::text)`,
       [workspaceId, userIdSlug]
     );
 
