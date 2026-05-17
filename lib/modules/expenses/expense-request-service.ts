@@ -145,8 +145,17 @@ export class ExpenseRequestService {
     const params: any[] = [workspaceId];
     const push = (sql: string, val: any) => { params.push(val); conds.push(sql.replace('?', `$${params.length}`)); };
 
+    // requesterId peut être l'UUID PK ou le business code (USR-…) selon
+    // l'appelant (page Mes demandes : 'me' → business code via la session,
+    // page admin : UUID via picker). On résout côté serveur pour éviter
+    // "invalid input syntax for type uuid".
+    let requesterUuid: string | undefined;
+    if (filters.requesterId) {
+      requesterUuid = await this.resolveUserUuid(filters.requesterId);
+    }
+
     if (filters.status)      push('er.status = ?', filters.status);
-    if (filters.requesterId) push('er.requester_id = ?', filters.requesterId);
+    if (requesterUuid)       push('er.requester_id = ?', requesterUuid);
     if (filters.categoryId)  push('er.category_id = ?', filters.categoryId);
     if (filters.startDate)   push('er.created_at >= ?', filters.startDate);
     if (filters.endDate)     push('er.created_at <= ?', filters.endDate + ' 23:59:59');
@@ -196,8 +205,14 @@ export class ExpenseRequestService {
     const conds: string[] = ['workspace_id = $1'];
     const params: any[] = [workspaceId];
     const push = (sql: string, val: any) => { params.push(val); conds.push(sql.replace('?', `$${params.length}`)); };
+
+    let requesterUuid: string | undefined;
+    if (filters.requesterId) {
+      requesterUuid = await this.resolveUserUuid(filters.requesterId);
+    }
+
     if (filters.status)      push('status = ?', filters.status);
-    if (filters.requesterId) push('requester_id = ?', filters.requesterId);
+    if (requesterUuid)       push('requester_id = ?', requesterUuid);
     if (filters.categoryId)  push('category_id = ?', filters.categoryId);
     if (filters.startDate)   push('created_at >= ?', filters.startDate);
     if (filters.endDate)     push('created_at <= ?', filters.endDate + ' 23:59:59');

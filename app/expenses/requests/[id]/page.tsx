@@ -549,6 +549,31 @@ export default function ExpenseRequestDetailPage({ params }: PageProps) {
               </Button>
             </div>
           )}
+
+          {/* Messages explicatifs quand aucune action n'est disponible —
+              évite la section "Actions" vide qui désoriente. */}
+          {request.Status === 'submitted' && !canApprove && (
+            <p className="text-sm bg-amber-50 border border-amber-200 text-amber-800 rounded-lg p-3">
+              {(request as any).isRequester
+                ? "⏳ Tu es le demandeur de cette dépense — la validation doit être faite par un autre utilisateur ayant la permission « approuver une dépense » (séparation des pouvoirs)."
+                : "Tu n'as pas la permission d'approuver les dépenses. Contacte un administrateur ou un décideur."}
+            </p>
+          )}
+          {request.Status === 'approved' && (
+            <p className="text-sm bg-emerald-50 border border-emerald-200 text-emerald-800 rounded-lg p-3">
+              ✅ Demande approuvée. Le comptable peut maintenant planifier ou exécuter le paiement (panel ci-dessus).
+            </p>
+          )}
+          {request.Status === 'rejected' && (
+            <p className="text-sm bg-red-50 border border-red-200 text-red-700 rounded-lg p-3">
+              ❌ Demande rejetée. Tu peux en créer une nouvelle si nécessaire.
+            </p>
+          )}
+          {request.Status === 'paid' && (
+            <p className="text-sm bg-purple-50 border border-purple-200 text-purple-800 rounded-lg p-3">
+              💰 Dépense réglée. Voir le détail de l'écriture comptable dans le panel paiement ci-dessus.
+            </p>
+          )}
         </div>
       </div>
 
