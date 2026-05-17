@@ -211,7 +211,7 @@ export class ExpenseRequestService {
       throw new Error('Seules les demandes en brouillon peuvent être soumises');
     }
 
-    const recordId = requests[0].id;
+    const recordId = (requests[0] as any).Id ?? (requests[0] as any).id;
     if (!recordId) {
       throw new Error('ID not found');
     }
@@ -241,7 +241,7 @@ export class ExpenseRequestService {
     }
 
     const req = requests[0] as any;
-    const recordId = req.id;
+    const recordId = (req as any).Id ?? (req as any).id;
     if (!recordId) {
       throw new Error('ID not found');
     }
@@ -329,7 +329,7 @@ export class ExpenseRequestService {
       throw new Error('Impossible d\'annuler une demande déjà traitée');
     }
 
-    const recordId = requests[0].id;
+    const recordId = (requests[0] as any).Id ?? (requests[0] as any).id;
     if (!recordId) {
       throw new Error('ID not found');
     }
@@ -366,7 +366,7 @@ export class ExpenseRequestService {
       throw new Error('Seules les demandes en brouillon peuvent être modifiées');
     }
 
-    const recordId = requests[0].id;
+    const recordId = (requests[0] as any).Id ?? (requests[0] as any).id;
     if (!recordId) {
       throw new Error('ID not found');
     }

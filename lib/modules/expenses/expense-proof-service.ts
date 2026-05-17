@@ -134,7 +134,7 @@ export class ExpenseProofService {
       }
     }
 
-    const recordId = proofs[0].id;
+    const recordId = (proofs[0] as any).Id ?? (proofs[0] as any).id;
     if (!recordId) {
       throw new Error('ID not found');
     }
@@ -181,7 +181,7 @@ export class ExpenseProofService {
       }
     }
 
-    const recordId = proofs[0].id;
+    const recordId = (proofs[0] as any).Id ?? (proofs[0] as any).id;
     if (!recordId) {
       throw new Error('ID not found');
     }

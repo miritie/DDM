@@ -178,7 +178,7 @@ export class ExpenseCategoryService {
       throw new Error('Catégorie non trouvée');
     }
 
-    const recordId = categories[0].id;
+    const recordId = (categories[0] as any).Id ?? (categories[0] as any).id;
     if (!recordId) {
       throw new Error('ID not found');
     }

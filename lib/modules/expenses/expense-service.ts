@@ -144,7 +144,7 @@ export class ExpenseService {
       throw new Error('Seules les dépenses en attente peuvent être approuvées');
     }
 
-    const recordId = expenses[0].id;
+    const recordId = (expenses[0] as any).Id ?? (expenses[0] as any).id;
     if (!recordId) {
       throw new Error('ID not found');
     }
@@ -173,7 +173,7 @@ export class ExpenseService {
       throw new Error('Seules les dépenses approuvées peuvent être payées');
     }
 
-    const recordId = expenses[0].id;
+    const recordId = (expenses[0] as any).Id ?? (expenses[0] as any).id;
     if (!recordId) {
       throw new Error('ID not found');
     }
@@ -387,7 +387,7 @@ export class ExpenseService {
       throw new Error('Seules les dépenses en attente peuvent être rejetées');
     }
 
-    const recordId = expenses[0].id;
+    const recordId = (expenses[0] as any).Id ?? (expenses[0] as any).id;
     if (!recordId) {
       throw new Error('ID not found');
     }
@@ -416,7 +416,7 @@ export class ExpenseService {
       throw new Error('Une dépense payée ne peut pas être annulée');
     }
 
-    const recordId = expenses[0].id;
+    const recordId = (expenses[0] as any).Id ?? (expenses[0] as any).id;
     if (!recordId) {
       throw new Error('ID not found');
     }
