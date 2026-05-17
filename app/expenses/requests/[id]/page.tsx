@@ -6,6 +6,8 @@
 
 import { useState, useEffect, use } from 'react';
 import { useRouter } from 'next/navigation';
+import { usePermissions } from '@/lib/rbac/use-permissions';
+import { PERMISSIONS } from '@/lib/rbac';
 import {
   ArrowLeft,
   DollarSign,
@@ -135,6 +137,7 @@ const getUrgencyLabel = (urgency: ExpenseUrgency) => {
 export default function ExpenseRequestDetailPage({ params }: PageProps) {
   const router = useRouter();
   const { id } = use(params);
+  const { permissions } = usePermissions();
   const [request, setRequest] = useState<ExpenseRequest | null>(null);
   const [loading, setLoading] = useState(true);
   const [showApprovalModal, setShowApprovalModal] = useState(false);
@@ -234,8 +237,16 @@ export default function ExpenseRequestDetailPage({ params }: PageProps) {
 
   const approvedCount = request.Approvals?.filter((a) => a.Decision === 'approved').length || 0;
 
-  // Vérifier si l'utilisateur peut approuver
-  const canApprove = request.Status === 'submitted'; // TODO: Vérifier niveau utilisateur
+  // Vérifier si l'utilisateur peut approuver :
+  //   1. La demande doit être en attente de validation (submitted)
+  //   2. L'utilisateur doit avoir la permission expense:approve
+  //   3. L'utilisateur ne doit PAS être le demandeur (séparation des pouvoirs)
+  // Le flag isRequester est calculé côté serveur (route GET /[id]) sur la
+  // base de l'UUID, pas du nom (fiable contre les homonymies).
+  const canApprove =
+    request.Status === 'submitted' &&
+    permissions.includes(PERMISSIONS.EXPENSE_APPROVE) &&
+    !(request as any).isRequester;
 
   return (
     <div className="min-h-screen bg-gray-50 pb-20">
@@ -291,7 +302,7 @@ export default function ExpenseRequestDetailPage({ params }: PageProps) {
               <p className="text-xs text-gray-600 mb-1">Demandeur</p>
               <p className="font-semibold text-gray-900 flex items-center gap-2">
                 <User className="w-4 h-4 text-gray-500" />
-                {request.RequesterName}
+                {request.RequesterName || (request as any).RequesterSlug || '—'}
               </p>
             </div>
 
@@ -299,7 +310,12 @@ export default function ExpenseRequestDetailPage({ params }: PageProps) {
               <p className="text-xs text-gray-600 mb-1">Date demande</p>
               <p className="font-semibold text-gray-900 flex items-center gap-2">
                 <Calendar className="w-4 h-4 text-gray-500" />
-                {new Date(request.RequestDate).toLocaleDateString('fr-FR')}
+                {(() => {
+                  const raw = request.RequestDate || (request as any).CreatedAt || (request as any).SubmittedAt;
+                  if (!raw) return '—';
+                  const d = new Date(raw);
+                  return Number.isNaN(d.getTime()) ? '—' : d.toLocaleDateString('fr-FR');
+                })()}
               </p>
             </div>
 

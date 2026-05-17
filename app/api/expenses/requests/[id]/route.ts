@@ -4,10 +4,13 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
+import { getCurrentUserId } from '@/lib/auth/get-session';
 import { ExpenseRequestService } from '@/lib/modules/expenses/expense-request-service';
 import { requirePermission, PERMISSIONS } from '@/lib/rbac/server';
+import { getPostgresClient } from '@/lib/database/postgres-client';
 
 const service = new ExpenseRequestService();
+const db = getPostgresClient();
 
 /**
  * GET /api/expenses/requests/[id]
@@ -29,7 +32,14 @@ export async function GET(
       );
     }
 
-    return NextResponse.json({ data: expenseRequest });
+    // Flag isRequester côté serveur (séparation des pouvoirs : un demandeur
+    // ne doit jamais voir les boutons Approuver/Rejeter sur sa propre demande).
+    const userSlug = await getCurrentUserId();
+    const uR = await db.query(`SELECT id FROM users WHERE user_id = $1 OR id::text = $1 LIMIT 1`, [userSlug]);
+    const userUuid = uR.rows[0]?.id;
+    const isRequester = userUuid && userUuid === expenseRequest.RequesterId;
+
+    return NextResponse.json({ data: { ...expenseRequest, isRequester } });
   } catch (error: any) {
     console.error('Error fetching expense request:', error);
     return NextResponse.json(

@@ -88,9 +88,7 @@ export class ExpenseRequestService {
     if (requests.length === 0) return null;
     const req = requests[0] as any;
 
-    // Enrichir avec les infos de la catégorie (label + code) — la page de
-    // détail en a besoin pour l'affichage et il n'y a pas (encore) de
-    // sous-catégorie distincte dans le nouveau modèle.
+    // Enrichir avec les infos de la catégorie (label + code).
     if (req.CategoryId) {
       const catR = await postgresClient.query<any>(
         `SELECT label, code FROM expense_categories WHERE id = $1 LIMIT 1`,
@@ -101,6 +99,22 @@ export class ExpenseRequestService {
         req.CategoryCode = catR.rows[0].code;
       }
     }
+
+    // Enrichir avec le nom du demandeur (la page détail l'affiche).
+    if (req.RequesterId) {
+      const uR = await postgresClient.query<any>(
+        `SELECT user_id, full_name, display_name FROM users WHERE id = $1 LIMIT 1`,
+        [req.RequesterId]
+      );
+      if (uR.rows[0]) {
+        req.RequesterName = uR.rows[0].full_name || uR.rows[0].display_name || uR.rows[0].user_id;
+        req.RequesterSlug = uR.rows[0].user_id;
+      }
+    }
+
+    // Alias pour compat UI legacy qui lit RequestDate.
+    req.RequestDate = req.CreatedAt;
+
     return req;
   }
 
