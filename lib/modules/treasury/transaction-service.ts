@@ -234,19 +234,31 @@ export class TransactionService {
 
     // Sécurité : Postgres NUMERIC peut arriver en string côté JS via pg.
     // Sans Number(), "100" + 50 = "10050" puis le reduce devient NaN au
-    // moment d'un + undefined sur un row partiellement initialisé. Coerce
-    // systématiquement vers number, défaut 0 si NaN.
+    // moment d'un + undefined. Coerce systématiquement, défaut 0.
     const num = (v: any): number => {
       const n = Number(v);
       return Number.isFinite(n) ? n : 0;
     };
 
+    // Sémantique métier des KPIs :
+    // - Revenus  = encaissements liés à de vraies entrées d'argent (ventes
+    //              sur stands, paiements clients, etc.). On EXCLUT les
+    //              ajustements d'inventaire wallet qui sont des corrections
+    //              de solde et non des revenus opérationnels.
+    // - Dépenses = décaissements liés à de vraies sorties (paiement de
+    //              sollicitations validées). On EXCLUT aussi les ajustements.
+    // - Transferts = mouvements internes wallet ↔ wallet (sans impact sur
+    //                le solde total).
+    // Les ajustements (category='adjustment') impactent le solde mais
+    // n'apparaissent dans aucun KPI : ce sont des corrections comptables.
+    const isAdjustment = (t: any) => t.Category === 'adjustment';
+
     const totalIncome = transactions
-      .filter((t) => t.Type === 'income')
+      .filter((t) => t.Type === 'income' && !isAdjustment(t))
       .reduce((sum, t) => sum + num(t.Amount), 0);
 
     const totalExpense = transactions
-      .filter((t) => t.Type === 'expense')
+      .filter((t) => t.Type === 'expense' && !isAdjustment(t))
       .reduce((sum, t) => sum + num(t.Amount), 0);
 
     const totalTransfers = transactions
