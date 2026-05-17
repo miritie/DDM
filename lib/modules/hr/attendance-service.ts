@@ -169,16 +169,31 @@ export class AttendanceService {
       throw new Error('Attendance ID is missing');
     }
 
+    // validatedById vient typiquement de session.user.userId = business code
+    // (USR-…). La colonne attendances.validated_by_id est UUID — résolution
+    // pour éviter "invalid input syntax for type uuid".
+    const validatedByUuid = await this.resolveUserUuid(input.validatedById);
+
     const updated = await postgresClient.update<Attendance>(
       'attendances',
       attendances[0].id,
       {
-        ValidatedById: input.validatedById,
+        ValidatedById: validatedByUuid,
         ValidatedAt: new Date().toISOString(),
         UpdatedAt: new Date().toISOString(),
       }
     );
     return updated;
+  }
+
+  /** Accepte UUID PK ou business code user_id et retourne l'UUID PK. */
+  private async resolveUserUuid(idOrSlug: string): Promise<string> {
+    const r = await postgresClient.query<any>(
+      `SELECT id FROM users WHERE id::text = $1 OR user_id = $1 LIMIT 1`,
+      [idOrSlug]
+    );
+    if (r.rows.length === 0) throw new Error('Utilisateur introuvable');
+    return r.rows[0].id;
   }
 
   async delete(attendanceId: string): Promise<void> {

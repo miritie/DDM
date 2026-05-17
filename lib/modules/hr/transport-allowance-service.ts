@@ -201,12 +201,25 @@ export class TransportAllowanceService {
       throw new Error('Seules les indemnités en attente peuvent être validées');
     }
 
+    // validatedById = business code (USR-…), FK UUID en BDD → résolution.
+    const validatedByUuid = await this.resolveUserUuid(validatedById);
+
     return this.update(transportId, {
       Status: 'validated',
-      ValidatedById: validatedById,
+      ValidatedById: validatedByUuid,
       ValidatedByName: validatedByName,
       ValidatedAt: new Date().toISOString(),
     });
+  }
+
+  /** Accepte UUID PK ou business code user_id et retourne l'UUID PK. */
+  private async resolveUserUuid(idOrSlug: string): Promise<string> {
+    const r = await this.postgresClient.query<any>(
+      `SELECT id FROM users WHERE id::text = $1 OR user_id = $1 LIMIT 1`,
+      [idOrSlug]
+    );
+    if (r.rows.length === 0) throw new Error('Utilisateur introuvable');
+    return r.rows[0].id;
   }
 
   /**
@@ -227,9 +240,11 @@ export class TransportAllowanceService {
       throw new Error('Seules les indemnités en attente peuvent être rejetées');
     }
 
+    const validatedByUuid = await this.resolveUserUuid(validatedById);
+
     return this.update(transportId, {
       Status: 'rejected',
-      ValidatedById: validatedById,
+      ValidatedById: validatedByUuid,
       ValidatedByName: validatedByName,
       ValidatedAt: new Date().toISOString(),
       RejectionReason: reason,

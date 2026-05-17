@@ -266,9 +266,16 @@ export class TransactionService {
 
   /**
    * Crée une transaction (méthode privée)
+   *
+   * processedById peut être soit l'UUID PK (users.id), soit le business code
+   * (users.user_id = "USR-…"). Convention de l'app : la session véhicule le
+   * business code via getCurrentUserId(). On résout ici pour éviter
+   * "invalid input syntax for type uuid" sur transactions.processed_by_id.
    */
   private async createTransaction(input: CreateTransactionInput): Promise<Transaction> {
     const transactionNumber = await this.generateTransactionNumber(input.workspaceId, input.type);
+
+    const processedByUuid = await this.resolveUserUuid(input.processedById);
 
     const transaction: Partial<Transaction> & { ExpenseId?: string } = {
       TransactionId: uuidv4(),
@@ -282,7 +289,7 @@ export class TransactionService {
       Reference: input.reference,
       AttachmentUrl: input.attachmentUrl,
       Status: 'completed',
-      ProcessedById: input.processedById,
+      ProcessedById: processedByUuid,
       ProcessedAt: new Date().toISOString(),
       WorkspaceId: input.workspaceId,
       CreatedAt: new Date().toISOString(),
@@ -292,6 +299,16 @@ export class TransactionService {
 
     const created = await postgresClient.create<Transaction>('transactions', transaction);
     return created;
+  }
+
+  /** Accepte UUID PK ou business code user_id et retourne l'UUID PK. */
+  private async resolveUserUuid(idOrSlug: string): Promise<string> {
+    const r = await postgresClient.query<any>(
+      `SELECT id FROM users WHERE id::text = $1 OR user_id = $1 LIMIT 1`,
+      [idOrSlug]
+    );
+    if (r.rows.length === 0) throw new Error('Utilisateur introuvable');
+    return r.rows[0].id;
   }
 
   /**

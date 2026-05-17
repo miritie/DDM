@@ -28,14 +28,26 @@ export interface OpenSessionInput {
   notes?: string;
 }
 
+/** Accepte UUID PK ou business code user_id et retourne l'UUID PK. */
+async function resolveUserUuid(idOrSlug: string): Promise<string> {
+  const r = await db.query(
+    `SELECT id FROM users WHERE id::text = $1 OR user_id = $1 LIMIT 1`,
+    [idOrSlug]
+  );
+  if (r.rows.length === 0) throw new Error('Utilisateur introuvable');
+  return r.rows[0].id;
+}
+
 export class PosSessionService {
   /** Récupère la session active (non fermée) pour (outlet, user). */
   async getActiveSession(outletId: string, userId: string): Promise<PosSession | null> {
+    // userId peut être business code (USR-…) — résolution avant WHERE id UUID.
+    const userUuid = await resolveUserUuid(userId);
     const r = await db.query(
       `SELECT * FROM pos_sessions
        WHERE outlet_id = $1 AND user_id = $2 AND ended_at IS NULL
        ORDER BY started_at DESC LIMIT 1`,
-      [outletId, userId]
+      [outletId, userUuid]
     );
     return r.rows.length > 0 ? mapRow(r.rows[0]) : null;
   }
@@ -64,7 +76,10 @@ export class PosSessionService {
 
   /** Ouvre une session. Si une est déjà active pour ce (outlet, user), la renvoie. */
   async open(input: OpenSessionInput): Promise<PosSession> {
-    const existing = await this.getActiveSession(input.outletId, input.userId);
+    // userId peut être business code — résolu une fois et réutilisé partout.
+    const userUuid = await resolveUserUuid(input.userId);
+
+    const existing = await this.getActiveSession(input.outletId, userUuid);
     if (existing) return existing;
 
     const r = await db.query(
@@ -78,7 +93,7 @@ export class PosSessionService {
        RETURNING *`,
       [
         input.outletId,
-        input.userId,
+        userUuid,
         input.startMethod ?? 'explicit',
         input.deviceId ?? null,
         input.gpsLat ?? null,
