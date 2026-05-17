@@ -95,6 +95,13 @@ export default function AccountantDashboardPage() {
     setRefreshing(false);
   };
 
+  // Affiche un nombre fr-FR avec fallback 0 si valeur manquante / NaN.
+  // Évite que la card affiche juste " F" quand l'API a planté en silence.
+  const fmt = (v: any): string => {
+    const n = Number(v);
+    return (Number.isFinite(n) ? n : 0).toLocaleString('fr-FR');
+  };
+
   if (loading) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-emerald-50 via-white to-teal-50 flex items-center justify-center p-4">
@@ -222,7 +229,7 @@ export default function AccountantDashboardPage() {
             <div className="mb-4">
               <p className="text-sm text-gray-600 mb-1">Solde Total</p>
               <p className="text-4xl font-bold text-emerald-700">
-                {data?.treasury.totalBalance.toLocaleString('fr-FR')} F
+                {fmt(data?.treasury.totalBalance)} F
               </p>
             </div>
 
@@ -233,7 +240,7 @@ export default function AccountantDashboardPage() {
                   <p className="text-xs text-gray-600 font-medium">Caisse</p>
                 </div>
                 <p className="text-lg font-bold text-gray-900">
-                  {data?.treasury.cashBalance.toLocaleString('fr-FR')} F
+                  {fmt(data?.treasury.cashBalance)} F
                 </p>
               </div>
 
@@ -243,7 +250,7 @@ export default function AccountantDashboardPage() {
                   <p className="text-xs text-gray-600 font-medium">Banque</p>
                 </div>
                 <p className="text-lg font-bold text-gray-900">
-                  {data?.treasury.bankBalance.toLocaleString('fr-FR')} F
+                  {fmt(data?.treasury.bankBalance)} F
                 </p>
               </div>
 
@@ -253,7 +260,7 @@ export default function AccountantDashboardPage() {
                   <p className="text-xs text-gray-600 font-medium">Mobile</p>
                 </div>
                 <p className="text-lg font-bold text-gray-900">
-                  {data?.treasury.mobileMoneyBalance.toLocaleString('fr-FR')} F
+                  {fmt(data?.treasury.mobileMoneyBalance)} F
                 </p>
               </div>
             </div>
@@ -287,19 +294,19 @@ export default function AccountantDashboardPage() {
               <div>
                 <p className="text-xs text-gray-600 font-medium mb-1">Aujourd'hui</p>
                 <p className="text-xl font-bold text-red-700">
-                  {data?.expenses.today.toLocaleString('fr-FR')} F
+                  {fmt(data?.expenses.today)} F
                 </p>
               </div>
               <div>
                 <p className="text-xs text-gray-600 font-medium mb-1">Cette semaine</p>
                 <p className="text-xl font-bold text-red-600">
-                  {data?.expenses.week.toLocaleString('fr-FR')} F
+                  {fmt(data?.expenses.week)} F
                 </p>
               </div>
               <div>
                 <p className="text-xs text-gray-600 font-medium mb-1">Ce mois</p>
                 <p className="text-xl font-bold text-red-600">
-                  {data?.expenses.month.toLocaleString('fr-FR')} F
+                  {fmt(data?.expenses.month)} F
                 </p>
               </div>
             </div>
@@ -341,7 +348,7 @@ export default function AccountantDashboardPage() {
                 <div>
                   <p className="text-xs text-gray-600 font-medium">Chiffre d'affaires</p>
                   <p className="text-xl font-bold text-blue-700">
-                    {data?.sales.revenue.toLocaleString('fr-FR')} F
+                    {fmt(data?.sales.revenue)} F
                   </p>
                 </div>
                 <CheckCircle className="w-8 h-8 text-blue-600" />
@@ -351,7 +358,7 @@ export default function AccountantDashboardPage() {
                 <div>
                   <p className="text-xs text-gray-600 font-medium">Encaissé</p>
                   <p className="text-xl font-bold text-green-600">
-                    {data?.sales.collected.toLocaleString('fr-FR')} F
+                    {fmt(data?.sales.collected)} F
                   </p>
                 </div>
                 <DollarSign className="w-8 h-8 text-green-600" />
@@ -361,7 +368,7 @@ export default function AccountantDashboardPage() {
                 <div>
                   <p className="text-xs text-gray-600 font-medium">À encaisser (créances)</p>
                   <p className="text-xl font-bold text-orange-600">
-                    {data?.sales.receivables.toLocaleString('fr-FR')} F
+                    {fmt(data?.sales.receivables)} F
                   </p>
                 </div>
                 <Receipt className="w-8 h-8 text-orange-600" />
@@ -388,7 +395,7 @@ export default function AccountantDashboardPage() {
               <div className="bg-white rounded-lg p-3">
                 <p className="text-xs text-gray-600 font-medium mb-1">Salaires totaux</p>
                 <p className="text-lg font-bold text-purple-600">
-                  {data?.payroll.totalSalaries.toLocaleString('fr-FR')} F
+                  {fmt(data?.payroll.totalSalaries)} F
                 </p>
               </div>
             </div>

@@ -1,6 +1,13 @@
 /**
  * API Route - Dashboard Comptable
  * GET /api/dashboard/accountant - Données pour le Dashboard Comptable
+ *
+ * Note sur le schéma :
+ *   - wallets.type (pas wallet_type), wallets.is_active filtre les wallets clôturés
+ *   - sales.amount_paid (pas paid_amount) ; sales.payment_status pour fully_paid/partially_paid
+ *   - expenses.payment_date pour la date de décaissement effectif ;
+ *     les demandes en attente vivent dans expense_requests (statut 'pending')
+ *     car la ligne expenses n'est créée que quand la dépense est approuvée.
  */
 
 import { NextRequest, NextResponse } from 'next/server';
@@ -15,26 +22,23 @@ export async function GET(request: NextRequest) {
     const { searchParams } = new URL(request.url);
     const period = searchParams.get('period') || 'month';
 
-    // Calculer les dates selon la période
     const today = new Date().toISOString().split('T')[0];
-    let startDate: string;
+    const weekStart = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+    const monthStart = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
 
-    if (period === 'today') {
-      startDate = today;
-    } else if (period === 'week') {
-      startDate = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
-    } else {
-      startDate = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
-    }
+    let salesStartDate: string;
+    if (period === 'today') salesStartDate = today;
+    else if (period === 'week') salesStartDate = weekStart;
+    else salesStartDate = monthStart;
 
-    // Trésorerie (wallets)
+    // ===== Trésorerie (wallets actifs uniquement) =====
     const walletsResult = await db.query(
       `SELECT
-        wallet_type,
-        COALESCE(SUM(balance), 0) as balance
+         type,
+         COALESCE(SUM(balance), 0)::float AS balance
        FROM wallets
-       WHERE workspace_id = $1
-       GROUP BY wallet_type`,
+       WHERE workspace_id = $1 AND is_active = true
+       GROUP BY type`,
       [workspaceId]
     );
 
@@ -42,80 +46,106 @@ export async function GET(request: NextRequest) {
     let bankBalance = 0;
     let mobileMoneyBalance = 0;
 
-    walletsResult.rows.forEach(row => {
+    walletsResult.rows.forEach((row: any) => {
       const balance = parseFloat(row.balance) || 0;
-      if (row.wallet_type === 'cash') cashBalance += balance;
-      else if (row.wallet_type === 'bank') bankBalance += balance;
-      else if (row.wallet_type === 'mobile_money') mobileMoneyBalance += balance;
+      if (row.type === 'cash') cashBalance += balance;
+      else if (row.type === 'bank') bankBalance += balance;
+      else if (row.type === 'mobile_money') mobileMoneyBalance += balance;
     });
 
     const totalBalance = cashBalance + bankBalance + mobileMoneyBalance;
 
-    // Dépenses
-    const [todayExpenses, weekExpenses, monthExpenses, pendingExpenses] = await Promise.all([
+    // ===== Dépenses effectivement payées (status='paid' ⇒ wallet débité) =====
+    // On somme amount sur la date de décaissement (payment_date) — pas
+    // sur created_at, qui est la date d'enregistrement de la demande.
+    const [todayExpenses, weekExpenses, monthExpenses] = await Promise.all([
       db.query(
-        `SELECT COALESCE(SUM(amount), 0) as total
-         FROM expenses WHERE workspace_id = $1 AND DATE(expense_date) = $2`,
+        `SELECT COALESCE(SUM(amount), 0)::float AS total
+           FROM expenses
+          WHERE workspace_id = $1
+            AND status = 'paid'
+            AND DATE(payment_date) = $2`,
         [workspaceId, today]
       ),
       db.query(
-        `SELECT COALESCE(SUM(amount), 0) as total
-         FROM expenses WHERE workspace_id = $1 AND DATE(expense_date) >= $2`,
-        [workspaceId, new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]]
+        `SELECT COALESCE(SUM(amount), 0)::float AS total
+           FROM expenses
+          WHERE workspace_id = $1
+            AND status = 'paid'
+            AND DATE(payment_date) >= $2`,
+        [workspaceId, weekStart]
       ),
       db.query(
-        `SELECT COALESCE(SUM(amount), 0) as total
-         FROM expenses WHERE workspace_id = $1 AND DATE(expense_date) >= $2`,
-        [workspaceId, new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]]
-      ),
-      db.query(
-        `SELECT COUNT(*) as count
-         FROM expenses WHERE workspace_id = $1 AND status = 'pending'`,
-        [workspaceId]
+        `SELECT COALESCE(SUM(amount), 0)::float AS total
+           FROM expenses
+          WHERE workspace_id = $1
+            AND status = 'paid'
+            AND DATE(payment_date) >= $2`,
+        [workspaceId, monthStart]
       ),
     ]);
 
-    // Ventes & Encaissements
+    // ===== Sollicitations de dépense en attente (sur expense_requests) =====
+    // Les pending vivent là, pas dans expenses (créé seulement après validation).
+    const pendingRequests = await db.query(
+      `SELECT COUNT(*)::int AS count
+         FROM expense_requests
+        WHERE workspace_id = $1
+          AND status = 'pending'`,
+      [workspaceId]
+    );
+
+    // ===== Ventes & Encaissements =====
+    // CA = total facturé sur la période.
+    // Encaissé = amount_paid effectivement reçu (somme), même partiel.
+    // Créances = balance restant à percevoir sur les ventes non soldées.
     const [revenueResult, collectedResult, receivablesResult] = await Promise.all([
       db.query(
-        `SELECT COALESCE(SUM(total_amount), 0) as total
-         FROM sales WHERE workspace_id = $1 AND DATE(created_at) >= $2`,
-        [workspaceId, startDate]
+        `SELECT COALESCE(SUM(total_amount), 0)::float AS total
+           FROM sales
+          WHERE workspace_id = $1
+            AND DATE(sale_date) >= $2`,
+        [workspaceId, salesStartDate]
       ),
       db.query(
-        `SELECT COALESCE(SUM(total_amount), 0) as total
-         FROM sales WHERE workspace_id = $1 AND status = 'fully_paid' AND DATE(created_at) >= $2`,
-        [workspaceId, startDate]
+        `SELECT COALESCE(SUM(amount_paid), 0)::float AS total
+           FROM sales
+          WHERE workspace_id = $1
+            AND DATE(sale_date) >= $2`,
+        [workspaceId, salesStartDate]
       ),
       db.query(
-        `SELECT COALESCE(SUM(total_amount - paid_amount), 0) as total
-         FROM sales WHERE workspace_id = $1 AND status IN ('partially_paid', 'confirmed')`,
+        `SELECT COALESCE(SUM(balance), 0)::float AS total
+           FROM sales
+          WHERE workspace_id = $1
+            AND payment_status IN ('unpaid', 'partially_paid')
+            AND status <> 'cancelled'`,
         [workspaceId]
       ),
     ]);
 
-    // Masse salariale
+    // ===== Masse salariale =====
     const [employeesCount, totalSalaries, pendingAdvances] = await Promise.all([
       db.query(
-        'SELECT COUNT(*) as count FROM employees WHERE workspace_id = $1 AND is_active = true',
+        `SELECT COUNT(*)::int AS count FROM employees WHERE workspace_id = $1 AND is_active = true`,
         [workspaceId]
       ),
       db.query(
-        'SELECT COALESCE(SUM(base_salary), 0) as total FROM employees WHERE workspace_id = $1 AND is_active = true',
+        `SELECT COALESCE(SUM(base_salary), 0)::float AS total FROM employees WHERE workspace_id = $1 AND is_active = true`,
         [workspaceId]
       ),
       db.query(
-        `SELECT COUNT(*) as count FROM salary_advances WHERE workspace_id = $1 AND status = 'pending'`,
+        `SELECT COUNT(*)::int AS count FROM salary_advances WHERE workspace_id = $1 AND status = 'pending'`,
         [workspaceId]
       ),
     ]);
 
-    // Prochaine date de paie (exemple: fin du mois)
+    // Prochaine paie : dernier jour du mois en cours
     const nextPayrollDate = new Date();
     nextPayrollDate.setMonth(nextPayrollDate.getMonth() + 1);
-    nextPayrollDate.setDate(0); // Dernier jour du mois en cours
+    nextPayrollDate.setDate(0);
 
-    // Alertes
+    // ===== Alertes =====
     const alerts: Array<{ type: 'warning' | 'error' | 'info'; message: string; link?: string }> = [];
 
     if (totalBalance < 100000) {
@@ -126,7 +156,7 @@ export async function GET(request: NextRequest) {
       });
     }
 
-    const pendingExpensesCount = parseInt(pendingExpenses.rows[0].count) || 0;
+    const pendingExpensesCount = pendingRequests.rows[0].count || 0;
     if (pendingExpensesCount > 0) {
       alerts.push({
         type: 'info',
@@ -137,41 +167,34 @@ export async function GET(request: NextRequest) {
 
     const data = {
       treasury: {
-        totalBalance: totalBalance,
-        cashBalance: cashBalance,
-        bankBalance: bankBalance,
-        mobileMoneyBalance: mobileMoneyBalance,
+        totalBalance,
+        cashBalance,
+        bankBalance,
+        mobileMoneyBalance,
       },
       expenses: {
-        today: parseFloat(todayExpenses.rows[0].total) || 0,
-        week: parseFloat(weekExpenses.rows[0].total) || 0,
-        month: parseFloat(monthExpenses.rows[0].total) || 0,
+        today: todayExpenses.rows[0].total || 0,
+        week: weekExpenses.rows[0].total || 0,
+        month: monthExpenses.rows[0].total || 0,
         pendingApproval: pendingExpensesCount,
       },
       payroll: {
-        totalEmployees: parseInt(employeesCount.rows[0].count) || 0,
-        totalSalaries: parseFloat(totalSalaries.rows[0].total) || 0,
-        pendingAdvances: parseInt(pendingAdvances.rows[0].count) || 0,
+        totalEmployees: employeesCount.rows[0].count || 0,
+        totalSalaries: totalSalaries.rows[0].total || 0,
+        pendingAdvances: pendingAdvances.rows[0].count || 0,
         nextPayrollDate: nextPayrollDate.toISOString(),
       },
       sales: {
-        revenue: parseFloat(revenueResult.rows[0].total) || 0,
-        receivables: parseFloat(receivablesResult.rows[0].total) || 0,
-        collected: parseFloat(collectedResult.rows[0].total) || 0,
+        revenue: revenueResult.rows[0].total || 0,
+        collected: collectedResult.rows[0].total || 0,
+        receivables: receivablesResult.rows[0].total || 0,
       },
-      alerts: alerts,
+      alerts,
     };
 
-    return NextResponse.json(
-      {
-        success: true,
-        data: data,
-      },
-      { status: 200 }
-    );
+    return NextResponse.json({ success: true, data }, { status: 200 });
   } catch (error) {
     console.error('Error fetching accountant dashboard:', error);
-
     return NextResponse.json(
       {
         success: false,
