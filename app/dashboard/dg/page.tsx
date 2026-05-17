@@ -27,6 +27,7 @@ import {
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { LogoutButton } from '@/components/auth/logout-button';
+import { ApprovalQueue } from '@/components/dashboard/approval-queue';
 
 interface DashboardKPI {
   label: string;
@@ -272,6 +273,9 @@ export default function DashboardDGPage() {
       </div>
 
       <div className="p-4 space-y-4">
+        {/* File de validation — toutes les demandes en attente d'approbation */}
+        <ApprovalQueue />
+
         {/* Alertes */}
         {data.alerts && data.alerts.length > 0 && (
           <div className="space-y-2">

@@ -57,14 +57,19 @@ export async function GET(_req: NextRequest) {
          ORDER BY po.submitted_at DESC NULLS LAST LIMIT 50`,
         [workspaceId]
       ),
-      // Sollicitations achat MP (expense_requests catégorie 'achat_mp')
+      // Toutes les demandes de dépenses soumises — MP ET autres catégories.
+      // Le composant front sépare ensuite les "achat_mp" (qui partent vers
+      // le workflow d'achat avec lignes ingrédients) des autres dépenses
+      // (qui partent vers le détail expense_request standard).
       db.query(
         `SELECT er.id, er.expense_request_id, er.request_number, er.title,
-                er.amount, er.submitted_at, ec.code AS category_code
+                er.amount, er.submitted_at,
+                ec.code AS category_code, ec.label AS category_label,
+                u.full_name AS requester_name
          FROM expense_requests er
          JOIN expense_categories ec ON ec.id = er.category_id
+         LEFT JOIN users u ON u.id = er.requester_id
          WHERE er.workspace_id = $1 AND er.status = 'submitted'
-           AND ec.code = 'achat_mp'
          ORDER BY er.submitted_at DESC NULLS LAST LIMIT 50`,
         [workspaceId]
       ),
@@ -83,11 +88,18 @@ export async function GET(_req: NextRequest) {
       ),
     ]);
 
+    // Séparation côté serveur pour clarifier le routage côté front :
+    // - achat_mp → /production/purchase-requests/[id]
+    // - autres   → /expenses/requests/[id]
+    const purchaseRequests = prR.rows.filter((r: any) => r.category_code === 'achat_mp');
+    const otherExpenses = prR.rows.filter((r: any) => r.category_code !== 'achat_mp');
+
     return NextResponse.json({
       data: {
         customerOrders: coR.rows,
         productionOrders: poR.rows,
-        purchaseRequests: prR.rows,
+        purchaseRequests,
+        otherExpenses,
         replenishments: rpR.rows,
         totalCount: coR.rowCount! + poR.rowCount! + prR.rowCount! + rpR.rowCount!,
       },

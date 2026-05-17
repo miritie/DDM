@@ -13,13 +13,14 @@
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import {
-  AlertTriangle, ShoppingCart, Factory, ShoppingBag, ChevronRight, RefreshCw, CheckCircle, Truck,
+  AlertTriangle, ShoppingCart, Factory, ShoppingBag, ChevronRight, RefreshCw, CheckCircle, Truck, Receipt,
 } from 'lucide-react';
 
 interface QueueData {
   customerOrders: any[];
   productionOrders: any[];
   purchaseRequests: any[];
+  otherExpenses: any[];
   replenishments: any[];
   totalCount: number;
 }
@@ -138,6 +139,17 @@ export function ApprovalQueue() {
             onClick: () => router.push(`/production/purchase-requests/${pr.expense_request_id}`),
           }))}
           emptyText="Aucun achat à valider"
+        />
+        <Column
+          icon={<Receipt className="w-5 h-5 text-red-600" />}
+          title="Autres dépenses"
+          items={(data.otherExpenses || []).map((er) => ({
+            id: er.expense_request_id,
+            primary: er.title,
+            secondary: `${er.request_number} · ${er.category_label || ''} · ${fmt(er.amount)} XOF${er.requester_name ? ` · ${er.requester_name}` : ''}`,
+            onClick: () => router.push(`/expenses/requests/${er.expense_request_id}`),
+          }))}
+          emptyText="Aucune dépense à valider"
         />
       </div>
     </div>

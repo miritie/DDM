@@ -9,6 +9,7 @@ import { SessionProvider } from '@/lib/auth/session-provider';
 import { UserMenu } from '@/components/auth/user-menu';
 import { HomeButton } from '@/components/auth/home-button';
 import { QuickExpenseButton } from '@/components/expenses/quick-expense-button';
+import { MyExpensesAlertBadge } from '@/components/expenses/my-expenses-badge';
 import { TransferAlertBadge } from '@/components/stock/transfer-alert-badge';
 import { NotificationBell } from '@/components/notifications/notification-bell';
 import './globals.css';
@@ -31,6 +32,7 @@ export default function RootLayout({
         <SessionProvider>
           <HomeButton />
           <QuickExpenseButton />
+          <MyExpensesAlertBadge />
           <TransferAlertBadge />
           <NotificationBell />
           <UserMenu />
