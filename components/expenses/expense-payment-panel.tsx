@@ -92,7 +92,10 @@ export function ExpensePaymentPanel({ expenseRequestId }: { expenseRequestId: st
   const [allocations, setAllocations] = useState<AllocationRow[]>([{ walletId: '', amount: 0 }]);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [scheduledDate, setScheduledDate] = useState<string>('');
+  // Date du jour par défaut (modifiable par le comptable) pour la planification
+  // — pratique pour "je paie aujourd'hui" en 1 clic, tout en autorisant à
+  // choisir une date future si besoin.
+  const [scheduledDate, setScheduledDate] = useState<string>(() => new Date().toISOString().slice(0, 10));
 
   async function load() {
     setLoading(true);

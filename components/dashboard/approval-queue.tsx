@@ -13,7 +13,7 @@
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import {
-  AlertTriangle, ShoppingCart, Factory, ShoppingBag, ChevronRight, RefreshCw, CheckCircle, Truck, Receipt,
+  AlertTriangle, ShoppingCart, Factory, ShoppingBag, ChevronRight, ChevronDown, RefreshCw, CheckCircle, Truck, Receipt,
 } from 'lucide-react';
 
 interface QueueData {
@@ -33,6 +33,18 @@ export function ApprovalQueue() {
   const [data, setData] = useState<QueueData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  // Repliée par défaut : le décideur voit le compteur et ouvre uniquement
+  // quand il veut traiter. Persisté dans sessionStorage pour la durée de
+  // l'onglet (évite que ça se rabatte à chaque navigation).
+  const [expanded, setExpanded] = useState<boolean>(() => {
+    if (typeof window === 'undefined') return false;
+    return sessionStorage.getItem('approvalQueueExpanded') === '1';
+  });
+  function toggle() {
+    const next = !expanded;
+    setExpanded(next);
+    try { sessionStorage.setItem('approvalQueueExpanded', next ? '1' : '0'); } catch {}
+  }
 
   async function load() {
     setLoading(true);
@@ -78,7 +90,13 @@ export function ApprovalQueue() {
 
   return (
     <div className="bg-white rounded-2xl shadow-xl border-2 border-amber-200">
-      <div className="border-b border-amber-100 px-6 py-4 flex items-center justify-between bg-gradient-to-r from-amber-50 to-orange-50 rounded-t-2xl">
+      {/* En-tête cliquable pour replier/déplier. Garde le bouton refresh
+          séparé pour qu'il ne déclenche pas le toggle par accident. */}
+      <button
+        onClick={toggle}
+        className={`w-full px-6 py-4 flex items-center justify-between bg-gradient-to-r from-amber-50 to-orange-50 ${expanded ? 'rounded-t-2xl border-b border-amber-100' : 'rounded-2xl'} hover:from-amber-100 hover:to-orange-100 transition-colors text-left`}
+        aria-expanded={expanded}
+      >
         <div className="flex items-center gap-3">
           <div className="w-10 h-10 bg-amber-500 rounded-xl flex items-center justify-center text-white">
             <AlertTriangle className="w-5 h-5" />
@@ -88,11 +106,22 @@ export function ApprovalQueue() {
             <p className="text-sm text-gray-600">{data.totalCount} sollicitation{data.totalCount > 1 ? 's' : ''} en attente</p>
           </div>
         </div>
-        <button onClick={load} className="p-2 hover:bg-amber-100 rounded-lg" title="Rafraîchir">
-          <RefreshCw className="w-4 h-4 text-amber-700" />
-        </button>
-      </div>
+        <div className="flex items-center gap-1">
+          <span
+            onClick={(e) => { e.stopPropagation(); load(); }}
+            role="button"
+            tabIndex={0}
+            onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); load(); } }}
+            className="p-2 hover:bg-amber-100 rounded-lg cursor-pointer"
+            title="Rafraîchir"
+          >
+            <RefreshCw className="w-4 h-4 text-amber-700" />
+          </span>
+          <ChevronDown className={`w-5 h-5 text-amber-700 transition-transform ${expanded ? 'rotate-180' : ''}`} />
+        </div>
+      </button>
 
+      {expanded && (
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 divide-y md:divide-y-0 md:divide-x">
         <Column
           icon={<ShoppingCart className="w-5 h-5 text-blue-600" />}
@@ -152,6 +181,7 @@ export function ApprovalQueue() {
           emptyText="Aucune dépense à valider"
         />
       </div>
+      )}
     </div>
   );
 }

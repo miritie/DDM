@@ -104,7 +104,8 @@ export default function QuickExpenseRequestPage() {
   const [description, setDescription] = useState('');
   const [urgency, setUrgency] = useState<ExpenseUrgency>('normal');
   const [photos, setPhotos] = useState<Array<{ file: File; preview: string }>>([]);
-  const [neededByDate, setNeededByDate] = useState('');
+  // Date du jour par défaut (modifiable). YYYY-MM-DD pour <input type="date">.
+  const [neededByDate, setNeededByDate] = useState(() => new Date().toISOString().slice(0, 10));
 
   const [saving, setSaving] = useState(false);
 
