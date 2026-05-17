@@ -41,25 +41,51 @@ export class WalletService {
       isActive?: boolean;
     }
   ): Promise<Wallet[]> {
-    const conditions: string[] = [`workspace_id = '${workspaceId}'`];
-    const params: any[] = [];
-
+    // SQL direct avec aliasing explicite vers PascalCase — le wrapper
+    // postgresClient.list ne renvoyait pas systématiquement Balance en
+    // PascalCase, ce qui produisait Solde total = 0 dans getStatistics
+    // (sum + undefined). Cohérent avec getById qui fait déjà du SQL direct.
+    const conds: string[] = ['workspace_id = $1'];
+    const params: any[] = [workspaceId];
     if (filters?.type) {
-      conditions.push(`type = '${filters.type}'`);
+      params.push(filters.type);
+      conds.push(`type = $${params.length}`);
     }
     if (filters?.status) {
-      conditions.push(`status = '${filters.status}'`);
+      params.push(filters.status);
+      conds.push(`status = $${params.length}`);
     }
     if (filters?.isActive !== undefined) {
-      conditions.push(`is_active = ${filters.isActive}`);
+      params.push(filters.isActive);
+      conds.push(`is_active = $${params.length}`);
     }
 
-    const records = await postgresClient.list<Wallet>('wallets', {
-      filterByFormula: conditions.join(' AND '),
-      orderBy: { field: 'name', direction: 'asc' },
-    });
-
-    return records;
+    const r = await db.query(
+      `SELECT
+         id,
+         wallet_id        AS "WalletId",
+         name             AS "Name",
+         code             AS "Code",
+         type             AS "Type",
+         currency         AS "Currency",
+         balance::float   AS "Balance",
+         initial_balance::float AS "InitialBalance",
+         bank_name        AS "BankName",
+         account_number   AS "AccountNumber",
+         description      AS "Description",
+         status           AS "Status",
+         is_active        AS "IsActive",
+         workspace_id     AS "WorkspaceId",
+         chart_account_id AS "ChartAccountId",
+         created_at       AS "CreatedAt",
+         updated_at       AS "UpdatedAt"
+       FROM wallets
+       WHERE ${conds.join(' AND ')}
+       ORDER BY name ASC`,
+      params
+    );
+    // Force la présence de Id (utilisé par certains callers legacy)
+    return r.rows.map((row: any) => ({ ...row, Id: row.id })) as any;
   }
 
   /**
