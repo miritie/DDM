@@ -185,7 +185,7 @@ function PricesSection({ outletId, products, prices, onChange }: {
   return (
     <div className="bg-white p-6 rounded-2xl border">
       <h2 className="font-bold text-lg mb-4">Prix par produit</h2>
-      <p className="text-sm text-gray-600 mb-4">Sans prix défini ici (ou via le type d'outlet), un produit ne peut pas être vendu sur ce point.</p>
+      <p className="text-sm text-gray-600 mb-4">Définis ici un prix spécifique à ce point de vente. À défaut, les prix par défaut du produit (ou ceux du type d'outlet) seront automatiquement appliqués.</p>
 
       <div className="flex gap-2 mb-4 items-end">
         <div className="flex-1">
