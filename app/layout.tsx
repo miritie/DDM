@@ -10,6 +10,7 @@ import { UserMenu } from '@/components/auth/user-menu';
 import { HomeButton } from '@/components/auth/home-button';
 import { QuickExpenseButton } from '@/components/expenses/quick-expense-button';
 import { TransferAlertBadge } from '@/components/stock/transfer-alert-badge';
+import { NotificationBell } from '@/components/notifications/notification-bell';
 import './globals.css';
 
 const inter = Inter({ subsets: ['latin'] });
@@ -31,6 +32,7 @@ export default function RootLayout({
           <HomeButton />
           <QuickExpenseButton />
           <TransferAlertBadge />
+          <NotificationBell />
           <UserMenu />
           {children}
         </SessionProvider>

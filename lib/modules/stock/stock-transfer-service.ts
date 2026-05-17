@@ -373,6 +373,50 @@ export class StockTransferService {
       return tUuid;
     });
 
+    // Notifier les managers des destinations (fail-safe).
+    // Une notif par manager distinct, même si plusieurs legs leur sont
+    // adressées (on ne spam pas).
+    try {
+      const { getNotificationService } = await import('@/lib/modules/notifications/notification-service');
+      const notif = getNotificationService();
+
+      const managersR = await db.query(
+        `SELECT DISTINCT COALESCE(dw.manager_id, do_.manager_id) AS manager_id,
+                COALESCE(dw.name, do_.name) AS location_name
+         FROM stock_transfer_lines l
+         LEFT JOIN warehouses dw ON dw.id = l.destination_warehouse_id
+         LEFT JOIN outlets    do_ ON do_.id = l.destination_outlet_id
+         WHERE l.transfer_id = $1
+           AND COALESCE(dw.manager_id, do_.manager_id) IS NOT NULL`,
+        [transferUuid]
+      );
+
+      const created = await this.getById(transferUuid);
+      const transferSlug2 = created.transfer_id;
+      const transferNum = created.transfer_number;
+
+      // Group locations per manager
+      const byManager = new Map<string, string[]>();
+      for (const row of managersR.rows as any[]) {
+        if (!byManager.has(row.manager_id)) byManager.set(row.manager_id, []);
+        byManager.get(row.manager_id)!.push(row.location_name);
+      }
+      for (const [managerId, locations] of byManager.entries()) {
+        await notif.create({
+          workspaceId: wsUuid,
+          recipientId: managerId,
+          category: 'transfer_incoming',
+          subject: `Transfert ${transferNum} à réceptionner`,
+          message: `Un transfert de stock arrive vers ${locations.join(', ')}. Vérifie les quantités et confirme la réception.`,
+          entityType: 'stock_transfer',
+          entityId: transferUuid,
+          actionUrl: `/stock/transfers/${transferSlug2}`,
+        });
+      }
+    } catch (e: any) {
+      console.error('[stock-transfer.create] notif échec :', e.message);
+    }
+
     return (await this.getById(transferUuid))!;
   }
 

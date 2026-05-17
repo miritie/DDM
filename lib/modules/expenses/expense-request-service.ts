@@ -288,6 +288,28 @@ export class ExpenseRequestService {
       }
     );
 
+    // Notifier le demandeur de la décision (fail-safe).
+    try {
+      const { getNotificationService } = await import('@/lib/modules/notifications/notification-service');
+      const notif = getNotificationService();
+      await notif.create({
+        workspaceId: req.WorkspaceId,
+        recipientId: req.RequesterId,
+        category: input.status === 'approved' ? 'expense_approved' : 'expense_rejected',
+        subject: input.status === 'approved'
+          ? `Demande "${req.Title}" approuvée`
+          : `Demande "${req.Title}" refusée`,
+        message: input.status === 'approved'
+          ? `Ta demande de ${Number(req.Amount).toLocaleString('fr-FR')} XOF a été approuvée${input.comments ? ` : ${input.comments}` : '.'} Le comptable peut maintenant procéder au paiement.`
+          : `Ta demande de ${Number(req.Amount).toLocaleString('fr-FR')} XOF a été refusée${input.comments ? ` : ${input.comments}` : '.'}`,
+        entityType: 'expense_request',
+        entityId: recordId,
+        actionUrl: `/expenses/requests/${req.ExpenseRequestId}`,
+      });
+    } catch (e: any) {
+      console.error('[expense.approve] notif échec :', e.message);
+    }
+
     // Si la demande est approuvée et qu'aucune expense n'existe encore (cas où
     // l'approbation passe via le workflow purchase_request, qui crée la sienne),
     // on crée automatiquement la dépense correspondante en statut 'approved'.
