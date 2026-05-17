@@ -13,6 +13,7 @@ import { ProtectedPage } from '@/components/rbac/protected-page';
 import { Can } from '@/components/rbac/can';
 import { PERMISSIONS } from '@/lib/rbac';
 import { Wallet, Transaction, TreasuryStatistics } from '@/types/modules';
+import { fmtXOF } from '@/lib/utils/format-number';
 
 export default function TreasuryPage() {
   const router = useRouter();
@@ -51,17 +52,11 @@ export default function TreasuryPage() {
     }
   }
 
+  // Helper de formatage des montants (utilise fmtXOF du module utils
+  // pour garantir un séparateur de milliers visible — Intl 'fr-FR' renvoie
+  // un NNBSP U+202F invisible sur certains navigateurs/polices).
   function formatCurrency(amount: number | string | null | undefined): string {
-    // Coerce vers number et tombe sur 0 si NaN/null/undefined. Évite que
-    // l'UI affiche "NaN F CFA" quand une stat est manquante ou que le
-    // backend renvoie une string non-numérique (cas observé sur le solde
-    // total quand les wallets n'ont pas tous un balance initialisé).
-    const n = Number(amount);
-    const safe = Number.isFinite(n) ? n : 0;
-    return new Intl.NumberFormat('fr-FR', {
-      style: 'currency',
-      currency: 'XOF',
-    }).format(safe);
+    return fmtXOF(amount);
   }
 
   function formatDate(dateString: string): string {

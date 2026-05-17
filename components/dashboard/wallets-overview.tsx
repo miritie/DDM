@@ -41,8 +41,15 @@ const TYPE_VISUALS: Record<string, { icon: any; bg: string; border: string; icon
   other:        { icon: WalletIcon, bg: 'bg-gray-50', border: 'border-gray-200', iconColor: 'text-gray-600' },
 };
 
-const fmt = (n: number) =>
-  new Intl.NumberFormat('fr-FR', { maximumFractionDigits: 0 }).format(Math.round(n));
+// Force un espace standard comme séparateur de milliers — Intl
+// 'fr-FR' produit U+202F (NNBSP) qui n'est pas visible sur tous les
+// navigateurs/polices et donnait "121916" au lieu de "121 916".
+const fmt = (n: number) => {
+  const safe = Number.isFinite(n) ? Math.round(n) : 0;
+  return new Intl.NumberFormat('fr-FR', { maximumFractionDigits: 0 })
+    .format(safe)
+    .replace(/[  ]/g, ' ');
+};
 
 function pickId(w: Wallet): string { return (w.WalletId || w.Id || w.id || '') as string; }
 function pickName(w: Wallet): string { return (w.Name || w.name || '—') as string; }

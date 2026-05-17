@@ -30,6 +30,7 @@ import { Button } from '@/components/ui/button';
 import { LogoutButton } from '@/components/auth/logout-button';
 import { PaymentQueue } from '@/components/dashboard/payment-queue';
 import { WalletsOverview } from '@/components/dashboard/wallets-overview';
+import { fmtInt } from '@/lib/utils/format-number';
 
 interface AccountantDashboardData {
   treasury: {
@@ -95,12 +96,8 @@ export default function AccountantDashboardPage() {
     setRefreshing(false);
   };
 
-  // Affiche un nombre fr-FR avec fallback 0 si valeur manquante / NaN.
-  // Évite que la card affiche juste " F" quand l'API a planté en silence.
-  const fmt = (v: any): string => {
-    const n = Number(v);
-    return (Number.isFinite(n) ? n : 0).toLocaleString('fr-FR');
-  };
+  // Helper local (normalise NNBSP → espace classique pour visibilité)
+  const fmt = fmtInt;
 
   if (loading) {
     return (
