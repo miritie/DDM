@@ -15,12 +15,14 @@ import { OutletService } from '@/lib/modules/outlets/outlet-service';
 import { PosSessionService } from '@/lib/modules/outlets/pos-session-service';
 import { StockService } from '@/lib/modules/stock/stock-service';
 import { PaymentMethodService } from '@/lib/modules/treasury/payment-method-service';
+import { TransactionService } from '@/lib/modules/treasury/transaction-service';
 
 const postgresClient = getPostgresClient();
 const outletService = new OutletService();
 const posSessionService = new PosSessionService();
 const stockService = new StockService();
 const paymentMethodService = new PaymentMethodService();
+const transactionService = new TransactionService();
 
 export interface CreateSaleInput {
   clientId?: string;
@@ -446,6 +448,30 @@ export class SaleService {
        WHERE id = $1`,
       [sale.id, newAmountPaid, newBalance, newPaymentStatus]
     );
+
+    // Création d'une transaction wallet income pour que l'encaissement
+    // apparaisse dans la trésorerie du comptable (KPI Revenus + liste
+    // transactions). Skip silencieusement si pas de wallet — la vente est
+    // tracée dans sale_payments mais sans impact sur la trésorerie
+    // (cas typique : paiement papier non rattaché à un wallet).
+    if (walletUuid) {
+      try {
+        await transactionService.createIncome({
+          type: 'income',
+          category: 'sale',
+          amount: Number(input.amount),
+          destinationWalletId: walletUuid,
+          description: `Encaissement vente ${sale.SaleNumber} — ${paymentNumber}`,
+          reference: sale.SaleNumber,
+          processedById: receivedByUuid,
+          workspaceId: input.workspaceId,
+        });
+      } catch (e: any) {
+        // Le sale_payment est déjà inséré et le solde de la vente mis à
+        // jour — on log mais on ne fait pas échouer l'opération métier.
+        console.error('[recordPayment] Transaction wallet non créée :', e?.message);
+      }
+    }
 
     return createdPayment;
   }

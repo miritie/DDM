@@ -28,6 +28,7 @@ import { PosSessionService } from '@/lib/modules/outlets/pos-session-service';
 import { StockService } from '@/lib/modules/stock/stock-service';
 import { ScanQueueService } from '@/lib/modules/outlets/scan-queue-service';
 import { PaymentMethodService } from '@/lib/modules/treasury/payment-method-service';
+import { TransactionService } from '@/lib/modules/treasury/transaction-service';
 import { v4 as uuidv4 } from 'uuid';
 
 const db = getPostgresClient();
@@ -36,6 +37,7 @@ const posSessionService = new PosSessionService();
 const stockService = new StockService();
 const scanQueue = new ScanQueueService();
 const paymentMethodService = new PaymentMethodService();
+const transactionService = new TransactionService();
 
 export async function POST(request: NextRequest) {
   try {
@@ -207,6 +209,25 @@ export async function POST(request: NextRequest) {
           paymentMethod === 'credit' && paidNow > 0 ? 'Acompte sur vente à crédit' : null,
         ]
       );
+
+      // Crédite le wallet pour que l'encaissement apparaisse dans la
+      // trésorerie comptable (KPI Revenus). Skip si pas de wallet.
+      if (walletUuid) {
+        try {
+          await transactionService.createIncome({
+            type: 'income',
+            category: 'sale',
+            amount: paidNow,
+            destinationWalletId: walletUuid,
+            description: `Encaissement vente ${sale.sale_number || sale.sale_id} — ${paymentNumber}`,
+            reference: sale.sale_number || sale.sale_id,
+            processedById: sellerUuid,
+            workspaceId,
+          });
+        } catch (e: any) {
+          console.error('[sales/quick] Transaction wallet non créée :', e?.message);
+        }
+      }
     }
 
     // ===== Lignes + décrément stock =====

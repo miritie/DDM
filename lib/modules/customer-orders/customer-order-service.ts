@@ -17,10 +17,12 @@
 
 import { getPostgresClient } from '@/lib/database/postgres-client';
 import { PaymentMethodService } from '@/lib/modules/treasury/payment-method-service';
+import { TransactionService } from '@/lib/modules/treasury/transaction-service';
 import { v4 as uuidv4 } from 'uuid';
 
 const db = getPostgresClient();
 const paymentMethodService = new PaymentMethodService();
+const transactionService = new TransactionService();
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 export type CustomerOrderStatus =
@@ -341,6 +343,29 @@ export class CustomerOrderService {
     // Si livrée et soldée → completed
     if (order.status === 'delivered' && newBalance === 0) {
       await this.setStatus(id, 'completed');
+    }
+
+    // Crédite le wallet pour que l'encaissement apparaisse dans la
+    // trésorerie du comptable (KPI Revenus + liste transactions). Skip
+    // silencieusement si pas de wallet rattaché (paiement non-traçable
+    // ex. main à main). NB : finalizeAsSale recopie ces paiements vers
+    // sale_payments mais ne doit PAS créer de nouvelle transaction —
+    // l'encaissement physique a lieu ici, une seule fois.
+    if (walletUuid && receivedByUuid) {
+      try {
+        await transactionService.createIncome({
+          type: 'income',
+          category: 'sale',
+          amount: amt,
+          destinationWalletId: walletUuid,
+          description: `Encaissement commande ${order.order_number}${input.isAdvance ? ' (avance)' : ''}`,
+          reference: order.order_number,
+          processedById: receivedByUuid,
+          workspaceId: input.workspaceId,
+        });
+      } catch (e: any) {
+        console.error('[customer-order recordPayment] Transaction wallet non créée :', e?.message);
+      }
     }
 
     return this.getById(id);
