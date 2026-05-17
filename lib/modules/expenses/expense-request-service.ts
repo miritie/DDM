@@ -14,7 +14,10 @@ export interface CreateExpenseRequestInput {
   description?: string;
   amount: number;
   categoryId: string;
-  expenseTypeId?: string;          // optionnel : poste précis sous la catégorie
+  expenseTypeId?: string;          // optionnel : type prédéfini sous la catégorie
+  customTypeLabel?: string;        // optionnel : type saisi libre par l'utilisateur,
+                                   //   à classifier ensuite (admin / IA → OHADA).
+                                   //   Mutuellement exclusif avec expenseTypeId.
   requesterId: string;
   workspaceId: string;
 }
@@ -38,6 +41,11 @@ export class ExpenseRequestService {
   async create(input: CreateExpenseRequestInput): Promise<ExpenseRequest> {
     const requestNumber = await this.generateRequestNumber(input.workspaceId);
 
+    // Convention de l'app : getCurrentUserId() retourne le business code
+    // user_id (USR-…). La FK expense_requests.requester_id est UUID PK —
+    // on résout ici avant l'INSERT pour éviter "invalid input syntax for type uuid".
+    const requesterUuid = await this.resolveUserUuid(input.requesterId);
+
     const request: any = {
       ExpenseRequestId: uuidv4(),
       RequestNumber: requestNumber,
@@ -45,16 +53,32 @@ export class ExpenseRequestService {
       Description: input.description,
       Amount: input.amount,
       CategoryId: input.categoryId,
-      RequesterId: input.requesterId,
+      RequesterId: requesterUuid,
       Status: 'draft' as ExpenseRequestStatus,
       WorkspaceId: input.workspaceId,
       CreatedAt: new Date().toISOString(),
       UpdatedAt: new Date().toISOString(),
       ...(input.expenseTypeId ? { ExpenseTypeId: input.expenseTypeId } : {}),
+      ...(input.customTypeLabel && !input.expenseTypeId
+        ? { CustomTypeLabel: input.customTypeLabel.trim() }
+        : {}),
     };
 
     const created = await postgresClient.create<ExpenseRequest>('expense_requests', request);
     return created;
+  }
+
+  /**
+   * Accepte UUID PK ou business code user_id et retourne l'UUID PK.
+   * Nécessaire car la session véhicule le business code (cf. auth-options.ts).
+   */
+  private async resolveUserUuid(idOrSlug: string): Promise<string> {
+    const r = await postgresClient.query<any>(
+      `SELECT id FROM users WHERE id::text = $1 OR user_id = $1 LIMIT 1`,
+      [idOrSlug]
+    );
+    if (r.rows.length === 0) throw new Error('Utilisateur introuvable');
+    return r.rows[0].id;
   }
 
   async getById(requestId: string): Promise<any | null> {
@@ -222,11 +246,15 @@ export class ExpenseRequestService {
       throw new Error('ID not found');
     }
 
+    // Résolution : approverId est un business code (USR-…) ;
+    // expense_approval_steps.expense_request_id et .approver_id sont des UUID.
+    const approverUuid = await this.resolveUserUuid(input.approverId);
+
     // Create approval step record
     const approvalStep = {
       ApprovalStepId: uuidv4(),
-      ExpenseRequestId: input.requestId,
-      ApproverId: input.approverId,
+      ExpenseRequestId: recordId,  // UUID PK de l'expense_request (pas le business code)
+      ApproverId: approverUuid,
       StepOrder: 1,
       Status: input.status,
       Comments: input.comments,
@@ -278,7 +306,7 @@ export class ExpenseRequestService {
             req.Amount,
             req.CategoryId,
             req.ExpenseTypeId ?? null,
-            input.approverId,  // payeur provisoire = approbateur, le comptable peut le changer au paiement
+            approverUuid,  // payeur provisoire = approbateur (UUID PK), le comptable peut le changer au paiement
             req.WorkspaceId,
           ]
         );

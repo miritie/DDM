@@ -23,6 +23,20 @@ const db = getPostgresClient();
 // ---------------------------------------------------------------------------
 // Helpers
 
+/**
+ * Accepte UUID PK ou business code user_id et retourne l'UUID PK.
+ * Nécessaire car la session véhicule le business code (USR-…) tandis que
+ * outlet_assignments.user_id / .assigned_by_id sont des FK UUID.
+ */
+async function resolveUserUuid(idOrSlug: string): Promise<string> {
+  const r = await db.query(
+    `SELECT id FROM users WHERE id::text = $1 OR user_id = $1 LIMIT 1`,
+    [idOrSlug]
+  );
+  if (r.rows.length === 0) throw new Error('Utilisateur introuvable');
+  return r.rows[0].id;
+}
+
 function todayIso(): string {
   return new Date().toISOString().slice(0, 10);
 }
@@ -326,6 +340,13 @@ export class OutletService {
     assignedById?: string;
     notes?: string;
   }): Promise<OutletAssignment> {
+    // assignedById vient typiquement de session.user.userId, qui est le
+    // business code (USR-…). La colonne assigned_by_id est UUID — on résout
+    // pour éviter "invalid input syntax for type uuid". userId arrive en
+    // UUID depuis le picker mais on tolère les deux formats.
+    const userUuid = await resolveUserUuid(input.userId);
+    const assignedByUuid = input.assignedById ? await resolveUserUuid(input.assignedById) : null;
+
     const r = await db.query(
       `INSERT INTO outlet_assignments
         (outlet_id, user_id, week_start, week_end, assigned_by_id, notes, workspace_id)
@@ -335,8 +356,8 @@ export class OutletService {
              assigned_by_id = EXCLUDED.assigned_by_id,
              notes = EXCLUDED.notes
        RETURNING *`,
-      [input.outletId, input.userId, input.weekStart, input.weekEnd,
-       input.assignedById ?? null, input.notes ?? null, input.workspaceId]
+      [input.outletId, userUuid, input.weekStart, input.weekEnd,
+       assignedByUuid, input.notes ?? null, input.workspaceId]
     );
     return mapAssignmentRow(r.rows[0]);
   }

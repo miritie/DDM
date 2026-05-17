@@ -131,6 +131,17 @@ export class SaleService {
       throw new Error('Au moins un article est requis');
     }
 
+    // salesPersonId vient de session.user.userId = business code (USR-…).
+    // La colonne sales.sales_person_id est UUID — résolution nécessaire.
+    const salesPersonResult = await postgresClient.query<any>(
+      `SELECT id FROM users WHERE id::text = $1 OR user_id = $1 LIMIT 1`,
+      [input.salesPersonId]
+    );
+    if (salesPersonResult.rows.length === 0) {
+      throw new Error('Vendeur introuvable');
+    }
+    const salesPersonUuid = salesPersonResult.rows[0].id;
+
     // 1. Résoudre le prix de chaque ligne via OutletService (refuse si non listé)
     const resolvedLines: Array<{
       productId: string;
@@ -160,11 +171,12 @@ export class SaleService {
       });
     }
 
-    // 2. Garantir une session POS (implicite si absente)
+    // 2. Garantir une session POS (implicite si absente). On passe l'UUID PK
+    // résolu plus haut pour éviter une nouvelle résolution dans ensureForSale.
     let posSessionId = input.posSessionId;
     if (!posSessionId) {
       const session = await posSessionService.ensureForSale(
-        input.outletId, input.salesPersonId, input.workspaceId
+        input.outletId, salesPersonUuid, input.workspaceId
       );
       posSessionId = session.id!;
     }
@@ -198,7 +210,7 @@ export class SaleService {
         input.saleDate,
         input.dueDate ?? null,
         input.notes ?? null,
-        input.salesPersonId,
+        salesPersonUuid,
         input.outletId,
         posSessionId,
         input.workspaceId,
