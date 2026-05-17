@@ -51,11 +51,17 @@ export default function TreasuryPage() {
     }
   }
 
-  function formatCurrency(amount: number): string {
+  function formatCurrency(amount: number | string | null | undefined): string {
+    // Coerce vers number et tombe sur 0 si NaN/null/undefined. Évite que
+    // l'UI affiche "NaN F CFA" quand une stat est manquante ou que le
+    // backend renvoie une string non-numérique (cas observé sur le solde
+    // total quand les wallets n'ont pas tous un balance initialisé).
+    const n = Number(amount);
+    const safe = Number.isFinite(n) ? n : 0;
     return new Intl.NumberFormat('fr-FR', {
       style: 'currency',
       currency: 'XOF',
-    }).format(amount);
+    }).format(safe);
   }
 
   function formatDate(dateString: string): string {

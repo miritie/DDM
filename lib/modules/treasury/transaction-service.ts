@@ -232,19 +232,28 @@ export class TransactionService {
 
     const wallets = await walletService.list(workspaceId, { isActive: true });
 
+    // Sécurité : Postgres NUMERIC peut arriver en string côté JS via pg.
+    // Sans Number(), "100" + 50 = "10050" puis le reduce devient NaN au
+    // moment d'un + undefined sur un row partiellement initialisé. Coerce
+    // systématiquement vers number, défaut 0 si NaN.
+    const num = (v: any): number => {
+      const n = Number(v);
+      return Number.isFinite(n) ? n : 0;
+    };
+
     const totalIncome = transactions
       .filter((t) => t.Type === 'income')
-      .reduce((sum, t) => sum + t.Amount, 0);
+      .reduce((sum, t) => sum + num(t.Amount), 0);
 
     const totalExpense = transactions
       .filter((t) => t.Type === 'expense')
-      .reduce((sum, t) => sum + t.Amount, 0);
+      .reduce((sum, t) => sum + num(t.Amount), 0);
 
     const totalTransfers = transactions
       .filter((t) => t.Type === 'transfer')
-      .reduce((sum, t) => sum + t.Amount, 0);
+      .reduce((sum, t) => sum + num(t.Amount), 0);
 
-    const totalBalance = wallets.reduce((sum, w) => sum + w.Balance, 0);
+    const totalBalance = wallets.reduce((sum, w) => sum + num(w.Balance), 0);
 
     const walletBalances = wallets.map((w) => ({
       WalletId: w.WalletId,
