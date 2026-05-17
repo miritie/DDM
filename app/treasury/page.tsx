@@ -135,63 +135,100 @@ export default function TreasuryPage() {
           </Button>
         </div>
 
-        {/* Statistiques Globales */}
+        {/* Statistiques Globales
+            Équation comptable lisible :
+            Solde total = Solde initial + Revenus + Ajustements − Dépenses
+            (Transferts = mouvements internes, n'affectent pas le solde) */}
         {statistics && (
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-            <Card>
-              <CardHeader className="pb-2">
-                <CardTitle className="text-sm font-medium text-gray-500">
-                  Solde total
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="text-2xl font-bold">{formatCurrency(statistics.totalBalance)}</div>
-                <p className="text-xs text-gray-500 mt-1">{statistics.walletsCount} wallets actifs</p>
-              </CardContent>
-            </Card>
+          <>
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
+              <Card>
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-sm font-medium text-gray-500">
+                    Solde total
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="text-2xl font-bold">{formatCurrency(statistics.totalBalance)}</div>
+                  <p className="text-xs text-gray-500 mt-1">{statistics.walletsCount} wallets actifs</p>
+                </CardContent>
+              </Card>
 
-            <Card>
-              <CardHeader className="pb-2">
-                <CardTitle className="text-sm font-medium text-gray-500">
-                  Revenus
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="text-2xl font-bold text-green-600">
-                  {formatCurrency(statistics.totalIncome)}
-                </div>
-                <p className="text-xs text-gray-500 mt-1">Encaissements</p>
-              </CardContent>
-            </Card>
+              <Card>
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-sm font-medium text-gray-500">
+                    Revenus
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="text-2xl font-bold text-green-600">
+                    {formatCurrency(statistics.totalIncome)}
+                  </div>
+                  <p className="text-xs text-gray-500 mt-1">Encaissements ventes</p>
+                </CardContent>
+              </Card>
 
-            <Card>
-              <CardHeader className="pb-2">
-                <CardTitle className="text-sm font-medium text-gray-500">
-                  Dépenses
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="text-2xl font-bold text-red-600">
-                  {formatCurrency(statistics.totalExpense)}
-                </div>
-                <p className="text-xs text-gray-500 mt-1">Décaissements</p>
-              </CardContent>
-            </Card>
+              <Card>
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-sm font-medium text-gray-500">
+                    Dépenses
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="text-2xl font-bold text-red-600">
+                    {formatCurrency(statistics.totalExpense)}
+                  </div>
+                  <p className="text-xs text-gray-500 mt-1">Décaissements</p>
+                </CardContent>
+              </Card>
 
-            <Card>
-              <CardHeader className="pb-2">
-                <CardTitle className="text-sm font-medium text-gray-500">
-                  Transferts
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="text-2xl font-bold text-blue-600">
-                  {formatCurrency(statistics.totalTransfers)}
-                </div>
-                <p className="text-xs text-gray-500 mt-1">Mouvements internes</p>
-              </CardContent>
-            </Card>
-          </div>
+              <Card>
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-sm font-medium text-gray-500">
+                    Ajustements
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className={`text-2xl font-bold ${statistics.totalAdjustments >= 0 ? 'text-emerald-600' : 'text-orange-600'}`}>
+                    {statistics.totalAdjustments >= 0 ? '+' : ''}{formatCurrency(statistics.totalAdjustments)}
+                  </div>
+                  <p className="text-xs text-gray-500 mt-1">Corrections d'inventaire</p>
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-sm font-medium text-gray-500">
+                    Transferts
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="text-2xl font-bold text-blue-600">
+                    {formatCurrency(statistics.totalTransfers)}
+                  </div>
+                  <p className="text-xs text-gray-500 mt-1">Internes (neutres)</p>
+                </CardContent>
+              </Card>
+            </div>
+
+            {/* Ventilation du solde : équation explicite, aide à diagnostiquer
+                pourquoi le total ne correspond pas à Revenus − Dépenses. */}
+            <div className="bg-gray-50 border border-gray-200 rounded-lg p-3 text-xs text-gray-700 font-mono overflow-x-auto whitespace-nowrap">
+              Solde total = Solde initial + Revenus + Ajustements − Dépenses{' '}
+              <span className="text-gray-500">→</span>{' '}
+              <span className="font-bold">{formatCurrency(statistics.totalBalance)}</span>
+              {' = '}
+              {formatCurrency(statistics.totalInitialBalance)}
+              {' + '}
+              <span className="text-green-700">{formatCurrency(statistics.totalIncome)}</span>
+              {' + '}
+              <span className={statistics.totalAdjustments >= 0 ? 'text-emerald-700' : 'text-orange-700'}>
+                {statistics.totalAdjustments >= 0 ? '+' : ''}{formatCurrency(statistics.totalAdjustments)}
+              </span>
+              {' − '}
+              <span className="text-red-700">{formatCurrency(statistics.totalExpense)}</span>
+            </div>
+          </>
         )}
 
         {/* Wallets */}

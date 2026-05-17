@@ -265,7 +265,20 @@ export class TransactionService {
       .filter((t) => t.Type === 'transfer')
       .reduce((sum, t) => sum + num(t.Amount), 0);
 
+    // Ajustements (corrections d'inventaire wallet). On le sépare des
+    // Revenus/Dépenses pour préserver la sémantique « vraie vente / vraie
+    // sortie », mais on l'expose comme KPI à part pour que l'équation
+    // Solde = Solde initial + Revenus + Ajustements − Dépenses soit lisible.
+    const adjIn = transactions
+      .filter((t) => t.Type === 'income' && isAdjustment(t))
+      .reduce((sum, t) => sum + num(t.Amount), 0);
+    const adjOut = transactions
+      .filter((t) => t.Type === 'expense' && isAdjustment(t))
+      .reduce((sum, t) => sum + num(t.Amount), 0);
+    const totalAdjustments = adjIn - adjOut;
+
     const totalBalance = wallets.reduce((sum, w) => sum + num(w.Balance), 0);
+    const totalInitialBalance = wallets.reduce((sum, w) => sum + num((w as any).InitialBalance), 0);
 
     const walletBalances = wallets.map((w) => ({
       WalletId: w.WalletId,
@@ -279,6 +292,8 @@ export class TransactionService {
       totalIncome,
       totalExpense,
       totalTransfers,
+      totalAdjustments,
+      totalInitialBalance,
       walletsCount: wallets.length,
       transactionsCount: transactions.length,
       walletBalances,

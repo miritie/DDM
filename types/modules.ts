@@ -540,6 +540,8 @@ export interface TreasuryStatistics {
   totalIncome: number;
   totalExpense: number;
   totalTransfers: number;
+  totalAdjustments: number;      // Net : ajustements + ─ ajustements −
+  totalInitialBalance: number;   // Σ des soldes initiaux des wallets actifs
   walletsCount: number;
   transactionsCount: number;
   walletBalances: WalletBalance[];
