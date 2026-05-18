@@ -21,6 +21,7 @@ export function usePermissions() {
   const { data: session, status } = useSession();
   const user = session?.user;
   const [permissions, setPermissions] = useState<Permission[]>([]);
+  const [roleCodes, setRoleCodes] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -32,6 +33,7 @@ export function usePermissions() {
 
     if (!user) {
       setPermissions([]);
+      setRoleCodes([]);
       setLoading(false);
       return;
     }
@@ -47,10 +49,12 @@ export function usePermissions() {
         const data = await response.json();
         if (cancelled) return;
         setPermissions(data.permissions || []);
+        setRoleCodes(data.roleCodes || []);
       } catch (error) {
         console.error('Error fetching permissions:', error);
         if (cancelled) return;
         setPermissions([]);
+        setRoleCodes([]);
       } finally {
         if (!cancelled) setLoading(false);
       }
@@ -60,7 +64,17 @@ export function usePermissions() {
     return () => { cancelled = true; };
   }, [user, status]);
 
-  return { permissions, loading };
+  return { permissions, roleCodes, loading };
+}
+
+/**
+ * Hook pour vérifier l'appartenance à un rôle (par business code).
+ * Utile pour des gardes qui dépassent les permissions (ex: une approbation
+ * réservée au rôle admin même si la permission est plus large).
+ */
+export function useHasRole(roleCode: string) {
+  const { roleCodes, loading } = usePermissions();
+  return { hasRole: roleCodes.includes(roleCode), loading };
 }
 
 /**

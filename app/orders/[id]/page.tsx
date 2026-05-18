@@ -10,7 +10,7 @@ import { useRouter } from 'next/navigation';
 import { useSession } from 'next-auth/react';
 import { ProtectedPage } from '@/components/rbac/protected-page';
 import { PERMISSIONS } from '@/lib/rbac';
-import { useHasPermission } from '@/lib/rbac/use-permissions';
+import { useHasRole } from '@/lib/rbac/use-permissions';
 import { Button } from '@/components/ui/button';
 import {
   ArrowLeft, Loader2, CheckCircle, XCircle, Truck, Factory, Package,
@@ -33,11 +33,10 @@ export default function OrderDetailPage({ params }: { params: Promise<{ id: stri
   const { id } = use(params);
   const router = useRouter();
   const { data: session } = useSession();
-  // Approbation = privilège admin (même proxy que côté API). On compare
-  // aussi l'utilisateur courant au requester pour respecter la séparation
-  // des pouvoirs : un admin qui aurait soumis la commande ne peut pas
-  // valider sa propre demande.
-  const { hasPermission: canApproveAdmin } = useHasPermission(PERMISSIONS.ADMIN_USERS_VIEW);
+  // Approbation = privilège exclusif au rôle admin. On vérifie par
+  // business code via /api/rbac/permissions (session.activeRoleId
+  // stocke un UUID, pas le code, donc on ne peut pas comparer directement).
+  const { hasRole: canApproveAdmin, loading: roleLoading } = useHasRole('admin');
   const [order, setOrder] = useState<any>(null);
   const [pmLabels, setPmLabels] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
@@ -102,7 +101,9 @@ export default function OrderDetailPage({ params }: { params: Promise<{ id: stri
   // code du requester exposé par l'API (requested_by_user_id).
   const currentUserId = (session?.user as any)?.userId;
   const isRequester = !!currentUserId && currentUserId === order.requested_by_user_id;
-  const showApproveButton = order.status === 'submitted' && canApproveAdmin && !isRequester;
+  // Tant que les rôles chargent, on n'affiche rien (évite de flasher le
+  // bouton puis de le cacher).
+  const showApproveButton = !roleLoading && order.status === 'submitted' && canApproveAdmin && !isRequester;
 
   return (
     <ProtectedPage permission={PERMISSIONS.SALES_VIEW}>

@@ -44,7 +44,19 @@ export async function GET() {
       perms.forEach(p => all.add(p));
     }
 
-    return NextResponse.json({ permissions: Array.from(all) });
+    // Expose aussi les business codes des rôles assignés. Permet aux
+    // pages client de vérifier "is admin" sans une nouvelle requête.
+    // user_roles.role_id stocke des UUIDs ; roles.role_id stocke le code.
+    let roleCodes: string[] = [];
+    if (roleUuids.length > 0) {
+      const rr = await db.query(
+        `SELECT role_id FROM roles WHERE id = ANY($1::uuid[])`,
+        [roleUuids]
+      );
+      roleCodes = rr.rows.map((x: any) => x.role_id);
+    }
+
+    return NextResponse.json({ permissions: Array.from(all), roleCodes });
   } catch (error) {
     console.error('Error fetching permissions:', error);
     return NextResponse.json({ error: 'Erreur lors de la récupération des permissions' }, { status: 500 });
