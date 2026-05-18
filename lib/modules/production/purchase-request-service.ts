@@ -43,6 +43,7 @@ const SELECT_PR = `
     er.amount               AS "Amount",
     er.category_id          AS "CategoryId",
     er.requester_id         AS "RequesterId",
+    ru.user_id              AS "RequesterUserId",
     er.status               AS "Status",
     er.submitted_at         AS "SubmittedAt",
     er.workspace_id         AS "WorkspaceId",
@@ -51,6 +52,7 @@ const SELECT_PR = `
     ec.code                 AS "CategoryCode"
   FROM expense_requests er
   LEFT JOIN expense_categories ec ON ec.id = er.category_id
+  LEFT JOIN users ru ON ru.id = er.requester_id
 `;
 
 const SELECT_PRL = `
@@ -292,6 +294,11 @@ export class PurchaseRequestService {
     }
     const approverUuid = await resolveUuid('users', 'user_id', approverId);
     if (!approverUuid) throw new Error('Validateur introuvable');
+    // Séparation des pouvoirs : l'approbateur ne peut pas être le requester.
+    // Même si l'UI le cache, on rejette ici en défense en profondeur.
+    if (approverUuid === pr.RequesterId) {
+      throw new Error("Vous ne pouvez pas approuver une sollicitation que vous avez soumise. Un autre administrateur doit le faire (séparation des pouvoirs).");
+    }
 
     const expenseId = await db.transaction(async (client) => {
       // 1. Marquer la sollicitation approuvée

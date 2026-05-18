@@ -18,6 +18,8 @@ import { Button } from '@/components/ui/button';
 import { ProtectedPage } from '@/components/rbac/protected-page';
 import { Can } from '@/components/rbac/can';
 import { PERMISSIONS } from '@/lib/rbac';
+import { useHasRole } from '@/lib/rbac/use-permissions';
+import { useSession } from 'next-auth/react';
 import { ExpensePaymentPanel } from '@/components/expenses/expense-payment-panel';
 import { Factory } from 'lucide-react';
 import Link from 'next/link';
@@ -47,6 +49,11 @@ export default function PurchaseRequestDetailPage({ params }: { params: Promise<
 
 function Content({ id }: { id: string }) {
   const router = useRouter();
+  const { data: session } = useSession();
+  // Approbation/refus = strictement réservés au rôle 'admin' (Administrateur
+  // Décideur). On vérifie par business code de rôle, plus strict qu'une
+  // permission qui aurait pu être distribuée trop largement.
+  const { hasRole: isAdmin, loading: roleLoading } = useHasRole('admin');
   const [pr, setPr] = useState<any | null>(null);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState<string | null>(null);
@@ -183,16 +190,34 @@ function Content({ id }: { id: string }) {
                 </Button>
               </Can>
             )}
-            {pr.Status === 'submitted' && (
-              <Can permission={PERMISSIONS.PURCHASE_REQUEST_APPROVE}>
-                <Button onClick={() => action('approve')} disabled={busy !== null} className="bg-green-600 hover:bg-green-700">
-                  <CheckCircle className="w-4 h-4 mr-1" /> Approuver
-                </Button>
-                <Button onClick={() => setRejectReason('')} disabled={busy !== null} variant="outline" className="border-red-400 text-red-600 hover:bg-red-50">
-                  <XCircle className="w-4 h-4 mr-1" /> Refuser
-                </Button>
-              </Can>
-            )}
+            {pr.Status === 'submitted' && !roleLoading && (() => {
+              const currentUserId = (session?.user as any)?.userId;
+              const isRequester = !!currentUserId && currentUserId === pr.RequesterUserId;
+              if (!isAdmin) {
+                return (
+                  <p className="text-sm text-gray-600 self-center italic">
+                    En attente d'approbation par un Administrateur Décideur.
+                  </p>
+                );
+              }
+              if (isRequester) {
+                return (
+                  <p className="text-sm text-gray-600 self-center italic">
+                    Vous avez soumis cette sollicitation : un autre administrateur doit l'approuver (séparation des pouvoirs).
+                  </p>
+                );
+              }
+              return (
+                <>
+                  <Button onClick={() => action('approve')} disabled={busy !== null} className="bg-green-600 hover:bg-green-700">
+                    <CheckCircle className="w-4 h-4 mr-1" /> Approuver
+                  </Button>
+                  <Button onClick={() => setRejectReason('')} disabled={busy !== null} variant="outline" className="border-red-400 text-red-600 hover:bg-red-50">
+                    <XCircle className="w-4 h-4 mr-1" /> Refuser
+                  </Button>
+                </>
+              );
+            })()}
             {pr.Status === 'approved' && !fullyReceived && (
               <Can permission={PERMISSIONS.PURCHASE_REQUEST_RECEIVE}>
                 <p className="text-sm text-gray-600 self-center">→ Sélectionnez une ligne pour enregistrer sa réception.</p>

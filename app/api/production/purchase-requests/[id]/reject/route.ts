@@ -1,17 +1,17 @@
 /**
  * POST /api/production/purchase-requests/[id]/reject
- *   Admin rejette la sollicitation.
+ *   Admin rejette la sollicitation. Réservé strictement au rôle 'admin'.
  *   Body : { reason?: string }
  */
 import { NextRequest, NextResponse } from 'next/server';
-import { requirePermission, PERMISSIONS } from '@/lib/rbac/server';
+import { requireAdminRole } from '@/lib/auth/require-admin-role';
 import { PurchaseRequestService } from '@/lib/modules/production/purchase-request-service';
 
 const service = new PurchaseRequestService();
 
 export async function POST(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
-    await requirePermission(PERMISSIONS.PURCHASE_REQUEST_APPROVE);
+    await requireAdminRole();
     const { id } = await params;
     const body = await request.json().catch(() => ({}));
     const data = await service.reject(id, body.reason);
