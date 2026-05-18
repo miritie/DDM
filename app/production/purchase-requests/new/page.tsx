@@ -24,8 +24,24 @@ interface LineDraft {
   ingredientId: string;
   qtyRequested: string;
   unit: string;
-  estimatedUnitPrice: string;
+  // Montant total de l'achat pour cette ligne (ce que l'utilisateur va
+  // effectivement payer). Le prix unitaire est dérivé : totalAmount / qty.
+  totalAmount: string;
   notes: string;
+}
+
+// Unités autorisées pour les achats MP. Le prix au gramme est dérivé
+// automatiquement à l'enregistrement (à terme cf. moyenne d'acquisition).
+const UNIT_OPTIONS = ['kg', 'g', 'Tonne'];
+
+/** Convertit une quantité saisie dans son unité vers grammes (pour le coût/g). */
+function toGrams(qty: number, unit: string): number {
+  if (!Number.isFinite(qty)) return 0;
+  const u = (unit || '').toLowerCase();
+  if (u === 'kg') return qty * 1000;
+  if (u === 'tonne' || u === 't') return qty * 1_000_000;
+  if (u === 'g') return qty;
+  return qty; // unité inconnue : on garde tel quel
 }
 
 export default function NewPurchaseRequestPage() {
@@ -116,11 +132,17 @@ function Content() {
           if (plannedQty > 0) {
             hints[l.ingredientId] = { plannedQty, plannedUnit };
           }
+          // Pré-rempli avec un montant estimé = qty × cost connu/g converti.
+          // L'utilisateur ajuste librement à la réalité du fournisseur.
+          const unitOfIng = ing.Unit ?? '';
+          const estimatedTotal = plannedQty > 0 && Number(ing.UnitCost)
+            ? Math.round(plannedQty * Number(ing.UnitCost))
+            : 0;
           return {
             ingredientId: l.ingredientId,
             qtyRequested: plannedQty > 0 ? String(plannedQty) : '',
-            unit: ing.Unit ?? '',
-            estimatedUnitPrice: String(ing.UnitCost ?? ''),
+            unit: UNIT_OPTIONS.includes(unitOfIng) ? unitOfIng : 'kg',
+            totalAmount: estimatedTotal > 0 ? String(estimatedTotal) : '',
             notes: '',
           } as LineDraft;
         })
@@ -135,13 +157,14 @@ function Content() {
 
   function addLine(ingredientId?: string) {
     const ing = ingredientId ? ingredients.find((i) => i.IngredientId === ingredientId) : null;
+    const unitOfIng = ing?.Unit ?? '';
     setLines([
       ...lines,
       {
         ingredientId: ingredientId ?? '',
         qtyRequested: '',
-        unit: ing?.Unit ?? '',
-        estimatedUnitPrice: ing ? String(ing.UnitCost) : '',
+        unit: UNIT_OPTIONS.includes(unitOfIng) ? unitOfIng : 'kg',
+        totalAmount: '',
         notes: '',
       },
     ]);
@@ -154,10 +177,7 @@ function Content() {
   }
 
   const ingMap = new Map(ingredients.map((i) => [i.IngredientId, i]));
-  const totalEstimated = lines.reduce((s, l) => {
-    if (!l.qtyRequested || !l.estimatedUnitPrice) return s;
-    return s + Number(l.qtyRequested) * Number(l.estimatedUnitPrice);
-  }, 0);
+  const totalEstimated = lines.reduce((s, l) => s + (Number(l.totalAmount) || 0), 0);
 
   async function createAndSubmit(submit: boolean) {
     setError(null);
@@ -165,8 +185,12 @@ function Content() {
       setError('Ajoutez au moins une ligne d\'ingrédient.');
       return;
     }
-    if (lines.some((l) => !l.ingredientId || !l.qtyRequested || !l.estimatedUnitPrice)) {
-      setError('Chaque ligne doit avoir un ingrédient, une quantité et un prix estimé.');
+    if (lines.some((l) => !l.ingredientId || !l.qtyRequested || !l.totalAmount)) {
+      setError("Chaque ligne doit avoir un ingrédient, une quantité et un montant total.");
+      return;
+    }
+    if (lines.some((l) => !UNIT_OPTIONS.includes(l.unit))) {
+      setError("L'unité doit être kg, g ou Tonne pour chaque ligne.");
       return;
     }
 
@@ -179,13 +203,23 @@ function Content() {
           title: title.trim() || undefined,
           description: description.trim() || undefined,
           productionOrderId: linkedOP?.id || productionOrderIdParam || undefined,
-          lines: lines.map((l) => ({
-            ingredientId: l.ingredientId,
-            qtyRequested: Number(l.qtyRequested),
-            unit: l.unit || ingMap.get(l.ingredientId)?.Unit || 'unit',
-            estimatedUnitPrice: Number(l.estimatedUnitPrice),
-            notes: l.notes || undefined,
-          })),
+          lines: lines.map((l) => {
+            const qty = Number(l.qtyRequested);
+            const total = Number(l.totalAmount);
+            // L'API attend un prix unitaire (par unité saisie). On dérive
+            // depuis le total — c'est plus simple à saisir pour le metier
+            // qui négocie souvent "20 kg pour 91 000 F" plutôt qu'un
+            // prix unitaire mental. Le coût/g final viendra de la moyenne
+            // d'acquisition (calculée au moment de la réception).
+            const unitPrice = qty > 0 ? total / qty : 0;
+            return {
+              ingredientId: l.ingredientId,
+              qtyRequested: qty,
+              unit: l.unit,
+              estimatedUnitPrice: unitPrice,
+              notes: l.notes || undefined,
+            };
+          }),
         }),
       });
       const data = await r.json();
@@ -269,7 +303,7 @@ function Content() {
               <p className="text-xs leading-relaxed">
                 Les quantités pré-remplies correspondent au <strong>strict besoin</strong> de l'OP. En pratique, une sollicitation est toujours plus que ça :
                 pertes au pesage, arrondis fournisseurs (sacs entiers), couverture des prochaines productions. Augmente les quantités avant de soumettre.
-                L'unité est libre — tu peux saisir <em>kg</em>, <em>sac 25 kg</em>, <em>g</em>, etc. (adapter le prix unitaire en conséquence).
+                Choisis l'unité <em>kg</em>, <em>g</em> ou <em>Tonne</em> selon ce que tu achètes ; le coût/g sera dérivé du montant total saisi.
               </p>
             </div>
           )}
@@ -301,9 +335,12 @@ function Content() {
             <div className="space-y-2">
               {lines.map((line, idx) => {
                 const ing = ingMap.get(line.ingredientId);
-                const sub = line.qtyRequested && line.estimatedUnitPrice
-                  ? Number(line.qtyRequested) * Number(line.estimatedUnitPrice)
-                  : 0;
+                const qtyNum = Number(line.qtyRequested) || 0;
+                const totalNum = Number(line.totalAmount) || 0;
+                const grams = toGrams(qtyNum, line.unit);
+                // Coût/g dérivé : sert d'indicateur, à comparer mentalement
+                // (ou plus tard automatiquement) avec la moyenne d'acquisition.
+                const costPerGram = grams > 0 && totalNum > 0 ? totalNum / grams : 0;
                 return (
                   <div key={idx} className="bg-gray-50 rounded-xl p-3 space-y-2">
                     <div className="flex items-start gap-2">
@@ -314,10 +351,10 @@ function Content() {
                             value={line.ingredientId}
                             onChange={(e) => {
                               const newIng = ingMap.get(e.target.value);
+                              const newUnit = newIng?.Unit ?? '';
                               update(idx, {
                                 ingredientId: e.target.value,
-                                unit: line.unit || newIng?.Unit || '',
-                                estimatedUnitPrice: line.estimatedUnitPrice || (newIng ? String(newIng.UnitCost) : ''),
+                                unit: line.unit || (UNIT_OPTIONS.includes(newUnit) ? newUnit : 'kg'),
                               });
                             }}
                           >
@@ -342,20 +379,23 @@ function Content() {
                           )}
                         </div>
                         <div className="col-span-3 sm:col-span-2">
-                          <input
+                          <select
                             className={INP + ' text-sm'}
-                            placeholder="kg / sac / g"
                             value={line.unit}
                             onChange={(e) => update(idx, { unit: e.target.value })}
-                          />
+                          >
+                            {UNIT_OPTIONS.map((u) => (
+                              <option key={u} value={u}>{u}</option>
+                            ))}
+                          </select>
                         </div>
                         <div className="col-span-5 sm:col-span-3">
                           <input
-                            type="number" min="0" step="0.01"
+                            type="number" min="0" step="1"
                             className={INP + ' text-sm'}
-                            placeholder="Prix unit."
-                            value={line.estimatedUnitPrice}
-                            onChange={(e) => update(idx, { estimatedUnitPrice: e.target.value })}
+                            placeholder="Montant total (F)"
+                            value={line.totalAmount}
+                            onChange={(e) => update(idx, { totalAmount: e.target.value })}
                           />
                         </div>
                       </div>
@@ -363,10 +403,19 @@ function Content() {
                         <Trash2 className="w-4 h-4 text-red-600" />
                       </button>
                     </div>
-                    {(ing && sub > 0) && (
-                      <div className="text-xs text-gray-600 flex justify-between">
-                        <span>Stock actuel: {fmt(Number(ing.CurrentStock))} {ing.Unit} (min {fmt(Number(ing.MinimumStock))})</span>
-                        <span className="font-semibold">Sous-total: {fmt(sub)} XOF</span>
+                    {(ing || totalNum > 0) && (
+                      <div className="text-xs text-gray-600 flex flex-wrap gap-x-3 gap-y-1 justify-between">
+                        {ing && (
+                          <span>Stock actuel: {fmt(Number(ing.CurrentStock))} {ing.Unit} (min {fmt(Number(ing.MinimumStock))})</span>
+                        )}
+                        {costPerGram > 0 && (
+                          <span className="text-gray-500">
+                            Soit ≈ {costPerGram.toLocaleString('fr-FR', { maximumFractionDigits: 2 }).replace(/[  ]/g, ' ')} F/g
+                          </span>
+                        )}
+                        {totalNum > 0 && (
+                          <span className="font-semibold">Sous-total: {fmt(totalNum)} XOF</span>
+                        )}
                       </div>
                     )}
                   </div>
