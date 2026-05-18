@@ -7,8 +7,10 @@
 import { useEffect, useState, use } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
+import { useSession } from 'next-auth/react';
 import { ProtectedPage } from '@/components/rbac/protected-page';
 import { PERMISSIONS } from '@/lib/rbac';
+import { useHasPermission } from '@/lib/rbac/use-permissions';
 import { Button } from '@/components/ui/button';
 import {
   ArrowLeft, Loader2, CheckCircle, XCircle, Truck, Factory, Package,
@@ -30,6 +32,12 @@ const PM_FALLBACK: Record<string, string> = {
 export default function OrderDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
   const router = useRouter();
+  const { data: session } = useSession();
+  // Approbation = privilège admin (même proxy que côté API). On compare
+  // aussi l'utilisateur courant au requester pour respecter la séparation
+  // des pouvoirs : un admin qui aurait soumis la commande ne peut pas
+  // valider sa propre demande.
+  const { hasPermission: canApproveAdmin } = useHasPermission(PERMISSIONS.ADMIN_USERS_VIEW);
   const [order, setOrder] = useState<any>(null);
   const [pmLabels, setPmLabels] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
@@ -88,6 +96,13 @@ export default function OrderDetailPage({ params }: { params: Promise<{ id: stri
 
   const stepIdx = FLOW.indexOf(order.status);
   const isCancelled = order.status === 'cancelled';
+
+  // Séparation des pouvoirs : le requester ne peut pas approuver. Session
+  // expose le business code (USR-…) via userId ; on compare au business
+  // code du requester exposé par l'API (requested_by_user_id).
+  const currentUserId = (session?.user as any)?.userId;
+  const isRequester = !!currentUserId && currentUserId === order.requested_by_user_id;
+  const showApproveButton = order.status === 'submitted' && canApproveAdmin && !isRequester;
 
   return (
     <ProtectedPage permission={PERMISSIONS.SALES_VIEW}>
@@ -155,10 +170,20 @@ export default function OrderDetailPage({ params }: { params: Promise<{ id: stri
                   <Send className="w-4 h-4 mr-1" /> Soumettre pour validation
                 </Button>
               )}
-              {order.status === 'submitted' && (
+              {showApproveButton && (
                 <Button onClick={approve} disabled={busy !== null}>
                   <CheckCircle className="w-4 h-4 mr-1" /> Approuver (admin)
                 </Button>
+              )}
+              {order.status === 'submitted' && !canApproveAdmin && (
+                <p className="text-xs text-gray-500 italic">
+                  En attente d'approbation par un administrateur.
+                </p>
+              )}
+              {order.status === 'submitted' && canApproveAdmin && isRequester && (
+                <p className="text-xs text-gray-500 italic">
+                  Vous avez soumis cette commande : un autre administrateur doit l'approuver (séparation des pouvoirs).
+                </p>
               )}
               {order.status === 'in_production' && (
                 <Button onClick={() => callTransition('mark_produced')} disabled={busy !== null}>

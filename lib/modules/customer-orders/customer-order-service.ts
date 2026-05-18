@@ -168,6 +168,7 @@ export class CustomerOrderService {
       `SELECT co.*,
               c.name AS client_full_name,
               ru.full_name AS requested_by_name,
+              ru.user_id  AS requested_by_user_id,
               au.full_name AS approved_by_name,
               po.order_number AS production_order_number,
               s.sale_number AS sale_number_linked
@@ -266,6 +267,12 @@ export class CustomerOrderService {
       throw new Error(`Seule une commande soumise peut être approuvée (statut actuel : ${order.status}). Le manager doit d'abord la soumettre.`);
     }
     const approverUuid = await resolveUuid('users', 'user_id', approvedById);
+    // Séparation des pouvoirs : l'approbateur ne peut pas être le requester
+    // (l'utilisateur qui a soumis la commande). Même si l'UI le cache, on
+    // refuse côté serveur — défense en profondeur contre un appel direct.
+    if (approverUuid === order.requested_by_id) {
+      throw new Error('Vous ne pouvez pas approuver une commande que vous avez soumise. Un autre administrateur doit le faire (séparation des pouvoirs).');
+    }
     return this.setStatus(id, 'approved', {
       approved_by_id: approverUuid,
       approved_at: new Date().toISOString(),
