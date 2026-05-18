@@ -44,6 +44,39 @@ const STATUS_LABELS: Record<string, { label: string; color: string }> = {
   cancelled:    { label: 'Annulé',      color: 'gray'    },
 };
 
+/**
+ * Calcule le label de cycle de vie d'une sollicitation d'achat MP en
+ * combinant 3 dimensions :
+ *   - er.status (workflow d'approbation : submitted → approved)
+ *   - expense.status (paiement par le comptable : pending → paid)
+ *   - lignes : qty_received vs qty_requested (réception physique)
+ *
+ * On affiche ainsi au manager production l'étape la plus tardive
+ * franchie, ce qui est plus parlant que juste « approved ».
+ */
+function purchaseRequestLifecycle(pr: any): { label: string; tone: string } {
+  const status = pr.Status;
+  if (status === 'draft')     return { label: 'Brouillon',                  tone: 'bg-gray-100 text-gray-700' };
+  if (status === 'submitted') return { label: 'À valider par admin',        tone: 'bg-amber-100 text-amber-800' };
+  if (status === 'rejected')  return { label: 'Refusée',                    tone: 'bg-red-100 text-red-700' };
+  if (status === 'cancelled') return { label: 'Annulée',                    tone: 'bg-gray-100 text-gray-500' };
+
+  // À partir d'ici status === 'approved' — on regarde plus loin dans le cycle.
+  const lines: any[] = pr.lines || pr.Lines || [];
+  const totalReq = lines.reduce((s, l) => s + Number(l.QtyRequested ?? 0), 0);
+  const totalRec = lines.reduce((s, l) => s + Number(l.QtyReceived ?? 0), 0);
+  const fullyReceived = totalReq > 0 && totalRec >= totalReq;
+  const partiallyReceived = totalRec > 0 && !fullyReceived;
+
+  if (fullyReceived)     return { label: 'Reçue (MP en stock)',             tone: 'bg-emerald-100 text-emerald-800' };
+  if (partiallyReceived) return { label: 'Partiellement reçue',             tone: 'bg-cyan-100 text-cyan-800' };
+
+  // Pas encore reçue : on distingue selon que le comptable a payé.
+  const expensePaid = pr.ExpenseStatus === 'paid';
+  if (expensePaid)       return { label: 'Payée — attente réception',       tone: 'bg-blue-100 text-blue-800' };
+  return                        { label: 'Validée — attente comptable',     tone: 'bg-violet-100 text-violet-800' };
+}
+
 const fmt = (n: number | string | undefined) =>
   new Intl.NumberFormat('fr-FR').format(Math.round(Number(n ?? 0)));
 
@@ -86,8 +119,23 @@ export default function ProductionDashboardPage() {
       if (ingR.ok) setAlertsMP(((await ingR.json()).data) || []);
       if (prR.ok) {
         const data = ((await prR.json()).data) || [];
-        // On affiche les drafts et submitted (à suivre côté manager_prod)
-        setPendingPRs(data.filter((p: any) => ['draft', 'submitted', 'approved'].includes(p.Status)).slice(0, 10));
+        // Cycle de vie à suivre par le manager production : tant que la
+        // sollicitation n'est pas physiquement reçue en intégralité, elle
+        // reste pertinente à afficher (même approuvée + payée — on attend
+        // le fournisseur). Les rejected/cancelled/fully-received sortent.
+        const isFullyReceived = (p: any) => {
+          const lines: any[] = p.lines || p.Lines || [];
+          if (lines.length === 0) return false;
+          const req = lines.reduce((s, l) => s + Number(l.QtyRequested ?? 0), 0);
+          const rec = lines.reduce((s, l) => s + Number(l.QtyReceived ?? 0), 0);
+          return req > 0 && rec >= req;
+        };
+        setPendingPRs(
+          data
+            .filter((p: any) => ['draft', 'submitted', 'approved'].includes(p.Status))
+            .filter((p: any) => !isFullyReceived(p))
+            .slice(0, 10)
+        );
       }
     } finally { setLoading(false); }
   }
@@ -186,22 +234,32 @@ export default function ProductionDashboardPage() {
                 </CardTitle>
               </CardHeader>
               <CardContent>
+                <p className="text-xs text-gray-500 mb-3 italic">
+                  Suit le cycle : <strong>à valider</strong> → <strong>validée</strong> → <strong>payée</strong> → <strong>reçue</strong>.
+                  La production peut démarrer sans attendre la réception physique.
+                </p>
                 <div className="space-y-2">
-                  {pendingPRs.slice(0, 5).map((pr) => (
-                    <button
-                      key={pr.id}
-                      onClick={() => router.push(`/production/purchase-requests/${pr.ExpenseRequestId}`)}
-                      className="w-full flex items-center justify-between p-3 bg-gray-50 hover:bg-gray-100 rounded border text-left"
-                    >
-                      <div>
-                        <p className="font-semibold text-sm">{pr.Title}</p>
-                        <p className="text-xs text-gray-600">
-                          {pr.RequestNumber} · {fmt(pr.Amount)} XOF · <span className="font-semibold">{STATUS_LABELS[pr.Status]?.label || pr.Status}</span>
-                        </p>
-                      </div>
-                      <ArrowRight className="w-4 h-4 text-gray-400" />
-                    </button>
-                  ))}
+                  {pendingPRs.slice(0, 5).map((pr) => {
+                    const lc = purchaseRequestLifecycle(pr);
+                    return (
+                      <button
+                        key={pr.id}
+                        onClick={() => router.push(`/production/purchase-requests/${pr.ExpenseRequestId}`)}
+                        className="w-full flex items-center justify-between p-3 bg-gray-50 hover:bg-gray-100 rounded border text-left"
+                      >
+                        <div className="min-w-0">
+                          <p className="font-semibold text-sm truncate">{pr.Title}</p>
+                          <p className="text-xs text-gray-600">
+                            {pr.RequestNumber} · {fmt(pr.Amount)} XOF
+                          </p>
+                          <span className={`inline-block mt-1 text-[11px] font-semibold px-2 py-0.5 rounded-full ${lc.tone}`}>
+                            {lc.label}
+                          </span>
+                        </div>
+                        <ArrowRight className="w-4 h-4 text-gray-400 shrink-0 ml-2" />
+                      </button>
+                    );
+                  })}
                 </div>
               </CardContent>
             </Card>

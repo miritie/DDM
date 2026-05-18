@@ -49,10 +49,13 @@ const SELECT_PR = `
     er.workspace_id         AS "WorkspaceId",
     er.created_at           AS "CreatedAt",
     er.updated_at           AS "UpdatedAt",
-    ec.code                 AS "CategoryCode"
+    ec.code                 AS "CategoryCode",
+    e.status::text          AS "ExpenseStatus",
+    e.payment_date          AS "ExpensePaidAt"
   FROM expense_requests er
   LEFT JOIN expense_categories ec ON ec.id = er.category_id
   LEFT JOIN users ru ON ru.id = er.requester_id
+  LEFT JOIN expenses e ON e.expense_request_id = er.id
 `;
 
 const SELECT_PRL = `
