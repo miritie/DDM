@@ -5,7 +5,11 @@
  *   { ingredientId, countedStock, reason? }
  * Le processedById vient de la session.
  *
- * Permission : INGREDIENT_EDIT (manager_production + manager_compta_stocks).
+ * Permission : INGREDIENT_INVENTORY (admin + manager_compta_stocks +
+ *   manager_production). Distincte de INGREDIENT_EDIT (qui reste réservée
+ *   à admin + pca pour éditer la fiche : nom, fournisseur, prix réf.).
+ *   Un comptage physique est un acte opérationnel terrain, pas une
+ *   modification de référentiel.
  */
 
 import { NextRequest, NextResponse } from 'next/server';
@@ -17,7 +21,7 @@ const service = new IngredientAdjustmentService();
 
 export async function POST(request: NextRequest) {
   try {
-    await requirePermission(PERMISSIONS.INGREDIENT_EDIT);
+    await requirePermission(PERMISSIONS.INGREDIENT_INVENTORY);
     const workspaceId = await getCurrentWorkspaceId();
     const processedById = await getCurrentUserId();
     const body = await request.json();

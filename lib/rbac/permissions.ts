@@ -39,7 +39,12 @@ export const PERMISSIONS = {
 
   // Module 7.4 bis - Matières premières & recettes (formules secrètes)
   INGREDIENT_VIEW: 'ingredient:view',               // Voir la liste des MP (qty, unité, fournisseur)
-  INGREDIENT_EDIT: 'ingredient:edit',               // Créer/modifier une MP (admin + pca)
+  INGREDIENT_EDIT: 'ingredient:edit',               // Créer/modifier la FICHE d'une MP : nom, fournisseur,
+                                                    // prix de référence (admin + pca uniquement — métier).
+  INGREDIENT_INVENTORY: 'ingredient:inventory',     // Comptage physique + ajustement de stock (admin +
+                                                    // manager_compta_stocks + manager_production).
+                                                    // Séparé de ingredient:edit pour que les opérationnels
+                                                    // terrain puissent inventorier sans pouvoir éditer la fiche.
   RECIPE_VIEW: 'recipe:view',                       // Voir liste recettes (sans % ni marge)
   RECIPE_EDIT: 'recipe:edit',                       // Créer/modifier recette (admin + pca uniquement)
   RECIPE_VIEW_FORMULA: 'recipe:view_formula',       // Voir % d'ingrédients, marges, coûts (admin + pca SECRET)

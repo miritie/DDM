@@ -52,7 +52,7 @@ function fmtDateTime(s: string): string {
 
 export default function IngredientInventoryPage() {
   return (
-    <ProtectedPage permission={PERMISSIONS.INGREDIENT_EDIT}>
+    <ProtectedPage permission={PERMISSIONS.INGREDIENT_INVENTORY}>
       <Content />
     </ProtectedPage>
   );

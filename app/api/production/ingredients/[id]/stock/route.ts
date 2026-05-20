@@ -14,7 +14,9 @@ export async function POST(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    await requirePermission(PERMISSIONS.PRODUCTION_EDIT);
+    // Ajustement direct de stock (hors flux réception PR / consommation OP) :
+    // c'est un acte d'inventaire. Voir INGREDIENT_INVENTORY pour la liste des rôles.
+    await requirePermission(PERMISSIONS.INGREDIENT_INVENTORY);
     const { id } = await params;
     const body = await request.json();
 
