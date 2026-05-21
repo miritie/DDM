@@ -253,23 +253,65 @@ export class RoleService {
   }
 
   /**
-   * Assigne des permissions à un rôle (via la table role_permissions)
+   * Assigne des permissions à un rôle.
+   *
+   * Calcule le delta exact (ajouts / retraits) au lieu d'un DELETE+INSERT
+   * complet : on n'écrit que les changements nécessaires, et chaque
+   * modification est journalisée dans `role_permissions_audit` pour
+   * pouvoir tracer plus tard qui a retiré quoi quand.
+   *
+   * @param roleUuid       UUID du rôle
+   * @param permissionUuids UUIDs des permissions cibles (état final souhaité)
+   * @param changedBy      UUID de l'utilisateur qui fait la modif (optionnel — null si script)
+   * @param source         Étiquette libre de la source (ex: 'admin-ui', 'script:foo')
+   * @returns liste des UUIDs ajoutés et retirés, pour affichage côté appelant
    */
-  async assignPermissions(roleUuid: string, permissionUuids: string[]): Promise<void> {
+  async assignPermissions(
+    roleUuid: string,
+    permissionUuids: string[],
+    changedBy?: string | null,
+    source: string = 'admin-ui',
+  ): Promise<{ added: string[]; removed: string[] }> {
     const db = getPostgresClient();
 
-    // Supprimer les permissions existantes
-    await db.query('DELETE FROM role_permissions WHERE role_id = $1', [roleUuid]);
+    // 1. Lire l'état actuel pour calculer le delta réel
+    const currentR = await db.query(
+      `SELECT permission_id FROM role_permissions WHERE role_id = $1`,
+      [roleUuid]
+    );
+    const current = new Set<string>(currentR.rows.map((r: any) => r.permission_id));
+    const target = new Set<string>(permissionUuids);
 
-    // Ajouter les nouvelles permissions
-    for (const permissionUuid of permissionUuids) {
+    const added = [...target].filter(p => !current.has(p));
+    const removed = [...current].filter(p => !target.has(p));
+
+    // 2. Applique uniquement le delta + journalise
+    for (const permId of removed) {
+      await db.query(
+        `DELETE FROM role_permissions WHERE role_id = $1 AND permission_id = $2`,
+        [roleUuid, permId]
+      );
+      await db.query(
+        `INSERT INTO role_permissions_audit (role_id, permission_id, action, changed_by, source)
+         VALUES ($1, $2, 'REVOKE', $3, $4)`,
+        [roleUuid, permId, changedBy ?? null, source]
+      );
+    }
+    for (const permId of added) {
       await db.query(
         `INSERT INTO role_permissions (role_id, permission_id)
          VALUES ($1, $2)
          ON CONFLICT (role_id, permission_id) DO NOTHING`,
-        [roleUuid, permissionUuid]
+        [roleUuid, permId]
+      );
+      await db.query(
+        `INSERT INTO role_permissions_audit (role_id, permission_id, action, changed_by, source)
+         VALUES ($1, $2, 'GRANT', $3, $4)`,
+        [roleUuid, permId, changedBy ?? null, source]
       );
     }
+
+    return { added, removed };
   }
 
   /**

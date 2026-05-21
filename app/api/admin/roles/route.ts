@@ -4,7 +4,7 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import { getCurrentWorkspaceId } from '@/lib/auth/get-session';
+import { getCurrentWorkspaceId, getCurrentUserUuid } from '@/lib/auth/get-session';
 import { RoleService } from '@/lib/modules/admin/role-service';
 import { requirePermission, PERMISSIONS } from '@/lib/rbac/server';
 
@@ -57,7 +57,8 @@ export async function POST(request: NextRequest) {
 
     // Assigner les permissions via la table role_permissions
     if (body.permissionIds && body.permissionIds.length > 0) {
-      await service.assignPermissions((role as any).id, body.permissionIds);
+      const changedBy = await getCurrentUserUuid();
+      await service.assignPermissions((role as any).id, body.permissionIds, changedBy, 'admin-ui:create');
     }
 
     return NextResponse.json({ data: role }, { status: 201 });

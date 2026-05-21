@@ -6,6 +6,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { RoleService } from '@/lib/modules/admin/role-service';
 import { requirePermission, PERMISSIONS } from '@/lib/rbac/server';
+import { getCurrentUserUuid } from '@/lib/auth/get-session';
 
 const service = new RoleService();
 
@@ -77,12 +78,22 @@ export async function PUT(
       isActive: body.isActive,
     });
 
-    // Mettre à jour les permissions via la table role_permissions
+    // Mettre à jour les permissions via la table role_permissions.
+    // Le service calcule le delta réel (ajouts / retraits) et journalise
+    // dans role_permissions_audit. On renvoie le delta au client pour
+    // affichage post-save / debug.
+    let diff: { added: string[]; removed: string[] } | null = null;
     if (body.permissionIds !== undefined) {
-      await service.assignPermissions((existingRole as any).id, body.permissionIds || []);
+      const changedBy = await getCurrentUserUuid();
+      diff = await service.assignPermissions(
+        (existingRole as any).id,
+        body.permissionIds || [],
+        changedBy,
+        'admin-ui',
+      );
     }
 
-    return NextResponse.json({ data: role });
+    return NextResponse.json({ data: role, diff });
   } catch (error: any) {
     console.error('Error updating role:', error);
     return NextResponse.json(

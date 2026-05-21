@@ -26,11 +26,29 @@ export async function getCurrentUser() {
 }
 
 /**
- * Récupère le userId de l'utilisateur courant
+ * Récupère le userId métier (varchar 'USR-…') de l'utilisateur courant.
  */
 export async function getCurrentUserId(): Promise<string> {
   const user = await getCurrentUser();
   return user.userId;
+}
+
+/**
+ * Récupère l'UUID `users.id` de l'utilisateur courant.
+ * Utile pour journaliser dans des tables dont la FK pointe sur `users.id`
+ * (audit logs, créateurs, etc.) — le `user.userId` de la session est en
+ * fait le business code (varchar), pas l'UUID.
+ */
+export async function getCurrentUserUuid(): Promise<string | null> {
+  const user = await getCurrentUser();
+  const businessId = (user as any).userId;
+  if (!businessId) return null;
+  const { getPostgresClient } = await import('@/lib/database/postgres-client');
+  const r = await getPostgresClient().query(
+    `SELECT id FROM users WHERE user_id = $1 OR id::text = $1 LIMIT 1`,
+    [businessId]
+  );
+  return r.rows[0]?.id ?? null;
 }
 
 /**
