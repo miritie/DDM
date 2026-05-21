@@ -19,10 +19,11 @@ import {
   Clock,
   Beaker,
   ChevronRight,
+  ClipboardList,
+  ShoppingCart,
 } from 'lucide-react';
-import { ProductionOrder, Recipe } from '@/types/modules';
+import { ProductionOrder } from '@/types/modules';
 import { ProductionOrderCard } from '@/components/production/production-order-card';
-import { RecipeCard } from '@/components/production/recipe-card';
 import { Button } from '@/components/ui/button';
 
 interface ProductionStatistics {
@@ -37,8 +38,9 @@ interface ProductionStatistics {
 export default function ProductionPage() {
   const router = useRouter();
   const [orders, setOrders] = useState<ProductionOrder[]>([]);
-  const [recipes, setRecipes] = useState<Recipe[]>([]);
   const [statistics, setStatistics] = useState<ProductionStatistics | null>(null);
+  const [mpBelowMin, setMpBelowMin] = useState(0);
+  const [pendingPRs, setPendingPRs] = useState(0);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState<'all' | 'in_progress' | 'planned'>('all');
 
@@ -50,10 +52,11 @@ export default function ProductionPage() {
     try {
       setLoading(true);
 
-      const [ordersRes, recipesRes, statsRes] = await Promise.all([
+      const [ordersRes, statsRes, mpRes, prRes] = await Promise.all([
         fetch('/api/production/orders'),
-        fetch('/api/production/recipes?isActive=true'),
         fetch('/api/production/orders/statistics'),
+        fetch('/api/production/ingredients?belowMinimum=true&isActive=true'),
+        fetch('/api/production/purchase-requests'),
       ]);
 
       if (ordersRes.ok) {
@@ -61,14 +64,31 @@ export default function ProductionPage() {
         setOrders(ordersData.data || []);
       }
 
-      if (recipesRes.ok) {
-        const recipesData = await recipesRes.json();
-        setRecipes(recipesData.data || []);
-      }
-
       if (statsRes.ok) {
         const statsData = await statsRes.json();
         setStatistics(statsData.data);
+      }
+
+      if (mpRes.ok) {
+        const mpData = await mpRes.json();
+        setMpBelowMin((mpData.data || []).length);
+      }
+
+      if (prRes.ok) {
+        const prData = (await prRes.json()).data || [];
+        // Sollicitations à suivre : draft/submitted/approved non encore reçues
+        // intégralement. Les rejected/cancelled/fully-received sortent.
+        const isFullyReceived = (p: any) => {
+          const lines: any[] = p.lines || p.Lines || [];
+          if (lines.length === 0) return false;
+          const req = lines.reduce((s, l) => s + Number(l.QtyRequested ?? 0), 0);
+          const rec = lines.reduce((s, l) => s + Number(l.QtyReceived ?? 0), 0);
+          return req > 0 && rec >= req;
+        };
+        const pending = prData
+          .filter((p: any) => ['draft', 'submitted', 'approved'].includes(p.Status))
+          .filter((p: any) => !isFullyReceived(p));
+        setPendingPRs(pending.length);
       }
     } catch (error) {
       console.error('Erreur chargement données:', error);
@@ -153,7 +173,7 @@ export default function ProductionPage() {
         {/* Actions rapides */}
         <div className="bg-white rounded-2xl shadow-xl p-6 mb-6">
           <h2 className="font-bold text-lg mb-4">Actions Rapides</h2>
-          <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+          <div className="grid grid-cols-2 lg:grid-cols-5 gap-3">
             <button
               onClick={() => router.push('/production/orders/new')}
               className="bg-gradient-to-br from-orange-500 to-red-600 text-white rounded-xl p-4 hover:scale-105 active:scale-95 transition-transform"
@@ -179,6 +199,15 @@ export default function ProductionPage() {
               <Beaker className="w-8 h-8 mb-2 mx-auto" />
               <p className="font-semibold text-sm">Matières premières</p>
               <p className="text-xs opacity-90 mt-1">PMP, stock, fournisseurs</p>
+            </button>
+
+            <button
+              onClick={() => router.push('/production/ingredients/inventory')}
+              className="bg-gradient-to-br from-teal-500 to-emerald-600 text-white rounded-xl p-4 hover:scale-105 active:scale-95 transition-transform"
+            >
+              <ClipboardList className="w-8 h-8 mb-2 mx-auto" />
+              <p className="font-semibold text-sm">Inventaire MP</p>
+              <p className="text-xs opacity-90 mt-1">Comptage physique</p>
             </button>
 
             <button
@@ -227,32 +256,63 @@ export default function ProductionPage() {
           </div>
         )}
 
-        {/* Recettes populaires */}
-        {recipes.length > 0 && (
-          <div className="bg-white rounded-2xl shadow-xl p-6 mb-6">
-            <div className="flex items-center justify-between mb-4">
-              <h2 className="font-bold text-lg">Recettes Actives ({recipes.length})</h2>
-              <button
-                onClick={() => router.push('/production/recipes')}
-                className="text-sm text-purple-600 font-medium flex items-center gap-1"
-              >
-                Tout voir
-                <ChevronRight className="w-4 h-4" />
-              </button>
-            </div>
+        {/* Actions à mener (synthèse) */}
+        {(() => {
+          const submittedCount = orders.filter(o => o.Status === 'submitted').length;
+          const plannedCount   = orders.filter(o => o.Status === 'planned').length;
+          const items = [
+            { count: mpBelowMin,     label: 'MP sous minimum',        href: '/production/ingredients?belowMinimum=1', tone: 'orange', icon: AlertTriangle },
+            { count: pendingPRs,     label: 'Sollicitations en cours', href: '/production/purchase-requests',          tone: 'amber',  icon: ShoppingCart },
+            { count: submittedCount, label: 'OP à valider',            href: '/production/orders?status=submitted',    tone: 'amber',  icon: Clock },
+            { count: plannedCount,   label: 'OP à démarrer',           href: '/production/orders?status=planned',      tone: 'blue',   icon: PlayCircle },
+          ].filter(i => i.count > 0);
 
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-              {recipes.slice(0, 3).map((recipe) => (
-                <RecipeCard
-                  key={recipe.RecipeId}
-                  recipe={recipe}
-                  onClick={() => router.push(`/production/recipes/${recipe.RecipeId}`)}
-                  showDetails={false}
-                />
-              ))}
+          const toneClasses: Record<string, string> = {
+            orange: 'border-orange-200 bg-orange-50 text-orange-800 hover:bg-orange-100',
+            amber:  'border-amber-200 bg-amber-50 text-amber-800 hover:bg-amber-100',
+            blue:   'border-blue-200 bg-blue-50 text-blue-800 hover:bg-blue-100',
+          };
+          const badgeClasses: Record<string, string> = {
+            orange: 'bg-orange-600 text-white',
+            amber:  'bg-amber-600 text-white',
+            blue:   'bg-blue-600 text-white',
+          };
+
+          return (
+            <div className="bg-white rounded-2xl shadow-xl p-4 mb-6">
+              <h2 className="font-bold text-base mb-3 flex items-center gap-2">
+                <AlertTriangle className="w-4 h-4 text-orange-600" />
+                Actions à mener
+              </h2>
+              {items.length === 0 ? (
+                <p className="text-sm text-gray-500 py-2 flex items-center gap-2">
+                  <CheckCircle className="w-4 h-4 text-emerald-600" />
+                  Aucune action en attente.
+                </p>
+              ) : (
+                <div className="flex flex-wrap gap-2">
+                  {items.map((it) => {
+                    const Icon = it.icon;
+                    return (
+                      <button
+                        key={it.label}
+                        onClick={() => router.push(it.href)}
+                        className={`flex items-center gap-2 rounded-lg border px-3 py-2 text-sm font-medium transition-colors ${toneClasses[it.tone]}`}
+                      >
+                        <Icon className="w-4 h-4" />
+                        <span>{it.label}</span>
+                        <span className={`ml-1 inline-flex items-center justify-center min-w-[1.5rem] h-5 rounded-full px-1.5 text-xs font-bold ${badgeClasses[it.tone]}`}>
+                          {it.count}
+                        </span>
+                        <ChevronRight className="w-3.5 h-3.5 opacity-60" />
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
             </div>
-          </div>
-        )}
+          );
+        })()}
 
         {/* Filtres ordres */}
         <div className="bg-white rounded-2xl shadow-xl p-4 mb-4">
