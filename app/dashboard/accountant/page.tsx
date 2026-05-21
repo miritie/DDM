@@ -18,6 +18,7 @@ import {
   CheckCircle,
   DollarSign,
   Receipt,
+  Package,
   Users,
   Calendar,
   Download,
@@ -474,6 +475,14 @@ export default function AccountantDashboardPage() {
           >
             <Wallet className="w-6 h-6" />
             <span>Inventaire trésorerie</span>
+          </Button>
+
+          <Button
+            onClick={() => router.push('/production/ingredients/inventory')}
+            className="h-20 bg-gradient-to-br from-orange-500 to-amber-600 hover:from-orange-600 hover:to-amber-700 text-white font-bold flex flex-col items-center justify-center gap-2"
+          >
+            <Package className="w-6 h-6" />
+            <span>Inventaire MP</span>
           </Button>
         </div>
 
