@@ -7,7 +7,7 @@
  * (produit × qty × destination indépendante).
  */
 import { useEffect, useState } from 'react';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import {
   ArrowLeft, Plus, Trash2, ArrowRightLeft, Save, AlertTriangle,
   Warehouse as WarehouseIcon, Store, Package,
@@ -40,11 +40,20 @@ export default function NewTransferPage() {
 
 function Content() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  // Pré-remplissage de la source par querystring. Permet aux dashboards
+  // métier (ex: Production & Usine) de greffer un raccourci « transfert
+  // PF depuis l'unité de production » sans dupliquer la page.
+  const presetWarehouseId = searchParams.get('sourceWarehouseId');
+  const presetOutletId = searchParams.get('sourceOutletId');
+
   const [warehouses, setWarehouses] = useState<Warehouse[]>([]);
   const [outlets, setOutlets] = useState<Outlet[]>([]);
   const [products, setProducts] = useState<Product[]>([]);
-  const [sourceType, setSourceType] = useState<'warehouse' | 'outlet'>('warehouse');
-  const [sourceId, setSourceId] = useState('');
+  const [sourceType, setSourceType] = useState<'warehouse' | 'outlet'>(
+    presetOutletId ? 'outlet' : 'warehouse'
+  );
+  const [sourceId, setSourceId] = useState<string>(presetWarehouseId || presetOutletId || '');
   const [notes, setNotes] = useState('');
   const [lines, setLines] = useState<LineDraft[]>([]);
   const [busy, setBusy] = useState(false);

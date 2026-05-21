@@ -21,6 +21,8 @@ import {
   ChevronRight,
   ClipboardList,
   ShoppingCart,
+  ArrowRightLeft,
+  Boxes,
 } from 'lucide-react';
 import { ProductionOrder } from '@/types/modules';
 import { ProductionOrderCard } from '@/components/production/production-order-card';
@@ -41,6 +43,10 @@ export default function ProductionPage() {
   const [statistics, setStatistics] = useState<ProductionStatistics | null>(null);
   const [mpBelowMin, setMpBelowMin] = useState(0);
   const [pendingPRs, setPendingPRs] = useState(0);
+  // UUID de l'entrepôt « Unité de Production » (WH-001 « Usine »).
+  // Résolu au chargement, sert à pré-filtrer les raccourcis inventaire PF
+  // et transfert sortant pour que l'opérateur n'ait pas à le choisir.
+  const [productionWarehouseId, setProductionWarehouseId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState<'all' | 'in_progress' | 'planned'>('all');
 
@@ -52,11 +58,12 @@ export default function ProductionPage() {
     try {
       setLoading(true);
 
-      const [ordersRes, statsRes, mpRes, prRes] = await Promise.all([
+      const [ordersRes, statsRes, mpRes, prRes, whRes] = await Promise.all([
         fetch('/api/production/orders'),
         fetch('/api/production/orders/statistics'),
         fetch('/api/production/ingredients?belowMinimum=true&isActive=true'),
         fetch('/api/production/purchase-requests'),
+        fetch('/api/stock/warehouses?isActive=true'),
       ]);
 
       if (ordersRes.ok) {
@@ -89,6 +96,15 @@ export default function ProductionPage() {
           .filter((p: any) => ['draft', 'submitted', 'approved'].includes(p.Status))
           .filter((p: any) => !isFullyReceived(p));
         setPendingPRs(pending.length);
+      }
+
+      if (whRes.ok) {
+        const whs = ((await whRes.json()).data || []) as any[];
+        // Convention : l'unité de production est l'entrepôt de code WH-001
+        // (nommé « Usine »). Fallback : 1er warehouse trouvé pour ne pas
+        // bloquer si la convention change.
+        const prod = whs.find(w => (w.code || w.Code) === 'WH-001') || whs[0];
+        if (prod) setProductionWarehouseId(prod.id || prod.warehouse_id || prod.WarehouseId);
       }
     } catch (error) {
       console.error('Erreur chargement données:', error);
@@ -217,6 +233,44 @@ export default function ProductionPage() {
               <Package className="w-8 h-8 mb-2 mx-auto" />
               <p className="font-semibold text-sm">Achats MP</p>
               <p className="text-xs opacity-90 mt-1">Sollicitations &amp; réceptions</p>
+            </button>
+          </div>
+        </div>
+
+        {/* Stock Produits Finis — wrappers vers /stock/* pré-filtré
+            sur l'entrepôt unité de production (WH-001 « Usine »).
+            Tant que l'UUID n'est pas résolu, les liens partent sans
+            pré-filtre (la page /stock/* propose un sélecteur). */}
+        <div className="bg-white rounded-2xl shadow-xl p-6 mb-6">
+          <h2 className="font-bold text-lg mb-1">Stock produits finis</h2>
+          <p className="text-xs text-gray-500 mb-4">
+            Comptage et sortie du stock PF depuis l'unité de production.
+          </p>
+          <div className="grid grid-cols-2 gap-3">
+            <button
+              onClick={() => router.push(
+                productionWarehouseId
+                  ? `/stock/inventory?warehouseId=${productionWarehouseId}`
+                  : '/stock/inventory'
+              )}
+              className="bg-gradient-to-br from-emerald-500 to-teal-600 text-white rounded-xl p-4 hover:scale-105 active:scale-95 transition-transform"
+            >
+              <Boxes className="w-8 h-8 mb-2 mx-auto" />
+              <p className="font-semibold text-sm">Inventaire PF</p>
+              <p className="text-xs opacity-90 mt-1">Comptage produits finis</p>
+            </button>
+
+            <button
+              onClick={() => router.push(
+                productionWarehouseId
+                  ? `/stock/transfers/new?sourceWarehouseId=${productionWarehouseId}`
+                  : '/stock/transfers/new'
+              )}
+              className="bg-gradient-to-br from-cyan-500 to-blue-600 text-white rounded-xl p-4 hover:scale-105 active:scale-95 transition-transform"
+            >
+              <ArrowRightLeft className="w-8 h-8 mb-2 mx-auto" />
+              <p className="font-semibold text-sm">Mouvement de stock</p>
+              <p className="text-xs opacity-90 mt-1">Transfert vers entrepôt / PdV</p>
             </button>
           </div>
         </div>
