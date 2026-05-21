@@ -43,14 +43,21 @@ async function main() {
   console.log('🚀 Permission ingredient:inventory + attribution aux rôles terrain');
   const pool = new Pool({ connectionString: DATABASE_URL, ssl: { rejectUnauthorized: false } });
   try {
-    // 1. Création de la permission si absente
+    // 1. Création / mise à jour de la permission.
+    // UPSERT du libellé : ce script est l'autorité sur le nom métier de
+    // `ingredient:inventory`. Sans `DO UPDATE`, si sync-all-permissions a
+    // tourné avant et inséré un libellé auto-généré (« Inventory
+    // (ingredient) »), il resterait visible dans l'UI Admin > Rôles.
     await pool.query(
       `INSERT INTO permissions (permission_id, code, name, module, description)
        VALUES ($1, $2, $3, $4, $5)
-       ON CONFLICT (code) DO NOTHING`,
+       ON CONFLICT (code) DO UPDATE SET
+         name = EXCLUDED.name,
+         description = EXCLUDED.description,
+         module = EXCLUDED.module`,
       [PERM.code, PERM.code, PERM.name, PERM.module, PERM.description]
     );
-    console.log(`✅ Permission ${PERM.code} garantie en DB`);
+    console.log(`✅ Permission ${PERM.code} garantie en DB (libellé : "${PERM.name}")`);
 
     // 2. Récupère l'UUID de la permission
     const permR = await pool.query(`SELECT id FROM permissions WHERE code = $1`, [PERM.code]);

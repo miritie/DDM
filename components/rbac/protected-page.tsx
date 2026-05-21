@@ -112,6 +112,11 @@ function AccessDeniedDiagnostic({
   const required = permission ? [permission] : (permissions || []);
   const effective: string[] = diag?.effectivePermissions || [];
   const missing = required.filter(r => !effective.includes(r as string));
+  // Distingue les deux cas : on a la liste, mais elle peut être vide si la
+  // page de protection a oublié de passer `permission`/`permissions`. Ne
+  // jamais afficher un cartouche rouge vide — c'est exactement le bug que
+  // l'utilisateur a rencontré dans un état transitoire.
+  const hasRequired = required.length > 0;
 
   return (
     <div className="flex items-center justify-center min-h-screen bg-gray-50 px-4 py-8">
@@ -124,9 +129,17 @@ function AccessDeniedDiagnostic({
         <CardContent className="space-y-4 text-sm">
           <div className="p-3 bg-red-50 border border-red-200 rounded">
             <p className="font-semibold text-red-800">Permission(s) requise(s) pour cette page :</p>
-            <ul className="list-disc list-inside mt-1 font-mono text-xs text-red-900">
-              {required.map(p => <li key={p}>{p}{missing.includes(p) && ' ← manquante'}</li>)}
-            </ul>
+            {hasRequired ? (
+              <ul className="list-disc list-inside mt-1 font-mono text-xs text-red-900">
+                {required.map(p => <li key={p}>{p}{missing.includes(p) && ' ← manquante'}</li>)}
+              </ul>
+            ) : (
+              <p className="mt-1 text-xs italic text-red-800">
+                Aucune permission n'a été déclarée par la page. Si l'écran ne se
+                débloque pas après rechargement, signale-le : un wrapper RBAC est
+                probablement mal configuré.
+              </p>
+            )}
           </div>
 
           {diag ? (
