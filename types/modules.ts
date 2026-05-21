@@ -193,6 +193,12 @@ export interface Warehouse {
   Address?: string;
   ManagerId?: string;
   IsActive: boolean;
+  /**
+   * Vrai si cet entrepôt est physiquement adossé à l'unité de
+   * production. Seuls ces entrepôts peuvent servir de source à un
+   * transfert de produits finis initié depuis le dashboard Production.
+   */
+  IsProductionSource: boolean;
   WorkspaceId: string;
   CreatedAt: string;
   UpdatedAt: string;

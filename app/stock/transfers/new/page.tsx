@@ -10,7 +10,7 @@ import { useEffect, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import {
   ArrowLeft, Plus, Trash2, ArrowRightLeft, Save, AlertTriangle,
-  Warehouse as WarehouseIcon, Store, Package,
+  Warehouse as WarehouseIcon, Store, Package, Factory,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { ProtectedPage } from '@/components/rbac/protected-page';
@@ -18,7 +18,15 @@ import { PERMISSIONS } from '@/lib/rbac';
 
 const INP = 'w-full h-11 px-3 border-2 border-gray-200 rounded-lg focus:outline-none focus:border-cyan-500';
 
-interface Warehouse { id: string; warehouse_id?: string; WarehouseId?: string; name?: string; Name?: string; }
+interface Warehouse {
+  id: string;
+  warehouse_id?: string;
+  WarehouseId?: string;
+  name?: string;
+  Name?: string;
+  is_production_source?: boolean;
+  IsProductionSource?: boolean;
+}
 interface Outlet { id: string; code: string; name: string; }
 interface Product { id?: string; ProductId: string; Name: string; Code: string; Unit?: string; }
 
@@ -46,12 +54,18 @@ function Content() {
   // PF depuis l'unité de production » sans dupliquer la page.
   const presetWarehouseId = searchParams.get('sourceWarehouseId');
   const presetOutletId = searchParams.get('sourceOutletId');
+  // Contexte production : verrouille la source au type warehouse, et
+  // restreint la liste aux entrepôts marqués `is_production_source`.
+  // Si un seul entrepôt est éligible, il est auto-sélectionné. Règle
+  // métier : un transfert de PF ne peut sortir que d'un entrepôt
+  // adossé à l'unité de production.
+  const fromProduction = searchParams.get('fromProduction') === '1';
 
   const [warehouses, setWarehouses] = useState<Warehouse[]>([]);
   const [outlets, setOutlets] = useState<Outlet[]>([]);
   const [products, setProducts] = useState<Product[]>([]);
   const [sourceType, setSourceType] = useState<'warehouse' | 'outlet'>(
-    presetOutletId ? 'outlet' : 'warehouse'
+    fromProduction ? 'warehouse' : (presetOutletId ? 'outlet' : 'warehouse')
   );
   const [sourceId, setSourceId] = useState<string>(presetWarehouseId || presetOutletId || '');
   const [notes, setNotes] = useState('');
@@ -60,14 +74,28 @@ function Content() {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
+    // En contexte production, on demande au serveur uniquement les
+    // entrepôts flagués source production. Sinon, tous les actifs.
+    const warehouseUrl = fromProduction
+      ? '/api/stock/warehouses?isActive=true&isProductionSource=true'
+      : '/api/stock/warehouses?isActive=true';
+
     Promise.all([
-      fetch('/api/stock/warehouses?isActive=true').then((r) => r.ok ? r.json() : { data: [] }),
+      fetch(warehouseUrl).then((r) => r.ok ? r.json() : { data: [] }),
       fetch('/api/outlets?isActive=true').then((r) => r.ok ? r.json() : { data: [] }),
       fetch('/api/products?isActive=true').then((r) => r.ok ? r.json() : { data: [] }),
     ]).then(([wR, oR, pR]) => {
-      setWarehouses(wR.data || []);
+      const whs: Warehouse[] = wR.data || [];
+      setWarehouses(whs);
       setOutlets(oR.data || []);
       setProducts(pR.data || []);
+
+      // Auto-sélection : si en contexte production et qu'un seul
+      // entrepôt est éligible, on le verrouille comme source par défaut
+      // (l'utilisateur n'a pas à choisir, et ne peut pas en sortir).
+      if (fromProduction && !sourceId && whs.length === 1) {
+        setSourceId(getWarehouseId(whs[0]));
+      }
     });
   }, []);
 
@@ -148,25 +176,54 @@ function Content() {
         {/* Source */}
         <div className="bg-white rounded-2xl shadow-xl p-6 space-y-3">
           <h2 className="font-bold">Source (émetteur)</h2>
-          <div className="flex gap-2">
-            <button
-              onClick={() => { setSourceType('warehouse'); setSourceId(''); }}
-              className={`flex-1 h-12 rounded-lg font-medium flex items-center justify-center gap-2 ${
-                sourceType === 'warehouse' ? 'bg-cyan-600 text-white' : 'bg-gray-100 text-gray-700'
-              }`}
-            >
-              <WarehouseIcon className="w-4 h-4" /> Entrepôt
-            </button>
-            <button
-              onClick={() => { setSourceType('outlet'); setSourceId(''); }}
-              className={`flex-1 h-12 rounded-lg font-medium flex items-center justify-center gap-2 ${
-                sourceType === 'outlet' ? 'bg-cyan-600 text-white' : 'bg-gray-100 text-gray-700'
-              }`}
-            >
-              <Store className="w-4 h-4" /> Stand
-            </button>
-          </div>
-          <select className={INP} value={sourceId} onChange={(e) => setSourceId(e.target.value)}>
+          {fromProduction && (
+            <div className="bg-purple-50 border border-purple-200 rounded-lg p-3 text-sm text-purple-900 flex gap-2 items-start">
+              <Factory className="w-4 h-4 mt-0.5 shrink-0" />
+              <div>
+                <strong>Transfert depuis l'unité de production.</strong> La source
+                est restreinte aux entrepôts marqués « Adossé à l'unité de
+                production » (configurable depuis l'admin entrepôts).
+                {warehouses.length === 0 && (
+                  <span className="block mt-1 text-red-700">
+                    Aucun entrepôt n'est marqué — impossible de créer un transfert.
+                    Va dans Stock &gt; Entrepôts pour en désigner au moins un.
+                  </span>
+                )}
+                {warehouses.length === 1 && (
+                  <span className="block mt-1">
+                    Seul <strong>{getWarehouseName(warehouses[0])}</strong> est éligible —
+                    sélection verrouillée.
+                  </span>
+                )}
+              </div>
+            </div>
+          )}
+          {!fromProduction && (
+            <div className="flex gap-2">
+              <button
+                onClick={() => { setSourceType('warehouse'); setSourceId(''); }}
+                className={`flex-1 h-12 rounded-lg font-medium flex items-center justify-center gap-2 ${
+                  sourceType === 'warehouse' ? 'bg-cyan-600 text-white' : 'bg-gray-100 text-gray-700'
+                }`}
+              >
+                <WarehouseIcon className="w-4 h-4" /> Entrepôt
+              </button>
+              <button
+                onClick={() => { setSourceType('outlet'); setSourceId(''); }}
+                className={`flex-1 h-12 rounded-lg font-medium flex items-center justify-center gap-2 ${
+                  sourceType === 'outlet' ? 'bg-cyan-600 text-white' : 'bg-gray-100 text-gray-700'
+                }`}
+              >
+                <Store className="w-4 h-4" /> Stand
+              </button>
+            </div>
+          )}
+          <select
+            className={INP}
+            value={sourceId}
+            onChange={(e) => setSourceId(e.target.value)}
+            disabled={fromProduction && warehouses.length <= 1}
+          >
             <option value="">— Choisir un emplacement source —</option>
             {sourceType === 'warehouse'
               ? warehouses.map((w) => (

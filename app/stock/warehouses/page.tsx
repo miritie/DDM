@@ -12,7 +12,7 @@ import { PERMISSIONS } from '@/lib/rbac';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Warehouse } from '@/types/modules';
-import { Building2, MapPin, Plus, Edit, Trash2 } from 'lucide-react';
+import { Building2, MapPin, Plus, Edit, Trash2, Factory } from 'lucide-react';
 
 export default function WarehousesPage() {
   const router = useRouter();
@@ -41,6 +41,42 @@ export default function WarehousesPage() {
       console.error('Error loading warehouses:', error);
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function toggleProductionSource(warehouse: Warehouse) {
+    const next = !warehouse.IsProductionSource;
+    const verb = next ? 'marquer' : 'retirer';
+    const label = warehouse.Name;
+    if (!confirm(
+      next
+        ? `Marquer « ${label} » comme source de production ? Il pourra alors initier des transferts de produits finis depuis le dashboard Production.`
+        : `Retirer « ${label} » des sources de production ? Il ne pourra plus initier de transferts de PF depuis le dashboard Production.`
+    )) return;
+
+    // Optimistic update : on bascule l'état local avant l'aller-retour
+    // serveur pour que le toggle réponde instantanément. On rollback en
+    // cas d'erreur.
+    setWarehouses(ws =>
+      ws.map(w => w.WarehouseId === warehouse.WarehouseId ? { ...w, IsProductionSource: next } : w)
+    );
+
+    try {
+      const res = await fetch(`/api/stock/warehouses/${warehouse.WarehouseId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ isProductionSource: next }),
+      });
+      if (!res.ok) {
+        const data = await res.json();
+        throw new Error(data.error || `Impossible de ${verb} la source.`);
+      }
+    } catch (err: any) {
+      // Rollback
+      setWarehouses(ws =>
+        ws.map(w => w.WarehouseId === warehouse.WarehouseId ? { ...w, IsProductionSource: !next } : w)
+      );
+      alert(err.message);
     }
   }
 
@@ -183,6 +219,12 @@ export default function WarehousesPage() {
                             <p className="text-sm text-gray-500">{warehouse.Code}</p>
                           </div>
                         </div>
+                        {warehouse.IsProductionSource && (
+                          <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-semibold bg-purple-100 text-purple-700">
+                            <Factory className="h-3 w-3" />
+                            Source production
+                          </span>
+                        )}
                       </div>
                     </CardHeader>
                     <CardContent className="space-y-2">
@@ -195,6 +237,18 @@ export default function WarehousesPage() {
                       {warehouse.Address && (
                         <p className="text-sm text-gray-600">{warehouse.Address}</p>
                       )}
+
+                      <label className="flex items-center gap-2 cursor-pointer pt-2">
+                        <input
+                          type="checkbox"
+                          checked={warehouse.IsProductionSource}
+                          onChange={() => toggleProductionSource(warehouse)}
+                          className="h-4 w-4 text-purple-600 focus:ring-purple-500 border-gray-300 rounded"
+                        />
+                        <span className="text-sm text-gray-700">
+                          Adossé à l'unité de production
+                        </span>
+                      </label>
 
                       <div className="pt-4 flex gap-2">
                         <Button

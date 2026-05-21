@@ -43,9 +43,9 @@ export default function ProductionPage() {
   const [statistics, setStatistics] = useState<ProductionStatistics | null>(null);
   const [mpBelowMin, setMpBelowMin] = useState(0);
   const [pendingPRs, setPendingPRs] = useState(0);
-  // UUID de l'entrepôt « Unité de Production » (WH-001 « Usine »).
-  // Résolu au chargement, sert à pré-filtrer les raccourcis inventaire PF
-  // et transfert sortant pour que l'opérateur n'ait pas à le choisir.
+  // UUID du 1er entrepôt marqué « Adossé à l'unité de production ».
+  // Sert à pré-filtrer le raccourci Inventaire PF (le wizard de
+  // transfert se débrouille côté serveur via ?fromProduction=1).
   const [productionWarehouseId, setProductionWarehouseId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState<'all' | 'in_progress' | 'planned'>('all');
@@ -63,7 +63,7 @@ export default function ProductionPage() {
         fetch('/api/production/orders/statistics'),
         fetch('/api/production/ingredients?belowMinimum=true&isActive=true'),
         fetch('/api/production/purchase-requests'),
-        fetch('/api/stock/warehouses?isActive=true'),
+        fetch('/api/stock/warehouses?isActive=true&isProductionSource=true'),
       ]);
 
       if (ordersRes.ok) {
@@ -100,10 +100,11 @@ export default function ProductionPage() {
 
       if (whRes.ok) {
         const whs = ((await whRes.json()).data || []) as any[];
-        // Convention : l'unité de production est l'entrepôt de code WH-001
-        // (nommé « Usine »). Fallback : 1er warehouse trouvé pour ne pas
-        // bloquer si la convention change.
-        const prod = whs.find(w => (w.code || w.Code) === 'WH-001') || whs[0];
+        // Premier entrepôt flagué source production. S'il y en a plusieurs,
+        // l'utilisateur choisira sur l'écran d'inventaire (qui propose le
+        // sélecteur). S'il n'y en a aucun, on laisse à null (les liens
+        // partiront alors sans pré-filtre et le sélecteur se chargera).
+        const prod = whs[0];
         if (prod) setProductionWarehouseId(prod.id || prod.warehouse_id || prod.WarehouseId);
       }
     } catch (error) {
@@ -261,11 +262,7 @@ export default function ProductionPage() {
             </button>
 
             <button
-              onClick={() => router.push(
-                productionWarehouseId
-                  ? `/stock/transfers/new?sourceWarehouseId=${productionWarehouseId}`
-                  : '/stock/transfers/new'
-              )}
+              onClick={() => router.push('/stock/transfers/new?fromProduction=1')}
               className="bg-gradient-to-br from-cyan-500 to-blue-600 text-white rounded-xl p-4 hover:scale-105 active:scale-95 transition-transform"
             >
               <ArrowRightLeft className="w-8 h-8 mb-2 mx-auto" />

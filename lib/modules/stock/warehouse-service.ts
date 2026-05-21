@@ -23,6 +23,7 @@ export interface UpdateWarehouseInput {
   address?: string;
   managerId?: string;
   isActive?: boolean;
+  isProductionSource?: boolean;
 }
 
 /**
@@ -80,12 +81,15 @@ export class WarehouseService {
    */
   async list(
     workspaceId: string,
-    filters: { isActive?: boolean } = {}
+    filters: { isActive?: boolean; isProductionSource?: boolean } = {}
   ): Promise<Warehouse[]> {
     const filterFormulas: string[] = [`{workspace_id} = '${workspaceId}'`];
 
     if (filters.isActive !== undefined) {
       filterFormulas.push(`{is_active} = ${filters.isActive ? 1 : 0}`);
+    }
+    if (filters.isProductionSource !== undefined) {
+      filterFormulas.push(`{is_production_source} = ${filters.isProductionSource ? 1 : 0}`);
     }
 
     const filterByFormula =
@@ -121,6 +125,7 @@ export class WarehouseService {
       Address: input.address,
       ManagerId: input.managerId,
       IsActive: input.isActive,
+      IsProductionSource: input.isProductionSource,
       UpdatedAt: new Date().toISOString(),
     };
 

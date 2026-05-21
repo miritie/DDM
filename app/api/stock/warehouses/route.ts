@@ -24,6 +24,9 @@ export async function GET(request: NextRequest) {
     if (searchParams.get('isActive')) {
       filters.isActive = searchParams.get('isActive') === 'true';
     }
+    if (searchParams.get('isProductionSource')) {
+      filters.isProductionSource = searchParams.get('isProductionSource') === 'true';
+    }
 
     const warehouses = await service.list(workspaceId, filters);
 
