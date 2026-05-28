@@ -321,10 +321,14 @@ export class OutletService {
   // ===== Assignments (planning hebdo) =====
 
   async listAssignments(workspaceId: string, filters: { outletId?: string; userId?: string; weekStart?: string } = {}): Promise<OutletAssignment[]> {
+    // user_id est UUID, le filtre peut arriver en business code (USR-…)
+    // depuis une querystring : on résout avant filtrage.
+    const userUuid = filters.userId ? await resolveUserUuid(filters.userId) : undefined;
+
     const params: any[] = [workspaceId];
     let sql = `SELECT * FROM outlet_assignments WHERE workspace_id = $1`;
     if (filters.outletId) { params.push(filters.outletId); sql += ` AND outlet_id = $${params.length}`; }
-    if (filters.userId) { params.push(filters.userId); sql += ` AND user_id = $${params.length}`; }
+    if (userUuid) { params.push(userUuid); sql += ` AND user_id = $${params.length}`; }
     if (filters.weekStart) { params.push(filters.weekStart); sql += ` AND week_start = $${params.length}`; }
     sql += ` ORDER BY week_start DESC`;
     const r = await db.query(sql, params);
@@ -378,13 +382,19 @@ export class OutletService {
     overridesAssignmentId?: string;
     assignedById?: string;
   }): Promise<OutletAssignmentOverride> {
+    // Même règle que createAssignment : la session véhicule des codes
+    // business (USR-…) mais les colonnes FK sont UUID. On résout pour
+    // éviter "invalid input syntax for type uuid".
+    const userUuid = await resolveUserUuid(input.userId);
+    const assignedByUuid = input.assignedById ? await resolveUserUuid(input.assignedById) : null;
+
     const r = await db.query(
       `INSERT INTO outlet_assignment_overrides
         (outlet_id, user_id, date_from, date_to, reason, overrides_assignment_id, assigned_by_id, workspace_id)
        VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING *`,
-      [input.outletId, input.userId, input.dateFrom, input.dateTo,
+      [input.outletId, userUuid, input.dateFrom, input.dateTo,
        input.reason ?? null, input.overridesAssignmentId ?? null,
-       input.assignedById ?? null, input.workspaceId]
+       assignedByUuid, input.workspaceId]
     );
     return mapOverrideRow(r.rows[0]);
   }
