@@ -342,21 +342,58 @@ export default function QuickSalePage() {
   const clearActiveClient = () => { setSelectedScan(null); setManualClient(null); };
 
   // Contenu du panier — réutilisé en panel droite (desktop) ET drawer bas (mobile).
+  // Le bandeau client est l'opportunité de capturer l'identité au moment de
+  // l'encaissement : un client qui paye est déjà engagé, c'est le bon moment
+  // pour lui demander son numéro ou de scanner. Si pas de client, on met
+  // donc 2 gros CTA visuels en évidence.
   const cartContent = (
     <div className="flex flex-col h-full">
-      {/* Bandeau client en haut du panier */}
-      <div className="px-3 py-2 border-b bg-indigo-50/50">
-        <p className="text-[10px] uppercase font-semibold text-indigo-700 mb-1">Client</p>
+      <div className="px-3 py-3 border-b bg-indigo-50/40">
+        <p className="text-[10px] uppercase font-semibold text-indigo-700 mb-2 tracking-wide">Client</p>
         {activeClientLabel ? (
-          <div className="flex items-center gap-2">
-            <Users className="w-4 h-4 text-indigo-600 shrink-0" />
-            <p className="text-sm font-medium text-indigo-900 truncate flex-1">{activeClientLabel}</p>
-            <button onClick={clearActiveClient} className="text-indigo-400 hover:text-red-600 p-1" aria-label="Retirer client">
+          <div className="flex items-center gap-2 px-3 py-2.5 rounded-lg bg-white border border-indigo-200">
+            <div className="w-8 h-8 rounded-full bg-indigo-100 flex items-center justify-center shrink-0">
+              <Users className="w-4 h-4 text-indigo-700" />
+            </div>
+            <div className="min-w-0 flex-1">
+              <p className="text-sm font-semibold text-indigo-900 truncate">{activeClientLabel}</p>
+              <p className="text-[11px] text-indigo-600">Rattaché à cette vente</p>
+            </div>
+            <button onClick={clearActiveClient} className="text-gray-400 hover:text-red-600 p-1" aria-label="Retirer client">
               <X className="w-4 h-4" />
             </button>
           </div>
         ) : (
-          <p className="text-sm text-gray-500 italic">Vente anonyme</p>
+          <>
+            <p className="text-sm text-gray-700 mb-2.5">
+              <span className="italic text-gray-500">Vente anonyme</span> — vite, identifier le client ?
+            </p>
+            <div className="grid grid-cols-2 gap-2">
+              <button
+                onClick={() => setShowNewClient(true)}
+                className="inline-flex flex-col items-center justify-center gap-1 px-3 py-3 rounded-xl border-2 border-indigo-300 bg-white text-indigo-700 font-semibold hover:bg-indigo-50 active:scale-95 transition"
+              >
+                <UserPlus className="w-6 h-6" />
+                <span className="text-sm">Nouveau client</span>
+              </button>
+              <button
+                onClick={() => setShowQr(true)}
+                className="inline-flex flex-col items-center justify-center gap-1 px-3 py-3 rounded-xl border-2 border-blue-300 bg-white text-blue-700 font-semibold hover:bg-blue-50 active:scale-95 transition"
+              >
+                <QrCode className="w-6 h-6" />
+                <span className="text-sm">Scanner QR</span>
+              </button>
+            </div>
+            {scans.length > 0 && (
+              <button
+                onClick={() => setShowScansList(true)}
+                className="mt-2 w-full inline-flex items-center justify-center gap-2 px-3 py-2 rounded-lg border border-amber-300 bg-amber-50 text-amber-800 text-sm font-semibold hover:bg-amber-100"
+              >
+                <Smartphone className="w-4 h-4" />
+                {scans.length} scan{scans.length > 1 ? 's' : ''} client{scans.length > 1 ? 's' : ''} en attente — toucher pour choisir
+              </button>
+            )}
+          </>
         )}
       </div>
 
@@ -467,23 +504,23 @@ export default function QuickSalePage() {
               {!activeClientLabel && (
                 <>
                   <button onClick={() => setShowNewClient(true)}
-                    className="p-1.5 rounded-md border border-indigo-200 bg-indigo-50 text-indigo-700 hover:bg-indigo-100"
-                    title="Créer un client" aria-label="Nouveau client">
+                    className="px-2.5 py-1.5 rounded-md border border-indigo-300 bg-indigo-50 text-indigo-700 hover:bg-indigo-100 inline-flex items-center gap-1.5 text-xs font-semibold shrink-0"
+                    title="Créer un client">
                     <UserPlus className="w-4 h-4" />
+                    Client
                   </button>
                   <button onClick={() => setShowQr(true)}
-                    className="p-1.5 rounded-md border border-blue-200 bg-blue-50 text-blue-700 hover:bg-blue-100"
-                    title="Afficher le QR au client" aria-label="QR stand">
+                    className="px-2.5 py-1.5 rounded-md border border-blue-300 bg-blue-50 text-blue-700 hover:bg-blue-100 inline-flex items-center gap-1.5 text-xs font-semibold shrink-0"
+                    title="Afficher le QR au client">
                     <QrCode className="w-4 h-4" />
+                    QR
                   </button>
                   {scans.length > 0 && (
                     <button onClick={() => setShowScansList(true)}
-                      className="relative p-1.5 rounded-md border border-amber-200 bg-amber-50 text-amber-700 hover:bg-amber-100"
-                      title="Scans QR en attente" aria-label="Scans en attente">
+                      className="relative px-2.5 py-1.5 rounded-md border border-amber-300 bg-amber-50 text-amber-700 hover:bg-amber-100 inline-flex items-center gap-1.5 text-xs font-semibold shrink-0"
+                      title="Scans QR en attente">
                       <Smartphone className="w-4 h-4" />
-                      <span className="absolute -top-1 -right-1 min-w-[16px] h-[16px] px-1 rounded-full bg-amber-600 text-white text-[10px] font-bold flex items-center justify-center">
-                        {scans.length}
-                      </span>
+                      <span>{scans.length}</span>
                     </button>
                   )}
                 </>
