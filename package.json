@@ -6,7 +6,7 @@
     "dev": "next dev -p 3001",
     "build": "next build",
     "start": "next start -p 3001",
-    "lint": "next lint",
+    "lint": "eslint .",
     "init-users": "tsx scripts/init-users.ts",
     "db:check": "tsx scripts/database/check-db.ts",
     "db:schema": "tsx scripts/database/execute-schema.ts",
