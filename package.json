@@ -29,7 +29,8 @@
     "migrate:replenishments-perms": "tsx scripts/database/apply-replenishments-permissions.ts",
     "migrate:production:v1:dry-run": "tsx scripts/database/apply-migration-production-v1.ts --dry-run",
     "migrate:production:v1": "tsx scripts/database/apply-migration-production-v1.ts",
-    "migrate:production:v1:perms": "tsx scripts/database/apply-production-v1-permissions.ts"
+    "migrate:production:v1:perms": "tsx scripts/database/apply-production-v1-permissions.ts",
+    "migrate:commercial-stock-view": "tsx scripts/database/apply-commercial-stock-view-permission.ts"
   },
   "dependencies": {
     "@radix-ui/react-checkbox": "^1.3.3",
