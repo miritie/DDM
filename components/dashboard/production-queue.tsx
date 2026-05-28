@@ -10,8 +10,8 @@
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import {
-  Inbox, ChevronRight, ChevronDown, ChevronUp, Factory, ShoppingBag,
-  RefreshCw, AlertCircle, Truck, Package, Phone, CheckCircle, ArrowRight, Store,
+  Inbox, ChevronDown, ChevronUp, Factory, ShoppingBag,
+  RefreshCw, AlertCircle, Truck, Phone, Store,
 } from 'lucide-react';
 
 const fmt = (n: number | string | undefined) =>
@@ -57,12 +57,13 @@ interface QueueData {
   totalCount: number;
 }
 
-export function ProductionQueue() {
+export function ProductionQueue({ defaultCollapsed = false }: { defaultCollapsed?: boolean } = {}) {
   const router = useRouter();
   const [data, setData] = useState<QueueData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  const [open, setOpen] = useState(!defaultCollapsed);
 
   async function load() {
     setLoading(true);
@@ -105,27 +106,60 @@ export function ProductionQueue() {
   const total = data.pending.length + data.inProgress.length + repPending.length + repInProgress.length;
 
   return (
-    <div className="bg-white rounded-2xl shadow-xl border-2 border-blue-200">
-      <div className="border-b border-blue-100 px-6 py-4 flex items-center justify-between bg-gradient-to-r from-blue-50 to-cyan-50 rounded-t-2xl">
-        <div className="flex items-center gap-3">
-          <div className="w-10 h-10 bg-blue-500 rounded-xl flex items-center justify-center text-white">
-            <Inbox className="w-5 h-5" />
+    <div className="bg-white rounded-xl shadow-sm border border-blue-200">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className="w-full px-4 py-3 flex items-center justify-between gap-3 text-left hover:bg-blue-50/40 rounded-t-xl transition-colors"
+      >
+        <div className="flex items-center gap-3 min-w-0 flex-1">
+          <div className="w-8 h-8 bg-blue-500 rounded-lg flex items-center justify-center text-white shrink-0">
+            <Inbox className="w-4 h-4" />
           </div>
-          <div>
-            <h2 className="font-bold text-lg">Corbeille production</h2>
-            <p className="text-sm text-gray-600">
-              {total === 0
-                ? 'Aucune sollicitation à produire'
-                : `${data.pending.length + repPending.length} en attente · ${data.inProgress.length + repInProgress.length} en cours`}
-            </p>
+          <div className="min-w-0 flex-1">
+            <div className="flex items-center gap-2 flex-wrap">
+              <h2 className="font-semibold text-sm text-gray-900">Corbeille production</h2>
+              {total === 0 ? (
+                <span className="text-xs text-gray-500">Aucune sollicitation</span>
+              ) : (
+                <>
+                  {(data.pending.length + repPending.length) > 0 && (
+                    <span className="text-[11px] font-semibold px-2 py-0.5 rounded-full bg-amber-100 text-amber-800">
+                      {data.pending.length + repPending.length} en attente
+                    </span>
+                  )}
+                  {(data.inProgress.length + repInProgress.length) > 0 && (
+                    <span className="text-[11px] font-semibold px-2 py-0.5 rounded-full bg-purple-100 text-purple-800">
+                      {data.inProgress.length + repInProgress.length} en production
+                    </span>
+                  )}
+                  {repPending.length > 0 && (
+                    <span className="text-[11px] font-semibold px-2 py-0.5 rounded-full bg-cyan-100 text-cyan-800">
+                      {repPending.length} réappro stands
+                    </span>
+                  )}
+                </>
+              )}
+            </div>
           </div>
         </div>
-        <button onClick={load} className="p-2 hover:bg-blue-100 rounded-lg" title="Rafraîchir">
-          <RefreshCw className="w-4 h-4 text-blue-700" />
-        </button>
-      </div>
+        <div className="flex items-center gap-1 shrink-0">
+          <span
+            role="button"
+            tabIndex={0}
+            onClick={(e) => { e.stopPropagation(); load(); }}
+            onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); load(); } }}
+            className="p-1.5 hover:bg-blue-100 rounded-md text-blue-700"
+            title="Rafraîchir"
+          >
+            <RefreshCw className="w-3.5 h-3.5" />
+          </span>
+          {open ? <ChevronUp className="w-4 h-4 text-gray-400" /> : <ChevronDown className="w-4 h-4 text-gray-400" />}
+        </div>
+      </button>
 
-      <div className="p-4 space-y-4">
+      {open && total > 0 && (
+      <div className="p-4 pt-2 space-y-4 border-t border-blue-100">
         {data.pending.length > 0 && (
           <div>
             <h3 className="text-sm font-semibold text-amber-800 mb-2 flex items-center gap-1">
@@ -207,16 +241,8 @@ export function ProductionQueue() {
           </div>
         )}
 
-        {total === 0 && (
-          <div className="text-center py-8">
-            <CheckCircle className="w-12 h-12 text-green-500 mx-auto mb-2" />
-            <p className="font-semibold text-green-900">Aucune commande en attente</p>
-            <p className="text-sm text-gray-500">
-              Les sollicitations validées par l'admin apparaîtront ici.
-            </p>
-          </div>
-        )}
       </div>
+      )}
     </div>
   );
 }
