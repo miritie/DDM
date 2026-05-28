@@ -7,6 +7,8 @@
     "build": "next build",
     "start": "next start -p 3001",
     "lint": "eslint .",
+    "test": "vitest run",
+    "test:watch": "vitest",
     "init-users": "tsx scripts/init-users.ts",
     "db:check": "tsx scripts/database/check-db.ts",
     "db:schema": "tsx scripts/database/execute-schema.ts",
@@ -70,6 +72,7 @@
     "postcss": "^8.4.49",
     "tailwindcss": "^4.0.0",
     "tsx": "^4.20.6",
-    "typescript": "^5"
+    "typescript": "^5",
+    "vitest": "^4.1.7"
   }
 }
