@@ -5,15 +5,21 @@
  *
  * Liste les lignes en statut `pending` dont la destination est l'outlet
  * actif. Le vendeur peut :
- *   - Confirmer une ligne (qty reçue = qty envoyée → stock incrémenté côté outlet)
- *   - Confirmer en quantité partielle (ouverture champ qty si nécessaire — futur)
+ *   - Confirmer une ligne en intégralité (qty reçue = qty envoyée)
+ *   - Confirmer en quantité partielle (qty < qty envoyée) — le service
+ *     bascule alors la ligne en `adjusted` + `shortfall_decision='pending'`.
+ *
+ * La quantité reçue est saisissable et capée côté UI à `qty_sent` (la
+ * route confirmLeg refuse > qty_sent). La saisie « 0 » désactive le
+ * bouton — pour un refus pur, ce sera un autre endpoint (non implémenté
+ * ici, voir /lines/{id}/refuse côté service).
  *
  * Utilise les endpoints existants :
  *   GET  /api/stock/transfers/incoming
  *   POST /api/stock/transfers/lines/{lineId}/confirm
  */
 
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { Loader2, X, Truck, RefreshCw, Check, AlertTriangle } from 'lucide-react';
 
 interface IncomingLine {
@@ -57,7 +63,11 @@ export function IncomingTransfersModal({ outletId, onClose, onConfirmed }: Incom
   const [error, setError] = useState<string | null>(null);
   const [confirmingLineId, setConfirmingLineId] = useState<string | null>(null);
 
-  async function load() {
+  // Quantité saisie par ligne (string pour permettre input vide en cours
+  // de frappe). Initialisée à qty_sent au chargement.
+  const [qtyByLine, setQtyByLine] = useState<Record<string, string>>({});
+
+  const load = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
@@ -67,35 +77,66 @@ export function IncomingTransfersModal({ outletId, onClose, onConfirmed }: Incom
         throw new Error(err.error || 'Impossible de charger les transferts');
       }
       const { data } = await r.json();
-      // Filtrer côté client : ne garder que les transferts ayant ≥1 ligne
-      // pending pointant sur cet outlet.
       const filtered = (data || []).filter((t: IncomingTransfer) =>
         (t.lines || []).some(
           (l) => l.leg_status === 'pending' && l.destination_outlet_id === outletId
         )
       );
       setTransfers(filtered);
+
+      // Pré-remplit les inputs : qty_sent par défaut, sans écraser une
+      // valeur déjà saisie par le vendeur (sinon le poll ferait sauter
+      // la saisie en cours).
+      setQtyByLine((prev) => {
+        const next = { ...prev };
+        for (const t of filtered) {
+          for (const l of t.lines) {
+            if (l.leg_status === 'pending' && l.destination_outlet_id === outletId && next[l.id] === undefined) {
+              next[l.id] = String(Math.round(Number(l.qty_sent)));
+            }
+          }
+        }
+        return next;
+      });
     } catch (e: any) {
       setError(e.message);
     } finally {
       setLoading(false);
     }
-  }
+  }, [outletId]);
 
-  useEffect(() => { void load(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [outletId]);
+  useEffect(() => { void load(); }, [load]);
 
   async function confirmLine(line: IncomingLine) {
+    const raw = qtyByLine[line.id];
+    const qtyReceived = parseInt(raw ?? '', 10);
+    if (!Number.isFinite(qtyReceived) || qtyReceived <= 0) {
+      setError(`Saisis une quantité positive pour ${line.product_name}.`);
+      return;
+    }
+    if (qtyReceived > Number(line.qty_sent)) {
+      setError(`La quantité reçue (${qtyReceived}) ne peut dépasser la quantité envoyée (${fmt(line.qty_sent)}).`);
+      return;
+    }
     setConfirmingLineId(line.id);
+    setError(null);
     try {
       const r = await fetch(`/api/stock/transfers/lines/${line.id}/confirm`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ qtyReceived: Number(line.qty_sent) }),
+        body: JSON.stringify({ qtyReceived }),
       });
       if (!r.ok) {
         const err = await r.json();
         throw new Error(err.error || 'Erreur confirmation');
       }
+      // Retire la valeur saisie pour éviter qu'elle ne resurgisse au
+      // prochain poll si la ligne réapparaissait (cas rare).
+      setQtyByLine((prev) => {
+        const next = { ...prev };
+        delete next[line.id];
+        return next;
+      });
       await load();
       onConfirmed?.();
     } catch (e: any) {
@@ -138,7 +179,7 @@ export function IncomingTransfersModal({ outletId, onClose, onConfirmed }: Incom
             </div>
           )}
 
-          {loading ? (
+          {loading && transfers.length === 0 ? (
             <div className="text-center py-12"><Loader2 className="w-6 h-6 mx-auto animate-spin text-purple-600" /></div>
           ) : transfers.length === 0 ? (
             <div className="text-center py-12 text-sm text-gray-500">
@@ -160,26 +201,50 @@ export function IncomingTransfersModal({ outletId, onClose, onConfirmed }: Incom
                   <div className="divide-y">
                     {t.lines
                       .filter((l) => l.leg_status === 'pending' && l.destination_outlet_id === outletId)
-                      .map((l) => (
-                        <div key={l.id} className="flex items-center gap-3 px-3 py-2">
-                          <div className="flex-1 min-w-0">
-                            <p className="text-sm font-medium truncate">{l.product_name}</p>
-                            <p className="text-xs text-gray-500">
-                              {fmt(l.qty_sent)} {l.unit}
-                            </p>
+                      .map((l) => {
+                        const raw = qtyByLine[l.id] ?? '';
+                        const parsed = parseInt(raw, 10);
+                        const isPartial = Number.isFinite(parsed) && parsed > 0 && parsed < Number(l.qty_sent);
+                        return (
+                          <div key={l.id} className="flex items-center gap-3 px-3 py-2">
+                            <div className="flex-1 min-w-0">
+                              <p className="text-sm font-medium truncate">{l.product_name}</p>
+                              <p className="text-xs text-gray-500">
+                                envoyé : <strong>{fmt(l.qty_sent)}</strong> {l.unit}
+                              </p>
+                            </div>
+                            <div className="flex items-center gap-1.5">
+                              <input
+                                type="number"
+                                inputMode="numeric"
+                                min={1}
+                                max={Number(l.qty_sent)}
+                                step={1}
+                                value={raw}
+                                onChange={(e) => setQtyByLine((prev) => ({ ...prev, [l.id]: e.target.value }))}
+                                className={`w-20 px-2 py-1.5 border rounded text-sm text-right ${
+                                  isPartial ? 'border-amber-400 bg-amber-50' : 'border-gray-300'
+                                }`}
+                                aria-label={`Quantité reçue pour ${l.product_name}`}
+                              />
+                              <span className="text-xs text-gray-500 w-10">{l.unit}</span>
+                              <button
+                                onClick={() => confirmLine(l)}
+                                disabled={confirmingLineId === l.id}
+                                className={`px-3 py-1.5 rounded-md text-white text-sm disabled:opacity-50 inline-flex items-center gap-1.5 ${
+                                  isPartial ? 'bg-amber-600 hover:bg-amber-700' : 'bg-emerald-600 hover:bg-emerald-700'
+                                }`}
+                                title={isPartial ? 'Confirmation partielle — la ligne passera en ajustement' : 'Confirmation intégrale'}
+                              >
+                                {confirmingLineId === l.id
+                                  ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                                  : <Check className="w-3.5 h-3.5" />}
+                                {isPartial ? 'Partiel' : 'Confirmer'}
+                              </button>
+                            </div>
                           </div>
-                          <button
-                            onClick={() => confirmLine(l)}
-                            disabled={confirmingLineId === l.id}
-                            className="px-3 py-1.5 rounded-md bg-emerald-600 text-white text-sm hover:bg-emerald-700 disabled:opacity-50 inline-flex items-center gap-1.5"
-                          >
-                            {confirmingLineId === l.id
-                              ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                              : <Check className="w-3.5 h-3.5" />}
-                            Confirmer
-                          </button>
-                        </div>
-                      ))}
+                        );
+                      })}
                   </div>
                 </div>
               ))}

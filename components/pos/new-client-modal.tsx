@@ -73,6 +73,7 @@ export function NewClientModal({ onClose, onCreated }: NewClientModalProps) {
             <input
               type="text" autoFocus
               value={name} onChange={(e) => setName(e.target.value)}
+              onKeyDown={(e) => { if (e.key === 'Enter' && !busy) submit(); }}
               placeholder="Ex : Aïssata Diallo"
               className="w-full px-3 py-2 border border-gray-300 rounded-lg"
             />
@@ -82,6 +83,7 @@ export function NewClientModal({ onClose, onCreated }: NewClientModalProps) {
             <input
               type="tel" inputMode="tel"
               value={phone} onChange={(e) => setPhone(e.target.value)}
+              onKeyDown={(e) => { if (e.key === 'Enter' && !busy) submit(); }}
               placeholder="+225 07 …"
               className="w-full px-3 py-2 border border-gray-300 rounded-lg"
             />

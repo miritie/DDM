@@ -61,7 +61,15 @@ export function SessionJournalModal({ outletId, outletName, onClose }: SessionJo
     }
   }
 
-  useEffect(() => { void load(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [outletId]);
+  useEffect(() => {
+    void load();
+    // Poll tant que la modale est ouverte : ramène les ventes encaissées
+    // pendant la consultation (par un autre vendeur sur le même stand, ou
+    // par soi-même après checkout).
+    const t = setInterval(load, 30000);
+    return () => clearInterval(t);
+    /* eslint-disable-next-line react-hooks/exhaustive-deps */
+  }, [outletId]);
 
   const totals = sales.reduce(
     (acc, s) => {

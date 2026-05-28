@@ -155,7 +155,14 @@ export default function QuickSalePage() {
     } catch { /* ignore */ }
   }, [activeOutletId]);
 
-  useEffect(() => { void loadIncomingCount(); }, [loadIncomingCount]);
+  useEffect(() => {
+    if (!activeOutletId) return;
+    void loadIncomingCount();
+    // Poll modéré : alerte le vendeur d'une réception fraîchement émise
+    // par le manager de production sans qu'il ait à changer d'outlet.
+    const t = setInterval(loadIncomingCount, 30000);
+    return () => clearInterval(t);
+  }, [activeOutletId, loadIncomingCount]);
 
   // ===== File de scans clients (poll toutes les 10s) =====
   const loadScans = useCallback(async () => {
@@ -188,7 +195,17 @@ export default function QuickSalePage() {
         p.Code.toLowerCase().includes(search.toLowerCase()));
   }, [products, prices, search]);
 
+  // Stock cap : on ne laisse pas dépasser la quantité disponible sur l'outlet
+  // pour ne pas se faire rejeter au checkout (CHECK SQL côté base + service).
+  // Si on n'a pas l'info de stock (Map vide), on laisse passer — la base
+  // rattrapera en dernier recours.
   function addToCart(p: typeof sellableProducts[number]) {
+    const maxQty = stockByProduct.get(p._id)?.qty ?? Infinity;
+    const inCartQty = cart.find(c => c.productId === p._id)?.quantity ?? 0;
+    if (inCartQty + 1 > maxQty) {
+      setFeedback({ type: 'error', message: `Stock épuisé pour ${p.Name} (${maxQty} disponible${maxQty > 1 ? 's' : ''})` });
+      return;
+    }
     setCart(prev => {
       const ex = prev.find(c => c.productId === p._id);
       if (ex) return prev.map(c => c.productId === p._id ? { ...c, quantity: c.quantity + 1 } : c);
@@ -197,6 +214,14 @@ export default function QuickSalePage() {
   }
 
   function changeQty(id: string, delta: number) {
+    if (delta > 0) {
+      const maxQty = stockByProduct.get(id)?.qty ?? Infinity;
+      const current = cart.find(c => c.productId === id)?.quantity ?? 0;
+      if (current + delta > maxQty) {
+        setFeedback({ type: 'error', message: `Stock max atteint (${maxQty})` });
+        return;
+      }
+    }
     setCart(prev => prev.map(c => c.productId === id ? { ...c, quantity: Math.max(0, c.quantity + delta) } : c).filter(c => c.quantity > 0));
   }
 
@@ -390,9 +415,11 @@ export default function QuickSalePage() {
                   const stock = stockByProduct.get(p._id);
                   const qty = stock?.qty ?? null;
                   const min = stock?.min ?? 0;
-                  // Couleur du badge stock — 0 rouge / sous min orange / OK vert / inconnu gris
-                  let stockBadge = 'bg-gray-100 text-gray-500';
-                  let stockLabel = 'stock ?';
+                  // Couleur du badge stock — uniquement si on connaît le stock.
+                  // Pas de badge "stock ?" pour éviter le bruit visuel quand
+                  // la ligne stock_items est absente (cas fréquent en boot).
+                  let stockBadge = '';
+                  let stockLabel = '';
                   if (qty !== null) {
                     stockLabel = `${new Intl.NumberFormat('fr-FR').format(qty)} en stock`;
                     if (qty <= 0) stockBadge = 'bg-red-100 text-red-700';
@@ -419,9 +446,11 @@ export default function QuickSalePage() {
                       </div>
                       <p className="text-xs font-medium line-clamp-2 leading-tight">{p.Name}</p>
                       <p className="text-sm font-bold text-blue-600 mt-0.5">{formatPrice(p.outletPrice)}</p>
-                      <span className={`inline-block mt-1 px-1.5 py-0.5 rounded text-[10px] font-semibold ${stockBadge}`}>
-                        {stockLabel}
-                      </span>
+                      {qty !== null && (
+                        <span className={`inline-block mt-1 px-1.5 py-0.5 rounded text-[10px] font-semibold ${stockBadge}`}>
+                          {stockLabel}
+                        </span>
+                      )}
                       {inCart && (
                         <span className="absolute top-1.5 right-1.5 w-5 h-5 rounded-full bg-blue-600 text-white text-[11px] font-bold flex items-center justify-center">
                           {inCart.quantity}
