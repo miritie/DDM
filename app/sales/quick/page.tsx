@@ -18,16 +18,23 @@ import { PERMISSIONS } from '@/lib/rbac';
 import { Button } from '@/components/ui/button';
 import {
   Search, Package, ShoppingCart, Plus, Minus, X, Check, Loader2,
-  MapPin, Users, ClipboardList, RefreshCw, Truck,
+  MapPin, Users, ClipboardList, RefreshCw, Truck, QrCode, UserPlus,
+  BarChart3, PackageCheck,
 } from 'lucide-react';
 import { ReceiveStockModal } from '@/components/pos/receive-stock-modal';
 import { CheckoutModal, type CheckoutResult } from '@/components/pos/checkout-modal';
+import { NewClientModal } from '@/components/pos/new-client-modal';
+import { SessionJournalModal } from '@/components/pos/session-journal-modal';
+import { IncomingTransfersModal } from '@/components/pos/incoming-transfers-modal';
+import { QrCustomerModal } from '@/components/sales/qr-customer-modal';
 
 interface Outlet { id: string; Code: string; Name: string; City?: string; source?: 'assignment' | 'fallback' }
 interface Product { Id?: string; id?: string; ProductId: string; Code: string; Name: string; Category?: string; ImageUrl?: string }
 interface OutletPrice { Id?: string; ProductId: string; UnitPrice: number }
 interface CartItem { productId: string; name: string; unitPrice: number; quantity: number; imageUrl?: string }
 interface PendingScan { id: string; ClientId?: string; ClientName?: string; ClientPhone?: string; ScannedAt: string }
+interface ManualClient { id: string; name: string; phone: string | null }
+interface StockSummaryItem { quantity: number; minimumStock: number; product: { id: string } }
 
 export default function QuickSalePage() {
   const router = useRouter();
@@ -44,10 +51,25 @@ export default function QuickSalePage() {
   const [search, setSearch] = useState('');
   const [cart, setCart] = useState<CartItem[]>([]);
   const [selectedScan, setSelectedScan] = useState<PendingScan | null>(null);
+  // Client identifié hors scan QR (création directe ou QR plein écran consommé).
+  // Utilisé si selectedScan est null lors du checkout.
+  const [manualClient, setManualClient] = useState<ManualClient | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [feedback, setFeedback] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
   const [showReceive, setShowReceive] = useState(false);
   const [showCheckout, setShowCheckout] = useState(false);
+  const [showQr, setShowQr] = useState(false);
+  const [showNewClient, setShowNewClient] = useState(false);
+  const [showJournal, setShowJournal] = useState(false);
+  const [showIncoming, setShowIncoming] = useState(false);
+
+  // Stock par produit pour cet outlet : alimente les badges produits.
+  // Clés = product UUID PK (matche Product.Id ou .id côté catalogue).
+  const [stockByProduct, setStockByProduct] = useState<Map<string, { qty: number; min: number }>>(new Map());
+
+  // Compteur de lignes de transfert pending sur cet outlet : alimente le
+  // badge du bouton « Réceptions ».
+  const [incomingCount, setIncomingCount] = useState(0);
 
   // ===== Outlets disponibles pour ce commercial =====
   useEffect(() => {
@@ -89,22 +111,51 @@ export default function QuickSalePage() {
     }
   }
 
-  // ===== Catalogue : produits + prix outlet =====
+  // ===== Catalogue : produits + prix outlet + stock outlet =====
   const loadCatalog = useCallback(async () => {
     if (!activeOutletId) return;
     setLoadingCatalog(true);
     try {
-      const [pRes, prRes] = await Promise.all([
+      const [pRes, prRes, stRes] = await Promise.all([
         fetch('/api/products?isActive=true'),
         // Endpoint résolveur : combine prix outlet + prix par type
         fetch(`/api/outlets/${activeOutletId}/applicable-prices`),
+        // Stock physique sur ce stand : alimente les badges produits.
+        fetch(`/api/stock/locations/outlet/${activeOutletId}/summary`),
       ]);
       if (pRes.ok) setProducts((await pRes.json()).data || []);
       if (prRes.ok) setPrices((await prRes.json()).data || []);
+      if (stRes.ok) {
+        const { data } = await stRes.json();
+        const m = new Map<string, { qty: number; min: number }>();
+        for (const it of (data?.items ?? []) as StockSummaryItem[]) {
+          m.set(it.product.id, { qty: Number(it.quantity), min: Number(it.minimumStock) });
+        }
+        setStockByProduct(m);
+      }
     } finally { setLoadingCatalog(false); }
   }, [activeOutletId]);
 
   useEffect(() => { void loadCatalog(); }, [loadCatalog]);
+
+  // ===== Transferts entrants — compteur pour le bouton « Réceptions » =====
+  const loadIncomingCount = useCallback(async () => {
+    if (!activeOutletId) return;
+    try {
+      const r = await fetch('/api/stock/transfers/incoming');
+      if (!r.ok) return;
+      const { data } = await r.json();
+      const n = (data || []).reduce((sum: number, t: any) =>
+        sum + (t.lines || []).filter((l: any) =>
+          l.leg_status === 'pending' && l.destination_outlet_id === activeOutletId
+        ).length,
+        0
+      );
+      setIncomingCount(n);
+    } catch { /* ignore */ }
+  }, [activeOutletId]);
+
+  useEffect(() => { void loadIncomingCount(); }, [loadIncomingCount]);
 
   // ===== File de scans clients (poll toutes les 10s) =====
   const loadScans = useCallback(async () => {
@@ -164,7 +215,8 @@ export default function QuickSalePage() {
         body: JSON.stringify({
           outletId: activeOutletId,
           items: cart.map(c => ({ productId: c.productId, quantity: c.quantity })),
-          clientId: selectedScan?.ClientId || null,
+          // Priorité au scan QR si présent ; sinon client créé directement.
+          clientId: selectedScan?.ClientId || manualClient?.id || null,
           scanId: selectedScan?.id || null,
           paymentMethod: payment.paymentMethod,
           walletId: payment.walletId,
@@ -177,9 +229,10 @@ export default function QuickSalePage() {
         ? ` · Reste dû : ${formatPrice(Number(data.Balance))} (à recouvrer)`
         : '';
       setFeedback({ type: 'success', message: `Vente ${data.SaleNumber} encaissée — ${formatPrice(Number(data.TotalAmount))}${remainingMsg}` });
-      setCart([]); setSelectedScan(null);
+      setCart([]); setSelectedScan(null); setManualClient(null);
       setShowCheckout(false);
       void loadScans();
+      void loadCatalog(); // refresh stock badges après décrément
     } catch (e: any) {
       setFeedback({ type: 'error', message: e.message });
       throw e; // pour que la modale affiche aussi l'erreur
@@ -266,14 +319,53 @@ export default function QuickSalePage() {
                 {sessionId && !openingSession && <p className="text-xs text-emerald-600">● Session active</p>}
               </div>
               <div className="flex gap-2 flex-wrap">
-                <button onClick={() => setShowReceive(true)} className="px-3 py-2 rounded-lg border border-purple-200 bg-purple-50 text-purple-700 text-sm hover:bg-purple-100 inline-flex items-center gap-2">
-                  <Truck className="w-4 h-4" /> Réceptionner stock
+                <button
+                  onClick={() => setShowQr(true)}
+                  className="px-3 py-2 rounded-lg border border-blue-200 bg-blue-50 text-blue-700 text-sm hover:bg-blue-100 inline-flex items-center gap-2"
+                  title="Afficher le QR à présenter au client"
+                >
+                  <QrCode className="w-4 h-4" /> QR stand
                 </button>
-                <button onClick={() => router.push('/sales')} className="px-3 py-2 rounded-lg border border-emerald-200 bg-emerald-50 text-emerald-700 text-sm hover:bg-emerald-100 inline-flex items-center gap-2">
+                <button
+                  onClick={() => setShowNewClient(true)}
+                  className="px-3 py-2 rounded-lg border border-indigo-200 bg-indigo-50 text-indigo-700 text-sm hover:bg-indigo-100 inline-flex items-center gap-2"
+                >
+                  <UserPlus className="w-4 h-4" /> Nouveau client
+                </button>
+                <button
+                  onClick={() => setShowJournal(true)}
+                  className="px-3 py-2 rounded-lg border border-emerald-200 bg-emerald-50 text-emerald-700 text-sm hover:bg-emerald-100 inline-flex items-center gap-2"
+                >
                   <ClipboardList className="w-4 h-4" /> Journal
                 </button>
+                <button
+                  onClick={() => setShowIncoming(true)}
+                  className="relative px-3 py-2 rounded-lg border border-purple-200 bg-purple-50 text-purple-700 text-sm hover:bg-purple-100 inline-flex items-center gap-2"
+                  title="Confirmer la réception de transferts"
+                >
+                  <PackageCheck className="w-4 h-4" /> Réceptions
+                  {incomingCount > 0 && (
+                    <span className="absolute -top-1.5 -right-1.5 min-w-[1.25rem] h-5 px-1 rounded-full bg-purple-600 text-white text-[11px] font-bold flex items-center justify-center">
+                      {incomingCount}
+                    </span>
+                  )}
+                </button>
+                <button
+                  onClick={() => setShowReceive(true)}
+                  className="px-3 py-2 rounded-lg border border-gray-200 bg-white text-gray-700 text-sm hover:bg-gray-100 inline-flex items-center gap-2"
+                  title="Réception manuelle (hors transfert)"
+                >
+                  <Truck className="w-4 h-4" /> Récept. ad hoc
+                </button>
+                <button
+                  onClick={() => router.push('/dashboard/sales')}
+                  className="px-3 py-2 rounded-lg border border-amber-200 bg-amber-50 text-amber-700 text-sm hover:bg-amber-100 inline-flex items-center gap-2"
+                  title="Voir mes performances / objectif / classement"
+                >
+                  <BarChart3 className="w-4 h-4" /> Mes perfs
+                </button>
                 <button onClick={() => setActiveOutletId(null)} className="px-3 py-2 rounded-lg border text-gray-600 text-sm hover:bg-gray-100">
-                  Changer d'outlet
+                  Changer
                 </button>
               </div>
             </div>
@@ -292,21 +384,46 @@ export default function QuickSalePage() {
                 <p className="text-xs text-gray-400 mt-2">L'admin doit configurer les prix dans /admin/outlets.</p>
               </div>
             ) : (
-              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 xl:grid-cols-5 gap-3">
+              <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 xl:grid-cols-7 2xl:grid-cols-8 gap-2">
                 {sellableProducts.map(p => {
                   const inCart = cart.find(c => c.productId === p._id);
+                  const stock = stockByProduct.get(p._id);
+                  const qty = stock?.qty ?? null;
+                  const min = stock?.min ?? 0;
+                  // Couleur du badge stock — 0 rouge / sous min orange / OK vert / inconnu gris
+                  let stockBadge = 'bg-gray-100 text-gray-500';
+                  let stockLabel = 'stock ?';
+                  if (qty !== null) {
+                    stockLabel = `${new Intl.NumberFormat('fr-FR').format(qty)} en stock`;
+                    if (qty <= 0) stockBadge = 'bg-red-100 text-red-700';
+                    else if (qty <= min) stockBadge = 'bg-amber-100 text-amber-800';
+                    else stockBadge = 'bg-emerald-100 text-emerald-800';
+                  }
+                  const disabled = qty !== null && qty <= 0;
                   return (
-                    <button key={p._id} onClick={() => addToCart(p)} className="text-left bg-white border border-gray-200 rounded-lg p-3 hover:border-blue-500 hover:shadow-md relative">
-                      <div className="aspect-square mb-2 rounded-md bg-gray-50 overflow-hidden flex items-center justify-center">
+                    <button
+                      key={p._id}
+                      onClick={() => !disabled && addToCart(p)}
+                      disabled={disabled}
+                      className={`text-left bg-white border rounded-lg p-2 relative transition ${
+                        disabled
+                          ? 'opacity-60 cursor-not-allowed border-gray-200'
+                          : 'border-gray-200 hover:border-blue-500 hover:shadow-md'
+                      }`}
+                    >
+                      <div className="aspect-square mb-1.5 rounded-md bg-gray-50 overflow-hidden flex items-center justify-center">
                         {p.ImageUrl
                           /* eslint-disable-next-line @next/next/no-img-element */
                           ? <img src={p.ImageUrl} alt={p.Name} className="w-full h-full object-cover" />
-                          : <Package className="w-10 h-10 text-gray-300" />}
+                          : <Package className="w-8 h-8 text-gray-300" />}
                       </div>
-                      <p className="text-sm font-medium line-clamp-2">{p.Name}</p>
-                      <p className="text-sm font-bold text-blue-600 mt-1">{formatPrice(p.outletPrice)}</p>
+                      <p className="text-xs font-medium line-clamp-2 leading-tight">{p.Name}</p>
+                      <p className="text-sm font-bold text-blue-600 mt-0.5">{formatPrice(p.outletPrice)}</p>
+                      <span className={`inline-block mt-1 px-1.5 py-0.5 rounded text-[10px] font-semibold ${stockBadge}`}>
+                        {stockLabel}
+                      </span>
                       {inCart && (
-                        <span className="absolute top-2 right-2 w-6 h-6 rounded-full bg-blue-600 text-white text-xs font-bold flex items-center justify-center">
+                        <span className="absolute top-1.5 right-1.5 w-5 h-5 rounded-full bg-blue-600 text-white text-[11px] font-bold flex items-center justify-center">
                           {inCart.quantity}
                         </span>
                       )}
@@ -329,20 +446,42 @@ export default function QuickSalePage() {
               </div>
             )}
 
-            {/* SCANS CLIENTS */}
+            {/* CLIENT */}
             <div className="mb-4 pb-4 border-b">
               <div className="flex items-center justify-between mb-2">
                 <h2 className="text-sm font-semibold text-gray-700 uppercase flex items-center gap-1.5">
-                  <Users className="w-4 h-4" /> Scans clients ({scans.length})
+                  <Users className="w-4 h-4" /> Client
                 </h2>
-                <button onClick={loadScans} className="text-xs text-gray-400 hover:text-blue-600"><RefreshCw className="w-3 h-3" /></button>
+                <button onClick={loadScans} className="text-xs text-gray-400 hover:text-blue-600" title="Rafraîchir les scans">
+                  <RefreshCw className="w-3 h-3" />
+                </button>
               </div>
+
+              {manualClient && !selectedScan && (
+                <div className="mb-2 px-2.5 py-2 rounded bg-indigo-50 border border-indigo-200 flex items-start justify-between gap-2">
+                  <div className="min-w-0 flex-1">
+                    <p className="text-sm font-medium text-indigo-900 truncate">{manualClient.name || manualClient.phone}</p>
+                    {manualClient.name && manualClient.phone && (
+                      <p className="text-xs text-indigo-700">{manualClient.phone}</p>
+                    )}
+                    <p className="text-[11px] text-indigo-600 mt-0.5">Rattaché à la prochaine vente</p>
+                  </div>
+                  <button onClick={() => setManualClient(null)} className="text-indigo-400 hover:text-indigo-700" aria-label="Retirer">
+                    <X className="w-4 h-4" />
+                  </button>
+                </div>
+              )}
+
+              <p className="text-[11px] text-gray-500 mb-1">Scans en attente ({scans.length})</p>
               {scans.length === 0 ? (
                 <p className="text-xs text-gray-400 italic">Aucun scan en attente</p>
               ) : (
                 <div className="space-y-1 max-h-32 overflow-auto">
                   {scans.map(s => (
-                    <button key={s.id} onClick={() => setSelectedScan(s.id === selectedScan?.id ? null : s)}
+                    <button key={s.id} onClick={() => {
+                      setSelectedScan(s.id === selectedScan?.id ? null : s);
+                      setManualClient(null);
+                    }}
                       className={`w-full text-left px-2 py-1.5 rounded text-sm border ${
                         selectedScan?.id === s.id ? 'bg-blue-50 border-blue-300' : 'bg-white border-gray-200 hover:border-blue-300'
                       }`}>
@@ -416,6 +555,51 @@ export default function QuickSalePage() {
             onConfirm={processCheckout}
           />
         )}
+
+        {showNewClient && (
+          <NewClientModal
+            onClose={() => setShowNewClient(false)}
+            onCreated={(c) => {
+              setManualClient(c);
+              setSelectedScan(null);
+              setShowNewClient(false);
+              setFeedback({ type: 'success', message: `${c.name || c.phone} rattaché à la prochaine vente` });
+            }}
+          />
+        )}
+
+        {showJournal && (
+          <SessionJournalModal
+            outletId={activeOutletId}
+            outletName={currentOutlet?.Name}
+            onClose={() => setShowJournal(false)}
+          />
+        )}
+
+        {showIncoming && (
+          <IncomingTransfersModal
+            outletId={activeOutletId}
+            onClose={() => setShowIncoming(false)}
+            onConfirmed={() => {
+              void loadCatalog();
+              void loadIncomingCount();
+            }}
+          />
+        )}
+
+        <QrCustomerModal
+          open={showQr}
+          fullscreen
+          onClose={() => setShowQr(false)}
+          onIdentified={(info) => {
+            if (info.clientId) {
+              setManualClient({ id: info.clientId, name: info.name || '', phone: info.phone || null });
+              setSelectedScan(null);
+              setFeedback({ type: 'success', message: `${info.name || info.phone || 'Client'} identifié via QR — rattaché à la prochaine vente` });
+            }
+            setShowQr(false);
+          }}
+        />
       </div>
     </ProtectedPage>
   );

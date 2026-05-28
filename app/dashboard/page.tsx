@@ -22,8 +22,10 @@ const ROLE_DASHBOARDS: Record<string, string> = {
   accountant:             '/dashboard/accountant',
   manager_production:     '/dashboard/production',
   operateur_production:   '/dashboard/production',
-  agent_commercial:       '/dashboard/sales',
-  commercial:             '/dashboard/sales',
+  // Le commercial atterrit directement sur l'écran de vente.
+  // Le dashboard de performance reste accessible via le bouton « Mes perfs ».
+  agent_commercial:       '/sales/quick',
+  commercial:             '/sales/quick',
 };
 
 async function resolveRoleSlug(roleUuid: string): Promise<string | null> {
