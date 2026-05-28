@@ -334,10 +334,15 @@ export class ReplenishmentService {
     }
 
     return await db.transaction(async (client) => {
-      // 1) Décrémenter stock_items source (warehouse)
+      // 1) Décrémenter stock_items source (warehouse).
+      // FOR UPDATE : sérialise toute tentative concurrente de lire ou
+      // modifier la même ligne stock_items, évitant qu'une autre
+      // distribution parallèle s'autorise alors qu'on lui a déjà
+      // mangé du stock dans cette transaction.
       const sourceStock = await client.query(
         `SELECT id, quantity, unit_cost FROM stock_items
-         WHERE workspace_id=$1 AND warehouse_id=$2 AND product_id=$3 LIMIT 1`,
+         WHERE workspace_id=$1 AND warehouse_id=$2 AND product_id=$3 LIMIT 1
+         FOR UPDATE`,
         [input.workspaceId, input.sourceWarehouseId, t.product_id]
       );
       if (sourceStock.rows.length === 0 || Number(sourceStock.rows[0].quantity) < input.quantity) {
@@ -351,10 +356,14 @@ export class ReplenishmentService {
         [sourceStock.rows[0].id, newSrcQty, newSrcVal]
       );
 
-      // 2) Incrémenter stock_items destination (outlet) — créer si absent
+      // 2) Incrémenter stock_items destination (outlet) — créer si absent.
+      // Même verrou pour empêcher deux distributions parallèles d'insérer
+      // chacune une ligne (l'index unique product_id+outlet_id rattraperait
+      // l'erreur, mais le FOR UPDATE évite l'aller-retour).
       const destStock = await client.query(
         `SELECT id, quantity FROM stock_items
-         WHERE workspace_id=$1 AND outlet_id=$2 AND product_id=$3 LIMIT 1`,
+         WHERE workspace_id=$1 AND outlet_id=$2 AND product_id=$3 LIMIT 1
+         FOR UPDATE`,
         [input.workspaceId, t.outlet_id, t.product_id]
       );
       if (destStock.rows.length > 0) {

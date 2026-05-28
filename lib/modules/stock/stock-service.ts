@@ -57,14 +57,18 @@ export class StockService {
       : await this.getByProductAndOutlet(input.productId, input.outletId!);
 
     if (existing) {
-      const newQuantity = Number(existing.Quantity) + input.quantity;
-      const newTotalValue = newQuantity * input.unitCost;
+      // Increment atomique : la somme se fait en SQL. Évite la race
+      // « deux upsert concurrents lisent quantity=10, calculent chacun
+      // 10+5 et écrivent 15 » qui ferait perdre une livraison.
       const r = await db.query(
         `UPDATE stock_items
-         SET quantity = $2, unit_cost = $3, total_value = $4,
-             last_restock_date = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
+         SET quantity = quantity + $2,
+             unit_cost = $3,
+             total_value = (quantity + $2) * $3,
+             last_restock_date = CURRENT_TIMESTAMP,
+             updated_at = CURRENT_TIMESTAMP
          WHERE id = $1 RETURNING *`,
-        [existing.id, newQuantity, input.unitCost, newTotalValue]
+        [existing.id, input.quantity, input.unitCost]
       );
       const updated = mapStockRow(r.rows[0]);
       await this.checkAndCreateAlert(updated);

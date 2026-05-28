@@ -410,13 +410,18 @@ export class ProductionOrderService {
       throw new Error(`Seul un OP en brouillon peut être soumis (statut actuel : ${order.Status})`);
     }
     const submitterUuid = await resolveUuid('users', 'user_id', submittedById);
-    await db.query(
+    // CAS : si un autre process a déjà soumis cet OP entre notre lecture
+    // et notre UPDATE, rowCount=0 et on lève une erreur de concurrence.
+    const r = await db.query(
       `UPDATE production_orders
          SET status = 'submitted', submitted_by_id = $2, submitted_at = CURRENT_TIMESTAMP,
              updated_at = CURRENT_TIMESTAMP
-       WHERE id = $1`,
+       WHERE id = $1 AND status = 'draft'`,
       [order.id, submitterUuid]
     );
+    if (r.rowCount === 0) {
+      throw new Error('Ordre déjà modifié par un autre utilisateur — recharger la page.');
+    }
     return (await this.getById(order.id!))!;
   }
 
@@ -430,13 +435,16 @@ export class ProductionOrderService {
       );
     }
     const approverUuid = await resolveUuid('users', 'user_id', approvedById);
-    await db.query(
+    const r = await db.query(
       `UPDATE production_orders
          SET status = 'planned', approved_by_id = $2, approved_at = CURRENT_TIMESTAMP,
              updated_at = CURRENT_TIMESTAMP
-       WHERE id = $1`,
+       WHERE id = $1 AND status = 'submitted'`,
       [order.id, approverUuid]
     );
+    if (r.rowCount === 0) {
+      throw new Error('Ordre déjà modifié par un autre utilisateur — recharger la page.');
+    }
     return (await this.getById(order.id!))!;
   }
 
@@ -459,13 +467,16 @@ export class ProductionOrderService {
       }
     }
 
-    await db.query(
+    const startRes = await db.query(
       `UPDATE production_orders
          SET status = 'in_progress', actual_start_date = CURRENT_TIMESTAMP,
              updated_at = CURRENT_TIMESTAMP
-       WHERE id = $1`,
+       WHERE id = $1 AND status = 'planned'`,
       [order.id]
     );
+    if (startRes.rowCount === 0) {
+      throw new Error('Ordre déjà démarré ou modifié par un autre utilisateur.');
+    }
 
     // Si OP rattaché à une commande client négociée, passer la commande
     // en 'in_production' et y inscrire le production_order_id.
@@ -632,13 +643,16 @@ export class ProductionOrderService {
     if (order.Batches.length === 0) {
       throw new Error('Au moins un lot doit être créé avant de compléter l\'ordre');
     }
-    await db.query(
+    const completeRes = await db.query(
       `UPDATE production_orders
          SET status = 'completed', actual_end_date = CURRENT_TIMESTAMP,
              updated_at = CURRENT_TIMESTAMP
-       WHERE id = $1`,
+       WHERE id = $1 AND status = 'in_progress'`,
       [order.id]
     );
+    if (completeRes.rowCount === 0) {
+      throw new Error('Ordre déjà complété ou modifié par un autre utilisateur.');
+    }
 
     // Si OP rattaché à une commande client, fait avancer la commande à 'produced'.
     // Garde conditionnel : seulement si elle est encore 'in_production'.
