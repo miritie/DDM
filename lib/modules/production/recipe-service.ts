@@ -11,6 +11,7 @@
 import { getPostgresClient } from '@/lib/database/postgres-client';
 import { Recipe, RecipeLine } from '@/types/modules';
 import { v4 as uuidv4 } from 'uuid';
+import { assertPositiveFinishedProductQuantity } from '@/lib/schemas/quantity';
 
 const db = getPostgresClient();
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -169,6 +170,7 @@ export class RecipeService {
     if (!input.lines || input.lines.length === 0) {
       throw new Error('Une recette doit contenir au moins un ingrédient');
     }
+    assertPositiveFinishedProductQuantity(input.outputQuantity, 'Quantité produite par lot');
 
     const wsUuid = await resolveUuid('workspaces', 'workspace_id', input.workspaceId);
     if (!wsUuid) throw new Error('Workspace introuvable');

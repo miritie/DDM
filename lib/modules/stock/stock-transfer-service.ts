@@ -18,6 +18,7 @@
  */
 import { getPostgresClient } from '@/lib/database/postgres-client';
 import { v4 as uuidv4 } from 'uuid';
+import { assertPositiveFinishedProductQuantity } from '@/lib/schemas/quantity';
 
 const db = getPostgresClient();
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -292,7 +293,7 @@ export class StockTransferService {
     }
     const resolvedLines: ResolvedLine[] = [];
     for (const line of input.lines) {
-      if (line.qtySent <= 0) throw new Error(`Quantité invalide pour une ligne (${line.qtySent})`);
+      assertPositiveFinishedProductQuantity(line.qtySent, `Quantité envoyée pour ${line.productId}`);
       if (!line.destination.warehouseId && !line.destination.outletId) {
         throw new Error('Destination requise pour chaque ligne');
       }
@@ -445,9 +446,8 @@ export class StockTransferService {
     if (line.leg_status !== 'pending') {
       throw new Error(`Ligne déjà traitée (statut : ${line.leg_status})`);
     }
-    const qtyReceived = Number(input.qtyReceived);
+    const qtyReceived = assertPositiveFinishedProductQuantity(input.qtyReceived, 'Quantité reçue');
     const qtySent = Number(line.qty_sent);
-    if (qtyReceived <= 0) throw new Error('Quantité reçue doit être > 0');
     if (qtyReceived > qtySent) {
       throw new Error(`Quantité reçue (${qtyReceived}) ne peut excéder la quantité envoyée (${qtySent})`);
     }

@@ -19,6 +19,7 @@ import { getPostgresClient } from '@/lib/database/postgres-client';
 import { PaymentMethodService } from '@/lib/modules/treasury/payment-method-service';
 import { TransactionService } from '@/lib/modules/treasury/transaction-service';
 import { v4 as uuidv4 } from 'uuid';
+import { assertPositiveFinishedProductQuantity } from '@/lib/schemas/quantity';
 
 const db = getPostgresClient();
 const paymentMethodService = new PaymentMethodService();
@@ -90,7 +91,7 @@ export class CustomerOrderService {
       const productUuid = await resolveUuid('products', 'product_id', l.productId);
       if (!productUuid) throw new Error(`Produit introuvable : ${l.productId}`);
       const p = await db.query(`SELECT name FROM products WHERE id = $1`, [productUuid]);
-      const qty = Number(l.quantity);
+      const qty = assertPositiveFinishedProductQuantity(l.quantity, `Quantité pour ${l.productId}`);
       const price = Number(l.unitPrice);
       return {
         productUuid,

@@ -18,6 +18,7 @@
 
 import { getPostgresClient } from '@/lib/database/postgres-client';
 import { v4 as uuidv4 } from 'uuid';
+import { assertPositiveFinishedProductQuantity } from '@/lib/schemas/quantity';
 
 const db = getPostgresClient();
 
@@ -74,10 +75,13 @@ export class ReplenishmentService {
   async create(input: CreateReplenishmentInput): Promise<any> {
     if (input.lines.length === 0) throw new Error('Au moins une ligne est requise');
     for (const l of input.lines) {
-      if (l.quantityRequested <= 0) throw new Error('Quantité demandée doit être positive');
+      assertPositiveFinishedProductQuantity(l.quantityRequested, `Quantité demandée pour ${l.productId}`);
       if (l.targets.length === 0) throw new Error(`Au moins un stand cible pour le produit ${l.productId}`);
+      for (const t of l.targets) {
+        assertPositiveFinishedProductQuantity(t.quantityTarget, `Cible pour ${l.productId}`);
+      }
       const sumTargets = l.targets.reduce((s, t) => s + t.quantityTarget, 0);
-      if (Math.abs(sumTargets - l.quantityRequested) > 0.001) {
+      if (sumTargets !== l.quantityRequested) {
         throw new Error(`La somme des cibles (${sumTargets}) doit égaler la quantité demandée (${l.quantityRequested}) pour ce produit`);
       }
     }
@@ -308,7 +312,7 @@ export class ReplenishmentService {
   async distribute(input: DistributeInput): Promise<any> {
     const userUuid = await resolveUserUuid(input.processedById);
     if (!userUuid) throw new Error('Utilisateur introuvable');
-    if (input.quantity <= 0) throw new Error('Quantité doit être positive');
+    assertPositiveFinishedProductQuantity(input.quantity, 'Quantité à distribuer');
 
     const tgtRow = await db.query(
       `SELECT t.id, t.quantity_target, t.quantity_received, t.outlet_id,
@@ -325,7 +329,7 @@ export class ReplenishmentService {
     if (t.workspace_id !== input.workspaceId) throw new Error('Workspace mismatch');
 
     const remaining = Number(t.quantity_target) - Number(t.quantity_received);
-    if (input.quantity > remaining + 0.001) {
+    if (input.quantity > remaining) {
       throw new Error(`La quantité demandée (${input.quantity}) dépasse le reste à livrer (${remaining})`);
     }
 

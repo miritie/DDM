@@ -16,6 +16,7 @@ import { PosSessionService } from '@/lib/modules/outlets/pos-session-service';
 import { StockService } from '@/lib/modules/stock/stock-service';
 import { PaymentMethodService } from '@/lib/modules/treasury/payment-method-service';
 import { TransactionService } from '@/lib/modules/treasury/transaction-service';
+import { assertPositiveFinishedProductQuantity } from '@/lib/schemas/quantity';
 
 const postgresClient = getPostgresClient();
 const outletService = new OutletService();
@@ -158,6 +159,7 @@ export class SaleService {
       if (!item.productId) {
         throw new Error(`Article sans productId — un product_id est requis pour résoudre le prix`);
       }
+      assertPositiveFinishedProductQuantity(item.quantity, `Quantité pour ${item.productName}`);
       const price = await outletService.resolvePrice(item.productId, input.outletId, saleDateForPrice);
       if (!price) {
         throw new Error(

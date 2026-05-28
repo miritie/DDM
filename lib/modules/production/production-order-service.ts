@@ -27,6 +27,10 @@ import { v4 as uuidv4 } from 'uuid';
 import { RecipeService } from './recipe-service';
 import { IngredientService } from './ingredient-service';
 import { StockService } from '../stock/stock-service';
+import {
+  assertFinishedProductQuantity,
+  assertPositiveFinishedProductQuantity,
+} from '@/lib/schemas/quantity';
 
 const db = getPostgresClient();
 const recipeService = new RecipeService();
@@ -281,6 +285,8 @@ export class ProductionOrderService {
    * figer la formule.
    */
   async create(input: CreateProductionOrderInput): Promise<ProductionOrder> {
+    assertPositiveFinishedProductQuantity(input.plannedQuantity, 'Quantité planifiée');
+
     const wsUuid = await resolveUuid('workspaces', 'workspace_id', input.workspaceId);
     if (!wsUuid) throw new Error('Workspace introuvable');
 
@@ -365,7 +371,10 @@ export class ProductionOrderService {
     const params: any[] = [];
     const push = (col: string, v: any) => { params.push(v); sets.push(`${col} = $${params.length}`); };
 
-    if (updates.plannedQuantity !== undefined) push('planned_quantity', updates.plannedQuantity);
+    if (updates.plannedQuantity !== undefined) {
+      assertPositiveFinishedProductQuantity(updates.plannedQuantity, 'Quantité planifiée');
+      push('planned_quantity', updates.plannedQuantity);
+    }
     if (updates.plannedStartDate !== undefined) push('planned_start_date', updates.plannedStartDate);
     if (updates.plannedEndDate !== undefined) push('planned_end_date', updates.plannedEndDate);
     if (updates.actualStartDate !== undefined) push('actual_start_date', updates.actualStartDate);
@@ -560,8 +569,9 @@ export class ProductionOrderService {
       throw new Error('Seuls les ordres en cours peuvent créer des lots');
     }
 
-    const defective = Number(input.quantityDefective ?? 0);
-    const good = Number(input.quantityProduced) - defective;
+    const produced = assertPositiveFinishedProductQuantity(input.quantityProduced, 'Quantité produite');
+    const defective = assertFinishedProductQuantity(input.quantityDefective ?? 0, 'Quantité défectueuse');
+    const good = produced - defective;
     if (good < 0) throw new Error('Quantité défectueuse > quantité produite');
 
     const batchNumber = await this.generateBatchNumber(order.WorkspaceId);
