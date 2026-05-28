@@ -488,6 +488,8 @@ function InventoryContent() {
             {/* Saisie */}
             <input
               type="number"
+              min="0"
+              step="1"
               value={countValue}
               onChange={(e) => setCountValue(e.target.value)}
               placeholder="Quantité comptée"

@@ -169,7 +169,7 @@ function NewRecipeContent() {
           </Field>
           <div className="grid grid-cols-2 gap-3">
             <Field label="Quantité produite (par lot)*">
-              <input type="number" min="0" step="0.001" className={INP} value={form.outputQuantity} onChange={(e) => setForm({ ...form, outputQuantity: e.target.value })} placeholder="ex: 10000" />
+              <input type="number" min="1" step="1" className={INP} value={form.outputQuantity} onChange={(e) => setForm({ ...form, outputQuantity: e.target.value })} placeholder="ex: 10000" />
             </Field>
             <Field label="Unité de sortie">
               <input className={INP} value={form.outputUnit} onChange={(e) => setForm({ ...form, outputUnit: e.target.value })} placeholder="pcs, sachets, g…" />

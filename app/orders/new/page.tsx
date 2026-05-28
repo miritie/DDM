@@ -225,8 +225,8 @@ function NewOrderContent() {
                       return <option key={id} value={id}>{p.Name} (réf. {Number(p.UnitPrice).toLocaleString('fr-FR')} XOF)</option>;
                     })}
                   </select>
-                  <input type="number" min={0.001} step={0.001} value={l.quantity}
-                    onChange={e => updateLine(i, { quantity: Number(e.target.value) })}
+                  <input type="number" min={1} step={1} value={l.quantity}
+                    onChange={e => updateLine(i, { quantity: parseInt(e.target.value, 10) || 0 })}
                     className="col-span-2 px-2 py-1.5 border rounded text-sm text-right" placeholder="Qté" />
                   <input type="number" min={0} value={l.unitPrice}
                     onChange={e => updateLine(i, { unitPrice: Number(e.target.value) })}

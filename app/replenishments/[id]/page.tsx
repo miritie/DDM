@@ -372,8 +372,8 @@ export default function ReplenishmentDetailPage() {
                 </div>
                 <div>
                   <label className="text-xs text-gray-600 block mb-1">Quantité à livrer maintenant <span className="text-red-500">*</span></label>
-                  <input type="number" min={1} max={Number(distTarget.quantity_target) - Number(distTarget.quantity_received)}
-                    value={distQty} onChange={(e) => setDistQty(Number(e.target.value))}
+                  <input type="number" min={1} step={1} max={Number(distTarget.quantity_target) - Number(distTarget.quantity_received)}
+                    value={distQty} onChange={(e) => setDistQty(parseInt(e.target.value, 10) || 0)}
                     className="w-full px-3 py-2 border rounded text-right text-xl font-bold" />
                   <p className="text-xs text-gray-500 mt-1">Les livraisons partielles sont autorisées.</p>
                 </div>

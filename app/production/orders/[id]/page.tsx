@@ -498,11 +498,11 @@ function BatchModal({ orderId, remaining, onClose, onSaved }: {
       <div className="grid grid-cols-2 gap-3">
         <label className="block">
           <span className="block text-sm font-medium text-gray-700 mb-1">Produite*</span>
-          <input type="number" min="0" step="0.001" className={INP} value={produced} onChange={(e) => setProduced(e.target.value)} />
+          <input type="number" min="0" step="1" className={INP} value={produced} onChange={(e) => setProduced(e.target.value)} />
         </label>
         <label className="block">
           <span className="block text-sm font-medium text-gray-700 mb-1">Dont défectueuse</span>
-          <input type="number" min="0" step="0.001" className={INP} value={defective} onChange={(e) => setDefective(e.target.value)} />
+          <input type="number" min="0" step="1" className={INP} value={defective} onChange={(e) => setDefective(e.target.value)} />
         </label>
       </div>
       <div className="grid grid-cols-2 gap-3">

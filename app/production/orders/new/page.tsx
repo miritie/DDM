@@ -382,6 +382,7 @@ function NewProductionOrderContent() {
                   onChange={(e) => setPlannedQuantity(Math.max(1, parseInt(e.target.value) || 1))}
                   className="w-full h-16 text-center text-2xl font-bold border-2 border-gray-300 rounded-xl focus:outline-none focus:border-orange-500"
                   min="1"
+                  step="1"
                 />
                 <p className="text-sm text-gray-600 mt-2 text-center">
                   = {plannedQuantity * selectedRecipe.OutputQuantity} {selectedRecipe.OutputUnit} au total

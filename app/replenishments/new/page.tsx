@@ -178,8 +178,8 @@ export default function NewReplenishmentPage() {
                       </div>
                       <div className="md:col-span-3">
                         <label className="text-xs text-gray-600 block mb-1">Qté totale demandée</label>
-                        <input type="number" min={0.001} step={0.001} value={l.quantityRequested}
-                          onChange={(e) => updateLine(i, { quantityRequested: Number(e.target.value) })}
+                        <input type="number" min={1} step={1} value={l.quantityRequested}
+                          onChange={(e) => updateLine(i, { quantityRequested: parseInt(e.target.value, 10) || 0 })}
                           className="w-full px-2 py-1.5 border rounded text-sm text-right" />
                       </div>
                       <div className="md:col-span-3">
@@ -216,8 +216,8 @@ export default function NewReplenishmentPage() {
                             <option value="">— Stand —</option>
                             {outlets.map(o => <option key={o.id} value={o.id}>{o.name}</option>)}
                           </select>
-                          <input type="number" min={0.001} step={0.001} value={t.quantityTarget}
-                            onChange={(e) => updateTarget(i, ti, { quantityTarget: Number(e.target.value) })}
+                          <input type="number" min={1} step={1} value={t.quantityTarget}
+                            onChange={(e) => updateTarget(i, ti, { quantityTarget: parseInt(e.target.value, 10) || 0 })}
                             className="col-span-3 px-2 py-1 border rounded text-sm text-right" placeholder="Qté" />
                           <button type="button" onClick={() => removeTarget(i, ti)}
                             disabled={l.targets.length === 1}

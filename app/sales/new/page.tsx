@@ -400,11 +400,11 @@ export default function NewSalePage() {
                   </label>
                   <Input
                     type="number"
-                    step="0.01"
-                    min="0"
+                    step="1"
+                    min="1"
                     value={currentItem.quantity}
                     onChange={(e) =>
-                      setCurrentItem({ ...currentItem, quantity: parseFloat(e.target.value) || 0 })
+                      setCurrentItem({ ...currentItem, quantity: parseInt(e.target.value, 10) || 0 })
                     }
                   />
                 </div>

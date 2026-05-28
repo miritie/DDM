@@ -319,7 +319,7 @@ function ConfirmModal({ line, onClose, onDone }: { line: any; onClose: () => voi
       </p>
       <label className="block">
         <span className="block text-sm font-medium text-gray-700 mb-1">Quantité reçue ({line.unit})*</span>
-        <input type="number" min="0" max={line.qty_sent} step="0.001" className={INP} value={qty} onChange={(e) => setQty(e.target.value)} />
+        <input type="number" min="0" max={line.qty_sent} step="1" className={INP} value={qty} onChange={(e) => setQty(e.target.value)} />
       </label>
       {isAdjustment && (
         <>

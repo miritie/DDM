@@ -131,8 +131,8 @@ export function ReceiveStockModal({ outletId, onClose, onDone }: {
                   return <option key={pid} value={pid}>{p.Name}</option>;
                 })}
               </select>
-              <input type="number" min={1} value={line.quantity}
-                onChange={e => updateLine(i, { quantity: Number(e.target.value) })}
+              <input type="number" min={1} step={1} value={line.quantity}
+                onChange={e => updateLine(i, { quantity: parseInt(e.target.value, 10) || 0 })}
                 className="w-24 px-2 py-1.5 border rounded text-sm text-right" placeholder="Qté" />
               <button onClick={() => removeLine(i)}
                 className="p-1.5 text-gray-400 hover:text-red-600"><Trash2 className="w-4 h-4" /></button>
