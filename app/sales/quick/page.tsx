@@ -84,7 +84,10 @@ export default function QuickSalePage() {
         setOutlets(data || []);
         // Si un seul outlet assigné, on l'active automatiquement
         if (data?.length === 1) setActiveOutletId(data[0].id);
-      });
+      })
+      // Mobile : la connexion locale peut être coupée par moments
+      // (recompile dev / wifi). On évite que ça plante l'UI.
+      .catch(() => { /* ignore */ });
   }, []);
 
   // ===== Quand l'outlet change : ouvrir/réutiliser la session POS =====
@@ -111,32 +114,42 @@ export default function QuickSalePage() {
         const { data } = await res.json();
         setSessionId(data.id);
       }
+    } catch {
+      // Réseau coupé : on n'a juste pas de session_id, mais la vente
+      // s'ouvrira implicitement à l'encaissement.
     } finally {
       setOpeningSession(false);
     }
   }
 
   // ===== Catalogue : produits + prix outlet + stock outlet =====
+  // Les 3 fetchs sont indépendants : on tolère qu'un seul échoue (réseau
+  // mobile flaky, dev server qui recompile). Promise.allSettled évite
+  // qu'un fail collectif ne plante l'UI avec un « Load failed ».
   const loadCatalog = useCallback(async () => {
     if (!activeOutletId) return;
     setLoadingCatalog(true);
     try {
-      const [pRes, prRes, stRes] = await Promise.all([
+      const [pSettled, prSettled, stSettled] = await Promise.allSettled([
         fetch('/api/products?isActive=true'),
-        // Endpoint résolveur : combine prix outlet + prix par type
         fetch(`/api/outlets/${activeOutletId}/applicable-prices`),
-        // Stock physique sur ce stand : alimente les badges produits.
         fetch(`/api/stock/locations/outlet/${activeOutletId}/summary`),
       ]);
-      if (pRes.ok) setProducts((await pRes.json()).data || []);
-      if (prRes.ok) setPrices((await prRes.json()).data || []);
-      if (stRes.ok) {
-        const { data } = await stRes.json();
-        const m = new Map<string, { qty: number; min: number }>();
-        for (const it of (data?.items ?? []) as StockSummaryItem[]) {
-          m.set(it.product.id, { qty: Number(it.quantity), min: Number(it.minimumStock) });
-        }
-        setStockByProduct(m);
+      if (pSettled.status === 'fulfilled' && pSettled.value.ok) {
+        try { setProducts((await pSettled.value.json()).data || []); } catch { /* json fail */ }
+      }
+      if (prSettled.status === 'fulfilled' && prSettled.value.ok) {
+        try { setPrices((await prSettled.value.json()).data || []); } catch { /* json fail */ }
+      }
+      if (stSettled.status === 'fulfilled' && stSettled.value.ok) {
+        try {
+          const { data } = await stSettled.value.json();
+          const m = new Map<string, { qty: number; min: number }>();
+          for (const it of (data?.items ?? []) as StockSummaryItem[]) {
+            m.set(it.product.id, { qty: Number(it.quantity), min: Number(it.minimumStock) });
+          }
+          setStockByProduct(m);
+        } catch { /* json fail */ }
       }
     } finally { setLoadingCatalog(false); }
   }, [activeOutletId]);
@@ -172,8 +185,10 @@ export default function QuickSalePage() {
   // ===== File de scans clients (poll toutes les 10s) =====
   const loadScans = useCallback(async () => {
     if (!activeOutletId) return;
-    const r = await fetch(`/api/scan/queue/${activeOutletId}`);
-    if (r.ok) setScans((await r.json()).data || []);
+    try {
+      const r = await fetch(`/api/scan/queue/${activeOutletId}`);
+      if (r.ok) setScans((await r.json()).data || []);
+    } catch { /* réseau flaky, on retentera au prochain poll */ }
   }, [activeOutletId]);
 
   useEffect(() => {
