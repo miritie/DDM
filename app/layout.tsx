@@ -6,12 +6,7 @@
 import type { Metadata } from 'next';
 import { Inter } from 'next/font/google';
 import { SessionProvider } from '@/lib/auth/session-provider';
-import { UserMenu } from '@/components/auth/user-menu';
-import { HomeButton } from '@/components/auth/home-button';
-import { QuickExpenseButton } from '@/components/expenses/quick-expense-button';
-import { MyExpensesAlertBadge } from '@/components/expenses/my-expenses-badge';
-import { TransferAlertBadge } from '@/components/stock/transfer-alert-badge';
-import { NotificationBell } from '@/components/notifications/notification-bell';
+import { AppTopBar } from '@/components/layouts/app-top-bar';
 import './globals.css';
 
 const inter = Inter({ subsets: ['latin'] });
@@ -30,13 +25,14 @@ export default function RootLayout({
     <html lang="fr" suppressHydrationWarning>
       <body className={inter.className} suppressHydrationWarning>
         <SessionProvider>
-          <HomeButton />
-          <QuickExpenseButton />
-          <MyExpensesAlertBadge />
-          <TransferAlertBadge />
-          <NotificationBell />
-          <UserMenu />
-          {children}
+          {/* Barre de navigation globale (56 px, fixed top, fond neutre).
+              Regroupe Home / FAB dépense / badges alertes / notifs / user.
+              Le pt-14 ci-dessous laisse l'espace nécessaire au contenu de
+              toutes les pages, sans qu'elles aient à le savoir. */}
+          <AppTopBar />
+          <div className="pt-14">
+            {children}
+          </div>
         </SessionProvider>
       </body>
     </html>

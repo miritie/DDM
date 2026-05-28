@@ -23,7 +23,7 @@ import { PERMISSIONS } from '@/lib/rbac';
 
 const HIDDEN_PREFIXES = ['/auth', '/checkin', '/scan'];
 
-export function QuickExpenseButton() {
+export function QuickExpenseButton({ inline = false }: { inline?: boolean } = {}) {
   const router = useRouter();
   const pathname = usePathname() || '';
   const { status } = useSession();
@@ -39,17 +39,19 @@ export function QuickExpenseButton() {
   // Sur la page elle-même → inutile
   if (pathname.startsWith('/expenses/requests/quick')) return null;
 
+  const positioning = inline ? '' : 'fixed top-4 left-1/2 -translate-x-1/2 z-50 ';
+
   return (
     <button
       onClick={() => router.push('/expenses/requests/quick')}
-      className="fixed top-4 left-1/2 -translate-x-1/2 z-50 flex items-center gap-2 bg-gradient-to-r from-red-500 to-orange-500 text-white rounded-full pl-3 pr-4 py-2 shadow-lg hover:shadow-xl hover:scale-105 active:scale-95 transition-all"
+      className={`${positioning}flex items-center gap-1.5 bg-gradient-to-r from-red-500 to-orange-500 text-white rounded-full pl-2 pr-3 py-1.5 shadow-md hover:shadow-lg active:scale-95 transition-all`}
       title="Solliciter une dépense"
       aria-label="Solliciter une dépense"
     >
-      <div className="w-6 h-6 rounded-full bg-white/20 flex items-center justify-center">
-        <Plus className="w-4 h-4" />
+      <div className="w-5 h-5 rounded-full bg-white/20 flex items-center justify-center">
+        <Plus className="w-3.5 h-3.5" />
       </div>
-      <span className="text-sm font-semibold hidden sm:inline">Dépense</span>
+      <span className="text-xs font-semibold hidden sm:inline">Dépense</span>
     </button>
   );
 }

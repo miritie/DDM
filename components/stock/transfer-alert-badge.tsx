@@ -17,7 +17,7 @@ import { PERMISSIONS } from '@/lib/rbac';
 
 const HIDDEN_PREFIXES = ['/auth', '/checkin', '/scan'];
 
-export function TransferAlertBadge() {
+export function TransferAlertBadge({ inline = false }: { inline?: boolean } = {}) {
   const router = useRouter();
   const pathname = usePathname() || '';
   const { status } = useSession();
@@ -55,18 +55,20 @@ export function TransferAlertBadge() {
   if (!loaded || count === 0) return null;
   if (pathname.startsWith('/stock/transfers')) return null;
 
+  const positioning = inline ? '' : 'fixed top-4 right-44 z-50 ';
+
   return (
     <button
       onClick={() => router.push('/stock/transfers')}
-      className="fixed top-4 right-44 z-50 flex items-center gap-2 bg-amber-500 text-white rounded-full pl-3 pr-4 py-2 shadow-lg hover:bg-amber-600 hover:scale-105 active:scale-95 transition-all"
+      className={`${positioning}flex items-center gap-1.5 bg-amber-500 text-white rounded-full pl-2 pr-3 py-1.5 shadow-md hover:bg-amber-600 active:scale-95 transition-all`}
       title={`${count} ligne(s) de transfert à réceptionner`}
       aria-label={`${count} transferts à recevoir`}
     >
-      <div className="w-6 h-6 rounded-full bg-white/20 flex items-center justify-center">
-        <ArrowRightLeft className="w-4 h-4" />
+      <div className="w-5 h-5 rounded-full bg-white/20 flex items-center justify-center">
+        <ArrowRightLeft className="w-3.5 h-3.5" />
       </div>
-      <span className="text-sm font-semibold">{count}</span>
-      <span className="text-xs hidden sm:inline opacity-90">à recevoir</span>
+      <span className="text-xs font-semibold">{count}</span>
+      <span className="text-xs hidden md:inline opacity-90">à recevoir</span>
     </button>
   );
 }

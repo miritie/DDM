@@ -13,7 +13,7 @@ import { Bell } from 'lucide-react';
 
 const HIDDEN_PREFIXES = ['/auth', '/checkin', '/scan'];
 
-export function NotificationBell() {
+export function NotificationBell({ inline = false }: { inline?: boolean } = {}) {
   const router = useRouter();
   const pathname = usePathname() || '';
   const { status } = useSession();
@@ -38,14 +38,16 @@ export function NotificationBell() {
   if (HIDDEN_PREFIXES.some((p) => pathname.startsWith(p))) return null;
   if (status !== 'authenticated') return null;
 
+  const positioning = inline ? 'relative' : 'fixed top-4 right-20 z-50';
+
   return (
     <button
       onClick={() => router.push('/inbox')}
-      className="fixed top-4 right-20 z-50 flex items-center justify-center w-11 h-11 bg-white border border-gray-200 rounded-full shadow-sm hover:shadow-md hover:border-blue-400 transition-all"
+      className={`${positioning} flex items-center justify-center w-9 h-9 bg-white border border-gray-200 rounded-full shadow-sm hover:shadow-md hover:border-blue-400 transition-all`}
       title={count === 0 ? 'Aucune nouvelle notification' : `${count} notification${count > 1 ? 's' : ''} non lue${count > 1 ? 's' : ''}`}
       aria-label="Notifications"
     >
-      <Bell className={`w-5 h-5 ${count > 0 ? 'text-blue-600' : 'text-gray-500'}`} />
+      <Bell className={`w-4 h-4 ${count > 0 ? 'text-blue-600' : 'text-gray-500'}`} />
       {count > 0 && (
         <span className="absolute -top-1 -right-1 bg-red-500 text-white text-[10px] font-bold rounded-full min-w-[18px] h-[18px] flex items-center justify-center px-1 border-2 border-white">
           {count > 99 ? '99+' : count}

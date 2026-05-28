@@ -6,7 +6,12 @@ import { Home } from 'lucide-react';
 
 const HIDDEN_PREFIXES = ['/auth/'];
 
-export function HomeButton() {
+/**
+ * @param inline — quand true, le bouton se contente d'être un enfant de
+ *   layout (utilisé dans AppTopBar). Sinon, position fixed top-left
+ *   (compat legacy si quelqu'un le rend directement).
+ */
+export function HomeButton({ inline = false }: { inline?: boolean } = {}) {
   const { status } = useSession();
   const pathname = usePathname();
   const router = useRouter();
@@ -15,10 +20,12 @@ export function HomeButton() {
   if (!pathname) return null;
   if (HIDDEN_PREFIXES.some((p) => pathname.startsWith(p))) return null;
 
+  const positioning = inline ? '' : 'fixed top-4 left-4 z-50 ';
+
   return (
     <button
       onClick={() => router.push('/dashboard')}
-      className="fixed top-4 left-4 z-50 flex items-center gap-2 bg-white border border-gray-200 rounded-full pl-2 pr-3 py-1.5 shadow-sm hover:shadow-md hover:border-blue-400 transition-all"
+      className={`${positioning}flex items-center gap-2 bg-white border border-gray-200 rounded-full pl-2 pr-3 py-1.5 shadow-sm hover:shadow-md hover:border-blue-400 transition-all`}
       aria-label="Retour à l'accueil"
       title="Retour à mon tableau de bord"
     >

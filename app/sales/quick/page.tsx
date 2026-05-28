@@ -435,16 +435,12 @@ export default function QuickSalePage() {
 
   return (
     <ProtectedPage permission={PERMISSIONS.SALES_CREATE}>
-      {/* pt-16 : laisse passer la nav globale fixée du RootLayout
-          (HomeButton / QuickExpenseButton / UserMenu / NotificationBell
-          en fixed top-4 z-50). Sans ce padding, ces widgets masquent
-          le nom du stand. */}
-      <div className="min-h-screen bg-gray-50 pb-24 lg:pb-0 pt-16">
+      <div className="min-h-screen bg-gray-50 pb-24 lg:pb-0">
         <div className="lg:grid lg:grid-cols-[1fr_360px] lg:gap-0">
           {/* COLONNE GAUCHE : header sticky + bandeau client + recherche + grille produits */}
           <div className="min-w-0">
-            {/* Header sticky 1 ligne — top-16 pour rester sous la nav globale */}
-            <div className="sticky top-16 z-10 bg-white border-b px-3 py-2 flex items-center gap-2">
+            {/* Header sticky — top-14 pour rester collé sous AppTopBar (h-14) */}
+            <div className="sticky top-14 z-10 bg-white border-b px-3 py-2 flex items-center gap-2">
               <MapPin className="w-4 h-4 text-blue-600 shrink-0" />
               <div className="min-w-0 flex-1">
                 <p className="text-sm font-bold truncate leading-tight">{currentOutlet?.Name || '…'}</p>

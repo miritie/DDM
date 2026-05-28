@@ -12,7 +12,7 @@ interface RoleOption {
   description: string | null;
 }
 
-export function UserMenu() {
+export function UserMenu({ inline = false }: { inline?: boolean } = {}) {
   const { data: session, status, update } = useSession();
   const pathname = usePathname();
   const router = useRouter();
@@ -78,20 +78,22 @@ export function UserMenu() {
     }
   }
 
+  const wrapperPositioning = inline ? 'relative' : 'fixed top-4 right-4 z-50';
+
   return (
-    <div ref={ref} className="fixed top-4 right-4 z-50">
+    <div ref={ref} className={wrapperPositioning}>
       <button
         onClick={() => setOpen((v) => !v)}
-        className="flex items-center gap-2 bg-white border border-gray-200 rounded-full pl-1 pr-3 py-1 shadow-sm hover:shadow-md transition-shadow"
+        className="flex items-center gap-1.5 bg-white border border-gray-200 rounded-full pl-0.5 pr-2 py-0.5 shadow-sm hover:shadow-md transition-shadow"
         aria-label="Menu utilisateur"
       >
-        <span className="w-8 h-8 rounded-full bg-blue-600 text-white flex items-center justify-center text-sm font-semibold">
+        <span className="w-8 h-8 rounded-full bg-blue-600 text-white flex items-center justify-center text-xs font-semibold">
           {initials}
         </span>
-        <span className="hidden sm:flex flex-col items-start leading-tight">
-          <span className="text-sm font-medium text-gray-700">{name}</span>
+        <span className="hidden md:flex flex-col items-start leading-tight pr-1">
+          <span className="text-xs font-medium text-gray-700 truncate max-w-[120px]">{name}</span>
           {activeRole && (
-            <span className="text-xs text-blue-600">{activeRole.name}</span>
+            <span className="text-[10px] text-blue-600 truncate max-w-[120px]">{activeRole.name}</span>
           )}
         </span>
       </button>

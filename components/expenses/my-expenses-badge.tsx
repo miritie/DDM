@@ -18,7 +18,7 @@ import { PERMISSIONS } from '@/lib/rbac';
 
 const HIDDEN_PREFIXES = ['/auth', '/checkin', '/scan'];
 
-export function MyExpensesAlertBadge() {
+export function MyExpensesAlertBadge({ inline = false }: { inline?: boolean } = {}) {
   const router = useRouter();
   const pathname = usePathname() || '';
   const { status } = useSession();
@@ -64,18 +64,20 @@ export function MyExpensesAlertBadge() {
   if (byStatus.scheduled) parts.push(`${byStatus.scheduled} planifiée(s)`);
   const tooltip = parts.length > 0 ? parts.join(' · ') : `${count} en cours`;
 
+  const positioning = inline ? '' : 'fixed top-4 right-60 z-50 ';
+
   return (
     <button
       onClick={() => router.push('/expenses/my-requests')}
-      className="fixed top-4 right-60 z-50 flex items-center gap-2 bg-blue-500 text-white rounded-full pl-3 pr-4 py-2 shadow-lg hover:bg-blue-600 hover:scale-105 active:scale-95 transition-all"
+      className={`${positioning}flex items-center gap-1.5 bg-blue-500 text-white rounded-full pl-2 pr-3 py-1.5 shadow-md hover:bg-blue-600 active:scale-95 transition-all`}
       title={tooltip}
       aria-label={`${count} demande(s) de dépense en cours : ${tooltip}`}
     >
-      <div className="w-6 h-6 rounded-full bg-white/20 flex items-center justify-center">
-        <Receipt className="w-4 h-4" />
+      <div className="w-5 h-5 rounded-full bg-white/20 flex items-center justify-center">
+        <Receipt className="w-3.5 h-3.5" />
       </div>
-      <span className="text-sm font-semibold">{count}</span>
-      <span className="text-xs hidden sm:inline opacity-90">mes dépenses</span>
+      <span className="text-xs font-semibold">{count}</span>
+      <span className="text-xs hidden md:inline opacity-90">mes dépenses</span>
     </button>
   );
 }
