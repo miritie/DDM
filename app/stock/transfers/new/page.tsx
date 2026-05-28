@@ -27,7 +27,13 @@ interface Warehouse {
   is_production_source?: boolean;
   IsProductionSource?: boolean;
 }
-interface Outlet { id: string; code: string; name: string; }
+interface Outlet {
+  id: string;
+  code?: string;
+  Code?: string;
+  name?: string;
+  Name?: string;
+}
 interface Product { id?: string; ProductId: string; Name: string; Code: string; Unit?: string; }
 
 interface LineDraft {
@@ -55,10 +61,11 @@ function Content() {
   const presetWarehouseId = searchParams.get('sourceWarehouseId');
   const presetOutletId = searchParams.get('sourceOutletId');
   // Contexte production : verrouille la source au type warehouse, et
-  // restreint la liste aux entrepôts marqués `is_production_source`.
-  // Si un seul entrepôt est éligible, il est auto-sélectionné. Règle
-  // métier : un transfert de PF ne peut sortir que d'un entrepôt
-  // adossé à l'unité de production.
+  // restreint la liste *source* aux entrepôts marqués
+  // `is_production_source`. Les destinations restent ouvertes à TOUS
+  // les entrepôts actifs et à tous les stands (règle métier : on sort
+  // de l'unité de prod vers n'importe où, mais on n'y rentre pas par
+  // ce wizard).
   const fromProduction = searchParams.get('fromProduction') === '1';
 
   const [warehouses, setWarehouses] = useState<Warehouse[]>([]);
@@ -73,15 +80,18 @@ function Content() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
-    // En contexte production, on demande au serveur uniquement les
-    // entrepôts flagués source production. Sinon, tous les actifs.
-    const warehouseUrl = fromProduction
-      ? '/api/stock/warehouses?isActive=true&isProductionSource=true'
-      : '/api/stock/warehouses?isActive=true';
+  function isProductionSource(w: Warehouse): boolean {
+    return Boolean(w.is_production_source ?? w.IsProductionSource);
+  }
+  // Sous-ensemble des entrepôts utilisables comme source en contexte
+  // production. Hors contexte, on ne filtre pas.
+  const sourceWarehouses = fromProduction ? warehouses.filter(isProductionSource) : warehouses;
 
+  useEffect(() => {
+    // On charge toujours TOUS les entrepôts actifs : ils servent de
+    // destinations (et de source, filtrés côté client si production).
     Promise.all([
-      fetch(warehouseUrl).then((r) => r.ok ? r.json() : { data: [] }),
+      fetch('/api/stock/warehouses?isActive=true').then((r) => r.ok ? r.json() : { data: [] }),
       fetch('/api/outlets?isActive=true').then((r) => r.ok ? r.json() : { data: [] }),
       fetch('/api/products?isActive=true').then((r) => r.ok ? r.json() : { data: [] }),
     ]).then(([wR, oR, pR]) => {
@@ -91,10 +101,10 @@ function Content() {
       setProducts(pR.data || []);
 
       // Auto-sélection : si en contexte production et qu'un seul
-      // entrepôt est éligible, on le verrouille comme source par défaut
-      // (l'utilisateur n'a pas à choisir, et ne peut pas en sortir).
-      if (fromProduction && !sourceId && whs.length === 1) {
-        setSourceId(getWarehouseId(whs[0]));
+      // entrepôt source est éligible, on le verrouille par défaut.
+      if (fromProduction && !sourceId) {
+        const eligible = whs.filter(isProductionSource);
+        if (eligible.length === 1) setSourceId(getWarehouseId(eligible[0]));
       }
     });
   }, []);
@@ -104,6 +114,14 @@ function Content() {
   }
   function getWarehouseName(w: Warehouse): string {
     return (w.name || w.Name || '?') as string;
+  }
+  // L'API transferts attend le code business de l'outlet (cf.
+  // resolveUuid('outlets', 'code', …) côté service), pas l'UUID.
+  function getOutletCode(o: Outlet): string {
+    return (o.Code || o.code || '') as string;
+  }
+  function getOutletName(o: Outlet): string {
+    return (o.Name || o.name || '?') as string;
   }
 
   function addLine() {
@@ -182,16 +200,17 @@ function Content() {
               <div>
                 <strong>Transfert depuis l'unité de production.</strong> La source
                 est restreinte aux entrepôts marqués « Adossé à l'unité de
-                production » (configurable depuis l'admin entrepôts).
-                {warehouses.length === 0 && (
+                production ». Les destinations restent ouvertes à tous les
+                entrepôts et stands actifs.
+                {sourceWarehouses.length === 0 && (
                   <span className="block mt-1 text-red-700">
-                    Aucun entrepôt n'est marqué — impossible de créer un transfert.
+                    Aucun entrepôt source n'est marqué — impossible de créer un transfert.
                     Va dans Stock &gt; Entrepôts pour en désigner au moins un.
                   </span>
                 )}
-                {warehouses.length === 1 && (
+                {sourceWarehouses.length === 1 && (
                   <span className="block mt-1">
-                    Seul <strong>{getWarehouseName(warehouses[0])}</strong> est éligible —
+                    Seul <strong>{getWarehouseName(sourceWarehouses[0])}</strong> est éligible comme source —
                     sélection verrouillée.
                   </span>
                 )}
@@ -222,15 +241,15 @@ function Content() {
             className={INP}
             value={sourceId}
             onChange={(e) => setSourceId(e.target.value)}
-            disabled={fromProduction && warehouses.length <= 1}
+            disabled={fromProduction && sourceWarehouses.length <= 1}
           >
             <option value="">— Choisir un emplacement source —</option>
             {sourceType === 'warehouse'
-              ? warehouses.map((w) => (
+              ? sourceWarehouses.map((w) => (
                   <option key={getWarehouseId(w)} value={getWarehouseId(w)}>{getWarehouseName(w)}</option>
                 ))
               : outlets.map((o) => (
-                  <option key={o.code} value={o.code}>{o.name}</option>
+                  <option key={getOutletCode(o)} value={getOutletCode(o)}>{getOutletName(o)}</option>
                 ))}
           </select>
           <label className="block">
@@ -278,7 +297,7 @@ function Content() {
                         <div className="col-span-6 sm:col-span-3">
                           <label className="block text-xs text-gray-500 mb-1">Quantité</label>
                           <input
-                            type="number" min="0" step="0.001"
+                            type="number" min="1" step="1"
                             className={INP + ' text-sm'}
                             value={line.qtySent}
                             onChange={(e) => updateLine(idx, { qtySent: e.target.value })}
@@ -312,7 +331,7 @@ function Content() {
                                   <option key={getWarehouseId(w)} value={getWarehouseId(w)}>{getWarehouseName(w)}</option>
                                 ))
                               : outlets.map((o) => (
-                                  <option key={o.code} value={o.code}>{o.name}</option>
+                                  <option key={getOutletCode(o)} value={getOutletCode(o)}>{getOutletName(o)}</option>
                                 ))}
                           </select>
                         </div>
