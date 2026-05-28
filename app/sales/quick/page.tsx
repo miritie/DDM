@@ -435,12 +435,16 @@ export default function QuickSalePage() {
 
   return (
     <ProtectedPage permission={PERMISSIONS.SALES_CREATE}>
-      <div className="min-h-screen bg-gray-50 pb-24 lg:pb-0">
+      {/* pt-16 : laisse passer la nav globale fixée du RootLayout
+          (HomeButton / QuickExpenseButton / UserMenu / NotificationBell
+          en fixed top-4 z-50). Sans ce padding, ces widgets masquent
+          le nom du stand. */}
+      <div className="min-h-screen bg-gray-50 pb-24 lg:pb-0 pt-16">
         <div className="lg:grid lg:grid-cols-[1fr_360px] lg:gap-0">
           {/* COLONNE GAUCHE : header sticky + bandeau client + recherche + grille produits */}
           <div className="min-w-0">
-            {/* Header sticky 1 ligne */}
-            <div className="sticky top-0 z-10 bg-white border-b px-3 py-2 flex items-center gap-2">
+            {/* Header sticky 1 ligne — top-16 pour rester sous la nav globale */}
+            <div className="sticky top-16 z-10 bg-white border-b px-3 py-2 flex items-center gap-2">
               <MapPin className="w-4 h-4 text-blue-600 shrink-0" />
               <div className="min-w-0 flex-1">
                 <p className="text-sm font-bold truncate leading-tight">{currentOutlet?.Name || '…'}</p>
@@ -568,14 +572,28 @@ export default function QuickSalePage() {
                     const stock = stockByProduct.get(p._id);
                     const qty = stock?.qty ?? null;
                     const min = stock?.min ?? 0;
-                    // Pastille stock — TOUJOURS visible. Sans info, "—" gris.
-                    let badgeClass = 'bg-gray-200 text-gray-500';
-                    let badgeText = '—';
-                    if (qty !== null) {
-                      badgeText = new Intl.NumberFormat('fr-FR').format(qty);
-                      if (qty <= 0) badgeClass = 'bg-red-600 text-white';
-                      else if (qty <= min) badgeClass = 'bg-amber-500 text-white';
-                      else badgeClass = 'bg-emerald-600 text-white';
+                    // Stock : trois états visuels, libellé clair.
+                    //  - inconnu  : gris + « Stock non suivi »
+                    //  - rupture  : rouge + « Rupture »
+                    //  - faible   : ambre + « Stock faible : N »
+                    //  - normal   : vert + « N en stock »
+                    let dotClass = 'bg-gray-300';
+                    let stockText: string;
+                    let stockTextClass = 'text-gray-500';
+                    if (qty === null) {
+                      stockText = 'Stock non suivi';
+                    } else if (qty <= 0) {
+                      dotClass = 'bg-red-500';
+                      stockText = 'Rupture';
+                      stockTextClass = 'text-red-700 font-semibold';
+                    } else if (qty <= min) {
+                      dotClass = 'bg-amber-500';
+                      stockText = `Stock bas : ${new Intl.NumberFormat('fr-FR').format(qty)}`;
+                      stockTextClass = 'text-amber-700 font-semibold';
+                    } else {
+                      dotClass = 'bg-emerald-500';
+                      stockText = `${new Intl.NumberFormat('fr-FR').format(qty)} en stock`;
+                      stockTextClass = 'text-emerald-700';
                     }
                     const disabled = qty !== null && qty <= 0;
                     return (
@@ -589,19 +607,17 @@ export default function QuickSalePage() {
                             : 'border-gray-200 active:scale-95 hover:border-blue-500 hover:shadow-md'
                         }`}
                       >
-                        <div className="aspect-square bg-gray-50 flex items-center justify-center relative">
+                        {/* Image : hauteur fixe en mobile pour ne pas exploser
+                            l'écran, redevient carrée à partir de sm pour
+                            occuper plus joliment l'espace. */}
+                        <div className="h-24 sm:h-28 md:aspect-square md:h-auto bg-gray-50 flex items-center justify-center relative">
                           {p.ImageUrl
                             /* eslint-disable-next-line @next/next/no-img-element */
                             ? <img src={p.ImageUrl} alt={p.Name} className="w-full h-full object-cover" />
-                            : <Package className="w-10 h-10 text-gray-300" />}
-                          {/* Pastille stock — coin haut-droit, toujours visible */}
-                          <span className={`absolute top-1.5 right-1.5 min-w-[24px] h-6 px-1.5 rounded-full text-[11px] font-bold flex items-center justify-center shadow ${badgeClass}`}
-                            title={qty !== null ? `${badgeText} en stock` : 'Stock inconnu'}>
-                            {badgeText}
-                          </span>
-                          {/* Compteur dans panier — coin bas-droit */}
+                            : <Package className="w-8 h-8 text-gray-300" />}
+                          {/* Compteur panier — coin haut-droit */}
                           {inCart && (
-                            <span className="absolute bottom-1.5 right-1.5 min-w-[24px] h-6 px-1.5 rounded-full bg-blue-600 text-white text-[11px] font-bold flex items-center justify-center shadow">
+                            <span className="absolute top-1.5 right-1.5 min-w-[24px] h-6 px-1.5 rounded-full bg-blue-600 text-white text-[11px] font-bold flex items-center justify-center shadow">
                               ×{inCart.quantity}
                             </span>
                           )}
@@ -609,6 +625,13 @@ export default function QuickSalePage() {
                         <div className="px-2 py-1.5">
                           <p className="text-xs font-medium line-clamp-2 leading-tight min-h-[2em]">{p.Name}</p>
                           <p className="text-sm font-bold text-blue-600 mt-0.5">{formatPrice(p.outletPrice)}</p>
+                          {/* Ligne stock — toujours présente, libellé clair */}
+                          <div className="flex items-center gap-1 mt-1">
+                            <span className={`w-2 h-2 rounded-full shrink-0 ${dotClass}`} />
+                            <span className={`text-[10px] leading-tight truncate ${stockTextClass}`}>
+                              {stockText}
+                            </span>
+                          </div>
                         </div>
                       </button>
                     );
