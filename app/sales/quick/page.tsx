@@ -19,7 +19,7 @@ import { Button } from '@/components/ui/button';
 import {
   Search, Package, ShoppingCart, Plus, Minus, X, Check, Loader2,
   MapPin, Users, ClipboardList, RefreshCw, Truck, QrCode, UserPlus,
-  BarChart3, PackageCheck,
+  BarChart3, PackageCheck, MoreVertical, ChevronUp, Smartphone,
 } from 'lucide-react';
 import { ReceiveStockModal } from '@/components/pos/receive-stock-modal';
 import { CheckoutModal, type CheckoutResult } from '@/components/pos/checkout-modal';
@@ -62,6 +62,11 @@ export default function QuickSalePage() {
   const [showNewClient, setShowNewClient] = useState(false);
   const [showJournal, setShowJournal] = useState(false);
   const [showIncoming, setShowIncoming] = useState(false);
+  // UI mobile : drawer panier + menu kebab + liste scans (séparée du panier
+  // pour rester rapide d'accès sans masquer le catalogue).
+  const [showCart, setShowCart] = useState(false);
+  const [showMenu, setShowMenu] = useState(false);
+  const [showScansList, setShowScansList] = useState(false);
 
   // Stock par produit pour cet outlet : alimente les badges produits.
   // Clés = product UUID PK (matche Product.Id ou .id côté catalogue).
@@ -328,145 +333,166 @@ export default function QuickSalePage() {
   // ===== ÉCRAN 2 : POS actif =====
   const currentOutlet = outlets.find(o => o.id === activeOutletId);
 
+  // Client effectivement sélectionné (scan QR prioritaire, sinon création directe)
+  const activeClientLabel = selectedScan
+    ? (selectedScan.ClientName || selectedScan.ClientPhone || 'Client scan')
+    : manualClient
+      ? (manualClient.name || manualClient.phone || 'Client')
+      : null;
+  const clearActiveClient = () => { setSelectedScan(null); setManualClient(null); };
+
+  // Contenu du panier — réutilisé en panel droite (desktop) ET drawer bas (mobile).
+  const cartContent = (
+    <div className="flex flex-col h-full">
+      {/* Bandeau client en haut du panier */}
+      <div className="px-3 py-2 border-b bg-indigo-50/50">
+        <p className="text-[10px] uppercase font-semibold text-indigo-700 mb-1">Client</p>
+        {activeClientLabel ? (
+          <div className="flex items-center gap-2">
+            <Users className="w-4 h-4 text-indigo-600 shrink-0" />
+            <p className="text-sm font-medium text-indigo-900 truncate flex-1">{activeClientLabel}</p>
+            <button onClick={clearActiveClient} className="text-indigo-400 hover:text-red-600 p-1" aria-label="Retirer client">
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+        ) : (
+          <p className="text-sm text-gray-500 italic">Vente anonyme</p>
+        )}
+      </div>
+
+      {/* Liste articles */}
+      <div className="flex-1 overflow-auto px-3 py-2">
+        {cart.length === 0 ? (
+          <p className="text-center text-sm text-gray-500 py-10">Touchez un produit pour l'ajouter</p>
+        ) : (
+          <div className="space-y-2">
+            {cart.map(item => (
+              <div key={item.productId} className="flex items-center gap-2 p-2 rounded border bg-gray-50">
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-medium truncate">{item.name}</p>
+                  <p className="text-xs text-gray-500">{formatPrice(item.unitPrice)} × {item.quantity}</p>
+                </div>
+                <div className="flex items-center gap-1">
+                  <button onClick={() => changeQty(item.productId, -1)} className="w-8 h-8 rounded border bg-white hover:bg-gray-100 flex items-center justify-center"><Minus className="w-4 h-4" /></button>
+                  <span className="w-6 text-center text-sm font-semibold">{item.quantity}</span>
+                  <button onClick={() => changeQty(item.productId, 1)} className="w-8 h-8 rounded border bg-white hover:bg-gray-100 flex items-center justify-center"><Plus className="w-4 h-4" /></button>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* Total + bouton */}
+      <div className="border-t bg-white p-3">
+        <div className="flex items-baseline justify-between mb-3">
+          <span className="text-sm text-gray-600">Total</span>
+          <span className="text-2xl font-bold">{formatPrice(subtotal)}</span>
+        </div>
+        <Button onClick={checkout} disabled={cart.length === 0 || submitting} className="w-full py-6 text-base">
+          {submitting ? <><Loader2 className="w-5 h-5 mr-2 animate-spin" />Encaissement…</> : <><Check className="w-5 h-5 mr-2" />Encaisser</>}
+        </Button>
+      </div>
+    </div>
+  );
+
   return (
     <ProtectedPage permission={PERMISSIONS.SALES_CREATE}>
-      <div className="min-h-screen bg-gray-50">
-        <div className="grid grid-cols-1 lg:grid-cols-[1fr_400px] gap-0">
-          {/* PANEL GAUCHE : produits */}
-          <div className="p-6 lg:pr-3">
-            <div className="flex items-center justify-between gap-3 mb-3">
-              <div>
-                <h1 className="text-2xl font-bold flex items-center gap-2">
-                  <MapPin className="w-6 h-6 text-blue-600" />
-                  {currentOutlet?.Name || '…'}
-                </h1>
-                {openingSession && <p className="text-xs text-gray-500"><Loader2 className="w-3 h-3 inline animate-spin" /> ouverture session POS…</p>}
-                {sessionId && !openingSession && <p className="text-xs text-emerald-600">● Session active</p>}
+      <div className="min-h-screen bg-gray-50 pb-24 lg:pb-0">
+        <div className="lg:grid lg:grid-cols-[1fr_360px] lg:gap-0">
+          {/* COLONNE GAUCHE : header sticky + bandeau client + recherche + grille produits */}
+          <div className="min-w-0">
+            {/* Header sticky 1 ligne */}
+            <div className="sticky top-0 z-10 bg-white border-b px-3 py-2 flex items-center gap-2">
+              <MapPin className="w-4 h-4 text-blue-600 shrink-0" />
+              <div className="min-w-0 flex-1">
+                <p className="text-sm font-bold truncate leading-tight">{currentOutlet?.Name || '…'}</p>
+                <p className="text-[10px] leading-tight">
+                  {openingSession
+                    ? <span className="text-gray-500"><Loader2 className="w-2.5 h-2.5 inline animate-spin mr-1" />ouverture session…</span>
+                    : sessionId
+                      ? <span className="text-emerald-600">● Session active</span>
+                      : <span className="text-gray-400">—</span>}
+                </p>
               </div>
-              <div className="flex gap-2 flex-wrap">
+              {/* Bouton kebab actions secondaires */}
+              <div className="relative">
                 <button
-                  onClick={() => setShowQr(true)}
-                  className="px-3 py-2 rounded-lg border border-blue-200 bg-blue-50 text-blue-700 text-sm hover:bg-blue-100 inline-flex items-center gap-2"
-                  title="Afficher le QR à présenter au client"
+                  onClick={() => setShowMenu(v => !v)}
+                  className="relative p-2 rounded-lg border border-gray-200 hover:bg-gray-100"
+                  aria-label="Actions"
                 >
-                  <QrCode className="w-4 h-4" /> QR stand
-                </button>
-                <button
-                  onClick={() => setShowNewClient(true)}
-                  className="px-3 py-2 rounded-lg border border-indigo-200 bg-indigo-50 text-indigo-700 text-sm hover:bg-indigo-100 inline-flex items-center gap-2"
-                >
-                  <UserPlus className="w-4 h-4" /> Nouveau client
-                </button>
-                <button
-                  onClick={() => setShowJournal(true)}
-                  className="px-3 py-2 rounded-lg border border-emerald-200 bg-emerald-50 text-emerald-700 text-sm hover:bg-emerald-100 inline-flex items-center gap-2"
-                >
-                  <ClipboardList className="w-4 h-4" /> Journal
-                </button>
-                <button
-                  onClick={() => setShowIncoming(true)}
-                  className="relative px-3 py-2 rounded-lg border border-purple-200 bg-purple-50 text-purple-700 text-sm hover:bg-purple-100 inline-flex items-center gap-2"
-                  title="Confirmer la réception de transferts"
-                >
-                  <PackageCheck className="w-4 h-4" /> Réceptions
+                  <MoreVertical className="w-5 h-5" />
                   {incomingCount > 0 && (
-                    <span className="absolute -top-1.5 -right-1.5 min-w-[1.25rem] h-5 px-1 rounded-full bg-purple-600 text-white text-[11px] font-bold flex items-center justify-center">
+                    <span className="absolute -top-0.5 -right-0.5 min-w-[18px] h-[18px] px-1 rounded-full bg-purple-600 text-white text-[10px] font-bold flex items-center justify-center border-2 border-white">
                       {incomingCount}
                     </span>
                   )}
                 </button>
-                <button
-                  onClick={() => setShowReceive(true)}
-                  className="px-3 py-2 rounded-lg border border-gray-200 bg-white text-gray-700 text-sm hover:bg-gray-100 inline-flex items-center gap-2"
-                  title="Réception manuelle (hors transfert)"
-                >
-                  <Truck className="w-4 h-4" /> Récept. ad hoc
-                </button>
-                <button
-                  onClick={() => router.push('/dashboard/sales')}
-                  className="px-3 py-2 rounded-lg border border-amber-200 bg-amber-50 text-amber-700 text-sm hover:bg-amber-100 inline-flex items-center gap-2"
-                  title="Voir mes performances / objectif / classement"
-                >
-                  <BarChart3 className="w-4 h-4" /> Mes perfs
-                </button>
-                <button onClick={() => setActiveOutletId(null)} className="px-3 py-2 rounded-lg border text-gray-600 text-sm hover:bg-gray-100">
-                  Changer
-                </button>
+                {showMenu && (
+                  <>
+                    <div className="fixed inset-0 z-20" onClick={() => setShowMenu(false)} />
+                    <div className="absolute right-0 top-full mt-1 w-60 bg-white border border-gray-200 rounded-lg shadow-xl z-30 overflow-hidden">
+                      <MenuItem icon={<ClipboardList className="w-4 h-4 text-emerald-600" />} label="Journal de caisse"
+                        onClick={() => { setShowJournal(true); setShowMenu(false); }} />
+                      <MenuItem icon={<PackageCheck className="w-4 h-4 text-purple-600" />} label="Réceptions à confirmer"
+                        badge={incomingCount}
+                        onClick={() => { setShowIncoming(true); setShowMenu(false); }} />
+                      <MenuItem icon={<Truck className="w-4 h-4 text-gray-600" />} label="Réception ad hoc"
+                        onClick={() => { setShowReceive(true); setShowMenu(false); }} />
+                      <MenuItem icon={<BarChart3 className="w-4 h-4 text-amber-600" />} label="Mes performances"
+                        onClick={() => { router.push('/dashboard/sales'); setShowMenu(false); }} />
+                      <div className="border-t my-1" />
+                      <MenuItem icon={<MapPin className="w-4 h-4 text-gray-600" />} label="Changer de stand"
+                        onClick={() => { setActiveOutletId(null); setShowMenu(false); }} />
+                    </div>
+                  </>
+                )}
               </div>
             </div>
 
-            <div className="relative mb-4">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
-              <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Rechercher un produit…" className="w-full pl-9 pr-3 py-2.5 border border-gray-300 rounded-lg" />
-            </div>
-
-            {loadingCatalog ? (
-              <div className="text-center py-16"><Loader2 className="w-8 h-8 mx-auto animate-spin text-blue-600" /></div>
-            ) : sellableProducts.length === 0 ? (
-              <div className="text-center py-16 bg-white rounded-lg border">
-                <Package className="w-12 h-12 mx-auto text-gray-300 mb-2" />
-                <p className="text-gray-500">Aucun produit avec un prix défini sur ce point de vente.</p>
-                <p className="text-xs text-gray-400 mt-2">L'admin doit configurer les prix dans /admin/outlets.</p>
-              </div>
-            ) : (
-              <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 xl:grid-cols-7 2xl:grid-cols-8 gap-2">
-                {sellableProducts.map(p => {
-                  const inCart = cart.find(c => c.productId === p._id);
-                  const stock = stockByProduct.get(p._id);
-                  const qty = stock?.qty ?? null;
-                  const min = stock?.min ?? 0;
-                  // Couleur du badge stock — uniquement si on connaît le stock.
-                  // Pas de badge "stock ?" pour éviter le bruit visuel quand
-                  // la ligne stock_items est absente (cas fréquent en boot).
-                  let stockBadge = '';
-                  let stockLabel = '';
-                  if (qty !== null) {
-                    stockLabel = `${new Intl.NumberFormat('fr-FR').format(qty)} en stock`;
-                    if (qty <= 0) stockBadge = 'bg-red-100 text-red-700';
-                    else if (qty <= min) stockBadge = 'bg-amber-100 text-amber-800';
-                    else stockBadge = 'bg-emerald-100 text-emerald-800';
-                  }
-                  const disabled = qty !== null && qty <= 0;
-                  return (
-                    <button
-                      key={p._id}
-                      onClick={() => !disabled && addToCart(p)}
-                      disabled={disabled}
-                      className={`text-left bg-white border rounded-lg p-2 relative transition ${
-                        disabled
-                          ? 'opacity-60 cursor-not-allowed border-gray-200'
-                          : 'border-gray-200 hover:border-blue-500 hover:shadow-md'
-                      }`}
-                    >
-                      <div className="aspect-square mb-1.5 rounded-md bg-gray-50 overflow-hidden flex items-center justify-center">
-                        {p.ImageUrl
-                          /* eslint-disable-next-line @next/next/no-img-element */
-                          ? <img src={p.ImageUrl} alt={p.Name} className="w-full h-full object-cover" />
-                          : <Package className="w-8 h-8 text-gray-300" />}
-                      </div>
-                      <p className="text-xs font-medium line-clamp-2 leading-tight">{p.Name}</p>
-                      <p className="text-sm font-bold text-blue-600 mt-0.5">{formatPrice(p.outletPrice)}</p>
-                      {qty !== null && (
-                        <span className={`inline-block mt-1 px-1.5 py-0.5 rounded text-[10px] font-semibold ${stockBadge}`}>
-                          {stockLabel}
-                        </span>
-                      )}
-                      {inCart && (
-                        <span className="absolute top-1.5 right-1.5 w-5 h-5 rounded-full bg-blue-600 text-white text-[11px] font-bold flex items-center justify-center">
-                          {inCart.quantity}
-                        </span>
-                      )}
+            {/* Bandeau client compact 1 ligne */}
+            <div className="px-3 py-2 bg-white border-b flex items-center gap-2">
+              <Users className={`w-4 h-4 shrink-0 ${activeClientLabel ? 'text-indigo-600' : 'text-gray-400'}`} />
+              <p className={`text-sm truncate flex-1 ${activeClientLabel ? 'font-medium text-indigo-900' : 'text-gray-500 italic'}`}>
+                {activeClientLabel || 'Vente anonyme'}
+              </p>
+              {activeClientLabel && (
+                <button onClick={clearActiveClient}
+                  className="p-1.5 text-gray-400 hover:text-red-600"
+                  aria-label="Retirer client">
+                  <X className="w-4 h-4" />
+                </button>
+              )}
+              {!activeClientLabel && (
+                <>
+                  <button onClick={() => setShowNewClient(true)}
+                    className="p-1.5 rounded-md border border-indigo-200 bg-indigo-50 text-indigo-700 hover:bg-indigo-100"
+                    title="Créer un client" aria-label="Nouveau client">
+                    <UserPlus className="w-4 h-4" />
+                  </button>
+                  <button onClick={() => setShowQr(true)}
+                    className="p-1.5 rounded-md border border-blue-200 bg-blue-50 text-blue-700 hover:bg-blue-100"
+                    title="Afficher le QR au client" aria-label="QR stand">
+                    <QrCode className="w-4 h-4" />
+                  </button>
+                  {scans.length > 0 && (
+                    <button onClick={() => setShowScansList(true)}
+                      className="relative p-1.5 rounded-md border border-amber-200 bg-amber-50 text-amber-700 hover:bg-amber-100"
+                      title="Scans QR en attente" aria-label="Scans en attente">
+                      <Smartphone className="w-4 h-4" />
+                      <span className="absolute -top-1 -right-1 min-w-[16px] h-[16px] px-1 rounded-full bg-amber-600 text-white text-[10px] font-bold flex items-center justify-center">
+                        {scans.length}
+                      </span>
                     </button>
-                  );
-                })}
-              </div>
-            )}
-          </div>
+                  )}
+                </>
+              )}
+            </div>
 
-          {/* PANEL DROITE : panier + scans */}
-          <div className="bg-white border-l border-gray-200 p-6 lg:pl-3 lg:sticky lg:top-0 lg:h-screen flex flex-col">
+            {/* Feedback inline (non bloquant) */}
             {feedback && (
-              <div className={`mb-3 px-3 py-2 rounded-md border text-sm flex items-start gap-2 ${
+              <div className={`mx-3 mt-2 px-3 py-2 rounded-md border text-sm flex items-start gap-2 ${
                 feedback.type === 'success' ? 'bg-green-50 border-green-200 text-green-800' : 'bg-red-50 border-red-200 text-red-800'
               }`}>
                 {feedback.type === 'success' && <Check className="w-4 h-4 flex-shrink-0 mt-0.5" />}
@@ -475,95 +501,168 @@ export default function QuickSalePage() {
               </div>
             )}
 
-            {/* CLIENT */}
-            <div className="mb-4 pb-4 border-b">
-              <div className="flex items-center justify-between mb-2">
-                <h2 className="text-sm font-semibold text-gray-700 uppercase flex items-center gap-1.5">
-                  <Users className="w-4 h-4" /> Client
-                </h2>
-                <button onClick={loadScans} className="text-xs text-gray-400 hover:text-blue-600" title="Rafraîchir les scans">
-                  <RefreshCw className="w-3 h-3" />
-                </button>
+            {/* Recherche */}
+            <div className="px-3 py-2">
+              <div className="relative">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
+                <input
+                  value={search}
+                  onChange={e => setSearch(e.target.value)}
+                  placeholder="Rechercher un produit…"
+                  className="w-full pl-9 pr-3 py-2.5 border border-gray-300 rounded-lg text-sm"
+                />
               </div>
-
-              {manualClient && !selectedScan && (
-                <div className="mb-2 px-2.5 py-2 rounded bg-indigo-50 border border-indigo-200 flex items-start justify-between gap-2">
-                  <div className="min-w-0 flex-1">
-                    <p className="text-sm font-medium text-indigo-900 truncate">{manualClient.name || manualClient.phone}</p>
-                    {manualClient.name && manualClient.phone && (
-                      <p className="text-xs text-indigo-700">{manualClient.phone}</p>
-                    )}
-                    <p className="text-[11px] text-indigo-600 mt-0.5">Rattaché à la prochaine vente</p>
-                  </div>
-                  <button onClick={() => setManualClient(null)} className="text-indigo-400 hover:text-indigo-700" aria-label="Retirer">
-                    <X className="w-4 h-4" />
-                  </button>
-                </div>
-              )}
-
-              <p className="text-[11px] text-gray-500 mb-1">Scans en attente ({scans.length})</p>
-              {scans.length === 0 ? (
-                <p className="text-xs text-gray-400 italic">Aucun scan en attente</p>
-              ) : (
-                <div className="space-y-1 max-h-32 overflow-auto">
-                  {scans.map(s => (
-                    <button key={s.id} onClick={() => {
-                      setSelectedScan(s.id === selectedScan?.id ? null : s);
-                      setManualClient(null);
-                    }}
-                      className={`w-full text-left px-2 py-1.5 rounded text-sm border ${
-                        selectedScan?.id === s.id ? 'bg-blue-50 border-blue-300' : 'bg-white border-gray-200 hover:border-blue-300'
-                      }`}>
-                      <p className="font-medium">{s.ClientName || s.ClientPhone || '(sans nom)'}</p>
-                      {s.ClientName && s.ClientPhone && <p className="text-xs text-gray-500">{s.ClientPhone}</p>}
-                    </button>
-                  ))}
-                </div>
-              )}
-              {selectedScan && (
-                <p className="mt-2 text-xs text-blue-700 bg-blue-50 px-2 py-1 rounded">
-                  ✓ {selectedScan.ClientName || selectedScan.ClientPhone} sera rattaché à la prochaine vente
-                </p>
-              )}
             </div>
 
-            <h2 className="text-sm font-semibold text-gray-700 uppercase flex items-center gap-1.5 mb-2">
-              <ShoppingCart className="w-4 h-4" /> Panier ({itemCount})
-            </h2>
-
-            <div className="flex-1 overflow-auto -mx-2 px-2 mb-3">
-              {cart.length === 0 ? (
-                <p className="text-center text-sm text-gray-500 py-10">Cliquez sur un produit pour l'ajouter</p>
+            {/* Catalogue */}
+            <div className="px-3 pb-3">
+              {loadingCatalog ? (
+                <div className="text-center py-16"><Loader2 className="w-8 h-8 mx-auto animate-spin text-blue-600" /></div>
+              ) : sellableProducts.length === 0 ? (
+                <div className="text-center py-16 bg-white rounded-lg border">
+                  <Package className="w-12 h-12 mx-auto text-gray-300 mb-2" />
+                  <p className="text-gray-500">Aucun produit avec un prix défini sur ce point de vente.</p>
+                  <p className="text-xs text-gray-400 mt-2">L'admin doit configurer les prix dans /admin/outlets.</p>
+                </div>
               ) : (
-                <div className="space-y-2">
-                  {cart.map(item => (
-                    <div key={item.productId} className="flex items-center gap-2 p-2 rounded border bg-gray-50">
-                      <div className="flex-1 min-w-0">
-                        <p className="text-sm font-medium truncate">{item.name}</p>
-                        <p className="text-xs text-gray-500">{formatPrice(item.unitPrice)} × {item.quantity}</p>
-                      </div>
-                      <div className="flex items-center gap-1">
-                        <button onClick={() => changeQty(item.productId, -1)} className="w-7 h-7 rounded border bg-white hover:bg-gray-100 flex items-center justify-center"><Minus className="w-3.5 h-3.5" /></button>
-                        <span className="w-6 text-center text-sm font-semibold">{item.quantity}</span>
-                        <button onClick={() => changeQty(item.productId, 1)} className="w-7 h-7 rounded border bg-white hover:bg-gray-100 flex items-center justify-center"><Plus className="w-3.5 h-3.5" /></button>
-                      </div>
-                    </div>
-                  ))}
+                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6 gap-2">
+                  {sellableProducts.map(p => {
+                    const inCart = cart.find(c => c.productId === p._id);
+                    const stock = stockByProduct.get(p._id);
+                    const qty = stock?.qty ?? null;
+                    const min = stock?.min ?? 0;
+                    // Pastille stock — TOUJOURS visible. Sans info, "—" gris.
+                    let badgeClass = 'bg-gray-200 text-gray-500';
+                    let badgeText = '—';
+                    if (qty !== null) {
+                      badgeText = new Intl.NumberFormat('fr-FR').format(qty);
+                      if (qty <= 0) badgeClass = 'bg-red-600 text-white';
+                      else if (qty <= min) badgeClass = 'bg-amber-500 text-white';
+                      else badgeClass = 'bg-emerald-600 text-white';
+                    }
+                    const disabled = qty !== null && qty <= 0;
+                    return (
+                      <button
+                        key={p._id}
+                        onClick={() => !disabled && addToCart(p)}
+                        disabled={disabled}
+                        className={`text-left bg-white border rounded-lg overflow-hidden relative transition ${
+                          disabled
+                            ? 'opacity-60 cursor-not-allowed border-gray-200'
+                            : 'border-gray-200 active:scale-95 hover:border-blue-500 hover:shadow-md'
+                        }`}
+                      >
+                        <div className="aspect-square bg-gray-50 flex items-center justify-center relative">
+                          {p.ImageUrl
+                            /* eslint-disable-next-line @next/next/no-img-element */
+                            ? <img src={p.ImageUrl} alt={p.Name} className="w-full h-full object-cover" />
+                            : <Package className="w-10 h-10 text-gray-300" />}
+                          {/* Pastille stock — coin haut-droit, toujours visible */}
+                          <span className={`absolute top-1.5 right-1.5 min-w-[24px] h-6 px-1.5 rounded-full text-[11px] font-bold flex items-center justify-center shadow ${badgeClass}`}
+                            title={qty !== null ? `${badgeText} en stock` : 'Stock inconnu'}>
+                            {badgeText}
+                          </span>
+                          {/* Compteur dans panier — coin bas-droit */}
+                          {inCart && (
+                            <span className="absolute bottom-1.5 right-1.5 min-w-[24px] h-6 px-1.5 rounded-full bg-blue-600 text-white text-[11px] font-bold flex items-center justify-center shadow">
+                              ×{inCart.quantity}
+                            </span>
+                          )}
+                        </div>
+                        <div className="px-2 py-1.5">
+                          <p className="text-xs font-medium line-clamp-2 leading-tight min-h-[2em]">{p.Name}</p>
+                          <p className="text-sm font-bold text-blue-600 mt-0.5">{formatPrice(p.outletPrice)}</p>
+                        </div>
+                      </button>
+                    );
+                  })}
                 </div>
               )}
-            </div>
-
-            <div className="border-t pt-3">
-              <div className="flex items-baseline justify-between mb-3">
-                <span className="text-sm text-gray-600">Total</span>
-                <span className="text-2xl font-bold">{formatPrice(subtotal)}</span>
-              </div>
-              <Button onClick={checkout} disabled={cart.length === 0 || submitting} className="w-full py-6 text-base">
-                {submitting ? <><Loader2 className="w-5 h-5 mr-2 animate-spin" />Encaissement…</> : <><Check className="w-5 h-5 mr-2" />Encaisser</>}
-              </Button>
             </div>
           </div>
+
+          {/* PANEL DROITE — desktop only (lg+) */}
+          <aside className="hidden lg:flex lg:flex-col bg-white border-l border-gray-200 lg:sticky lg:top-0 lg:h-screen">
+            <div className="px-3 py-2 border-b bg-gray-50">
+              <h2 className="text-sm font-semibold text-gray-700 flex items-center gap-1.5">
+                <ShoppingCart className="w-4 h-4" /> Panier ({itemCount})
+              </h2>
+            </div>
+            {cartContent}
+          </aside>
         </div>
+
+        {/* BOTTOM BAR — mobile only (< lg). Tap → drawer panier */}
+        <div className="lg:hidden fixed bottom-0 inset-x-0 z-20 bg-white border-t shadow-lg px-3 py-2" style={{ paddingBottom: 'max(0.5rem, env(safe-area-inset-bottom))' }}>
+          <button
+            onClick={() => setShowCart(true)}
+            disabled={cart.length === 0}
+            className="w-full flex items-center justify-between gap-3 px-4 py-3 rounded-xl bg-blue-600 text-white font-semibold disabled:opacity-50 disabled:bg-gray-400"
+          >
+            <span className="flex items-center gap-2">
+              <ShoppingCart className="w-5 h-5" />
+              {itemCount === 0 ? 'Panier vide' : `${itemCount} article${itemCount > 1 ? 's' : ''}`}
+            </span>
+            <span className="text-lg">{formatPrice(subtotal)}</span>
+            <ChevronUp className="w-4 h-4" />
+          </button>
+        </div>
+
+        {/* DRAWER PANIER — mobile uniquement, ouvert au tap sur la bottom bar */}
+        {showCart && (
+          <div className="lg:hidden fixed inset-0 z-40 flex items-end">
+            <div className="absolute inset-0 bg-black/50" onClick={() => setShowCart(false)} />
+            <div className="relative w-full bg-white rounded-t-2xl max-h-[85vh] flex flex-col shadow-2xl">
+              <div className="flex items-center justify-between px-4 py-3 border-b">
+                <h2 className="font-bold text-base flex items-center gap-2">
+                  <ShoppingCart className="w-4 h-4" /> Panier ({itemCount})
+                </h2>
+                <button onClick={() => setShowCart(false)} className="p-1 rounded hover:bg-gray-100" aria-label="Fermer">
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+              <div className="flex-1 overflow-hidden">{cartContent}</div>
+            </div>
+          </div>
+        )}
+
+        {/* LISTE SCANS QR — modale mobile, accessible depuis le bandeau client */}
+        {showScansList && (
+          <div className="fixed inset-0 z-40 bg-black/50 flex items-center justify-center p-4" onClick={() => setShowScansList(false)}>
+            <div className="bg-white rounded-2xl shadow-xl w-full max-w-md max-h-[80vh] flex flex-col" onClick={e => e.stopPropagation()}>
+              <div className="flex items-center justify-between px-4 py-3 border-b">
+                <h2 className="font-bold text-base flex items-center gap-2">
+                  <Smartphone className="w-4 h-4 text-amber-600" /> Scans en attente ({scans.length})
+                </h2>
+                <div className="flex items-center gap-1">
+                  <button onClick={loadScans} className="p-1.5 rounded hover:bg-gray-100" aria-label="Rafraîchir">
+                    <RefreshCw className="w-4 h-4 text-gray-500" />
+                  </button>
+                  <button onClick={() => setShowScansList(false)} className="p-1 rounded hover:bg-gray-100" aria-label="Fermer">
+                    <X className="w-5 h-5" />
+                  </button>
+                </div>
+              </div>
+              <div className="overflow-auto p-3 space-y-1">
+                {scans.length === 0 ? (
+                  <p className="text-center text-sm text-gray-500 py-8">Aucun scan client en attente.</p>
+                ) : (
+                  scans.map(s => (
+                    <button key={s.id} onClick={() => {
+                      setSelectedScan(s);
+                      setManualClient(null);
+                      setShowScansList(false);
+                    }}
+                      className="w-full text-left px-3 py-2.5 rounded-lg border border-gray-200 hover:border-blue-400 hover:bg-blue-50">
+                      <p className="font-medium text-sm">{s.ClientName || s.ClientPhone || '(sans nom)'}</p>
+                      {s.ClientName && s.ClientPhone && <p className="text-xs text-gray-500">{s.ClientPhone}</p>}
+                    </button>
+                  ))
+                )}
+              </div>
+            </div>
+          </div>
+        )}
 
         {showReceive && (
           <ReceiveStockModal
@@ -636,6 +735,31 @@ export default function QuickSalePage() {
 
 function formatPrice(v: number) {
   return new Intl.NumberFormat('fr-FR').format(v) + ' XOF';
+}
+
+/** Ligne du menu kebab — icône colorée + libellé + badge optionnel. */
+function MenuItem({
+  icon, label, badge, onClick,
+}: {
+  icon: React.ReactNode;
+  label: string;
+  badge?: number;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      onClick={onClick}
+      className="w-full px-3 py-2.5 flex items-center gap-2.5 hover:bg-gray-100 text-left text-sm"
+    >
+      <span className="shrink-0">{icon}</span>
+      <span className="flex-1 truncate">{label}</span>
+      {badge !== undefined && badge > 0 && (
+        <span className="min-w-[20px] h-5 px-1.5 rounded-full bg-purple-600 text-white text-[10px] font-bold flex items-center justify-center">
+          {badge}
+        </span>
+      )}
+    </button>
+  );
 }
 
 async function captureGps(): Promise<{ lat: number; lng: number; accuracy?: number } | null> {
