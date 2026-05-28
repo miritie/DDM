@@ -29,7 +29,10 @@ export function AppTopBar() {
   return (
     <header
       role="banner"
-      className="fixed top-0 inset-x-0 z-40 h-14 bg-slate-50/95 backdrop-blur supports-[backdrop-filter]:bg-slate-50/80 border-b border-slate-200"
+      // Fond blanc solide + ombre + border : la barre est franchement
+      // distincte du contenu de la page (bg-gray-50). z-50 pour passer
+      // devant tout sticky local qui scrolle dessous.
+      className="fixed top-0 inset-x-0 z-50 h-14 bg-white shadow-[0_1px_3px_rgba(0,0,0,0.08)] border-b border-slate-200"
     >
       <div className="h-full max-w-screen-2xl mx-auto px-3 flex items-center gap-2">
         {/* Cluster gauche : navigation rapide */}
