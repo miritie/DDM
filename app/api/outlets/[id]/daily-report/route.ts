@@ -63,24 +63,74 @@ export async function GET(
       notes: r.notes ?? null,
     }));
 
-    // ===== Ventes par produit =====
+    // ===== Ventes par produit + inventaire ouverture/fermeture =====
+    // Inventaire FERMETURE = stock actuel sur l'outlet (instantané).
+    // Inventaire OUVERTURE = closing + ventes_jour + transferts_sortants_jour
+    //                         - transferts_entrants_jour (confirmés).
+    // On agrège ces 4 sources en UN SEUL query par produit pour rester
+    // efficace même avec un gros catalogue.
     const byProductRes = await db.query<any>(
-      `SELECT p.name AS product_name, p.code AS product_code,
-              SUM(si.quantity)::float AS qty,
-              SUM(si.total_price)::float AS revenue
-       FROM sale_items si
-       JOIN sales s ON s.id = si.sale_id
-       JOIN products p ON p.id = si.product_id
-       WHERE s.outlet_id = $1 AND s.workspace_id = $2
-         AND DATE(s.sale_date) = $3::date
-         AND s.status <> 'cancelled'
-       GROUP BY p.id, p.name, p.code
-       ORDER BY revenue DESC`,
+      `WITH sold AS (
+         SELECT p.id AS product_id, p.name AS product_name, p.code AS product_code,
+                SUM(si.quantity)::float AS qty,
+                SUM(si.total_price)::float AS revenue
+         FROM sale_items si
+         JOIN sales s ON s.id = si.sale_id
+         JOIN products p ON p.id = si.product_id
+         WHERE s.outlet_id = $1 AND s.workspace_id = $2
+           AND DATE(s.sale_date) = $3::date
+           AND s.status <> 'cancelled'
+         GROUP BY p.id, p.name, p.code
+       ),
+       transfers_in AS (
+         SELECT stl.product_id, SUM(stl.qty_received)::float AS qty
+         FROM stock_transfer_lines stl
+         JOIN stock_transfers st ON st.id = stl.transfer_id
+         WHERE stl.destination_outlet_id = $1
+           AND stl.leg_status = 'confirmed'
+           AND DATE(st.created_at) = $3::date
+         GROUP BY stl.product_id
+       ),
+       transfers_out AS (
+         SELECT stl.product_id, SUM(stl.qty_sent)::float AS qty
+         FROM stock_transfer_lines stl
+         JOIN stock_transfers st ON st.id = stl.transfer_id
+         WHERE st.source_outlet_id = $1
+           AND DATE(st.created_at) = $3::date
+         GROUP BY stl.product_id
+       ),
+       closing AS (
+         SELECT product_id, quantity::float AS qty
+         FROM stock_items
+         WHERE outlet_id = $1 AND workspace_id = $2
+       )
+       SELECT
+         COALESCE(s.product_id, c.product_id) AS product_id,
+         COALESCE(s.product_name, (SELECT name FROM products WHERE id = c.product_id)) AS product_name,
+         COALESCE(s.product_code, (SELECT code FROM products WHERE id = c.product_id)) AS product_code,
+         COALESCE(s.qty, 0) AS sold_qty,
+         COALESCE(s.revenue, 0) AS revenue,
+         COALESCE(c.qty, 0) AS closing_qty,
+         COALESCE(ti.qty, 0) AS in_qty,
+         COALESCE(to_.qty, 0) AS out_qty,
+         (COALESCE(c.qty, 0) + COALESCE(s.qty, 0) + COALESCE(to_.qty, 0) - COALESCE(ti.qty, 0)) AS opening_qty
+       FROM sold s
+       FULL OUTER JOIN closing c ON c.product_id = s.product_id
+       LEFT JOIN transfers_in ti ON ti.product_id = COALESCE(s.product_id, c.product_id)
+       LEFT JOIN transfers_out to_ ON to_.product_id = COALESCE(s.product_id, c.product_id)
+       WHERE COALESCE(s.qty, 0) > 0 OR COALESCE(c.qty, 0) > 0
+       ORDER BY COALESCE(s.revenue, 0) DESC, product_name ASC`,
       [outlet.id, workspaceId, date]
     );
     const byProduct = byProductRes.rows.map((r: any) => ({
-      name: r.product_name, code: r.product_code,
-      qty: Number(r.qty), revenue: Number(r.revenue),
+      name: r.product_name ?? '(inconnu)',
+      code: r.product_code ?? '',
+      qty: Number(r.sold_qty),
+      revenue: Number(r.revenue),
+      openingInventory: Number(r.opening_qty),
+      closingInventory: Number(r.closing_qty),
+      transfersIn: Number(r.in_qty),
+      transfersOut: Number(r.out_qty),
     }));
 
     // ===== Ventes par commercial =====
@@ -126,6 +176,23 @@ export async function GET(
       count: r.count,
     }));
 
+    // ===== Observation du jour (saisie commercial) =====
+    const obsRes = await db.query<any>(
+      `SELECT o.observation, o.updated_at, u.full_name AS author_name
+       FROM outlet_daily_observations o
+       LEFT JOIN users u ON u.id = o.author_id
+       WHERE o.outlet_id = $1 AND o.observation_date = $2::date
+       LIMIT 1`,
+      [outlet.id, date]
+    );
+    const observation = obsRes.rows[0]
+      ? {
+          text: obsRes.rows[0].observation as string,
+          authorName: obsRes.rows[0].author_name as string | null,
+          updatedAt: obsRes.rows[0].updated_at,
+        }
+      : null;
+
     // ===== Totaux =====
     const totals = {
       salesCount: bySeller.reduce((s, x) => s + x.salesCount, 0),
@@ -138,7 +205,7 @@ export async function GET(
       data: {
         outlet: { id: outlet.id, name: outlet.name, code: outlet.code },
         date,
-        sessions, byProduct, bySeller, deposits, totals,
+        sessions, byProduct, bySeller, deposits, totals, observation,
       },
     });
   } catch (e: any) {

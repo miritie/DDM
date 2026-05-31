@@ -7,12 +7,14 @@
  * reste dû. Pratique pour un vendeur qui veut vérifier ses opérations sans
  * quitter le POS.
  *
- * Pas d'endpoint dédié : on filtre /api/sales par date du jour et par outlet
- * en local. Suffisant tant que le volume reste raisonnable (qq dizaines /jour).
+ * Permet aussi de :
+ *   - saisir l'observation libre du commercial pour la journée (persistée
+ *     côté serveur — apparaît dans le PDF)
+ *   - générer/partager le PDF journal complet (équivalent papier DUNE DE MIEL)
  */
 
 import { useEffect, useState } from 'react';
-import { Loader2, X, ClipboardList, RefreshCw, FileDown, Share2 } from 'lucide-react';
+import { Loader2, X, ClipboardList, RefreshCw, FileDown, Share2, MessageSquare, Check } from 'lucide-react';
 import {
   shareStandJournalPdf,
   downloadStandJournalPdf,
@@ -48,6 +50,12 @@ export function SessionJournalModal({ outletId, outletName, onClose }: SessionJo
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
+  // Observation : éditable, persistée via /daily-observation
+  const [observation, setObservation] = useState('');
+  const [obsAuthor, setObsAuthor] = useState<string | null>(null);
+  const [savingObs, setSavingObs] = useState(false);
+  const [savedObs, setSavedObs] = useState(false);
+
   async function load() {
     setLoading(true);
     setError(null);
@@ -65,11 +73,46 @@ export function SessionJournalModal({ outletId, outletName, onClose }: SessionJo
     }
   }
 
+  async function loadObservation() {
+    try {
+      const r = await fetch(
+        `/api/outlets/${encodeURIComponent(outletId)}/daily-observation?date=${todayIso()}`
+      );
+      if (!r.ok) return;
+      const { data } = await r.json();
+      setObservation(data.observation ?? '');
+      setObsAuthor(data.authorName ?? null);
+    } catch {
+      /* silent */
+    }
+  }
+
+  async function saveObservation() {
+    setSavingObs(true);
+    setSavedObs(false);
+    try {
+      const r = await fetch(
+        `/api/outlets/${encodeURIComponent(outletId)}/daily-observation`,
+        {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ date: todayIso(), observation }),
+        }
+      );
+      if (!r.ok) throw new Error('Échec sauvegarde');
+      setSavedObs(true);
+      setTimeout(() => setSavedObs(false), 2500);
+    } catch (e: any) {
+      alert(`Erreur : ${e.message}`);
+    } finally {
+      setSavingObs(false);
+    }
+  }
+
   useEffect(() => {
     void load();
-    // Poll tant que la modale est ouverte : ramène les ventes encaissées
-    // pendant la consultation (par un autre vendeur sur le même stand, ou
-    // par soi-même après checkout).
+    void loadObservation();
+    // Poll des ventes seulement — pas l'observation, c'est éditée localement.
     const t = setInterval(load, 30000);
     return () => clearInterval(t);
     /* eslint-disable-next-line react-hooks/exhaustive-deps */
@@ -88,6 +131,35 @@ export function SessionJournalModal({ outletId, outletName, onClose }: SessionJo
     },
     { count: 0, gross: 0, paid: 0, credit: 0 }
   );
+
+  // Fetch agrégat journalier + propage l'observation actuelle (au cas où
+  // l'utilisateur a modifié le textarea sans cliquer Enregistrer juste avant
+  // d'imprimer : on doit refléter ce qu'il voit).
+  async function buildPdfData() {
+    const r = await fetch(
+      `/api/outlets/${encodeURIComponent(outletId)}/daily-report?date=${todayIso()}`
+    );
+    if (!r.ok) throw new Error('Erreur chargement journal');
+    const { data } = await r.json();
+    const obsForPdf = observation.trim()
+      ? {
+          text: observation.trim(),
+          authorName: obsAuthor,
+          updatedAt: new Date().toISOString(),
+        }
+      : data.observation;
+    return {
+      outletName: data.outlet.name,
+      outletCode: data.outlet.code,
+      date: data.date,
+      sessions: data.sessions,
+      byProduct: data.byProduct,
+      bySeller: data.bySeller,
+      deposits: data.deposits,
+      totals: data.totals,
+      observation: obsForPdf,
+    };
+  }
 
   return (
     <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4">
@@ -110,25 +182,15 @@ export function SessionJournalModal({ outletId, outletName, onClose }: SessionJo
           </div>
         </div>
 
-        {/* Boutons PDF : récupère l'agrégat journalier complet et génère
-            le journal à transmettre par WhatsApp (équivalent papier). */}
+        {/* Boutons PDF */}
         <div className="px-5 py-2 border-b bg-amber-50 flex items-center gap-2">
           <p className="text-xs text-amber-800 flex-1">Journal complet du jour pour la direction :</p>
           <button
             onClick={async () => {
-              const r = await fetch(`/api/outlets/${encodeURIComponent(outletId)}/daily-report?date=${new Date().toISOString().slice(0,10)}`);
-              if (!r.ok) { alert('Erreur chargement journal'); return; }
-              const { data } = await r.json();
-              await shareStandJournalPdf({
-                outletName: data.outlet.name,
-                outletCode: data.outlet.code,
-                date: data.date,
-                sessions: data.sessions,
-                byProduct: data.byProduct,
-                bySeller: data.bySeller,
-                deposits: data.deposits,
-                totals: data.totals,
-              });
+              try {
+                const data = await buildPdfData();
+                await shareStandJournalPdf(data);
+              } catch (e: any) { alert(e.message); }
             }}
             className="px-2.5 py-1.5 rounded-md bg-green-600 text-white text-xs font-semibold hover:bg-green-700 inline-flex items-center gap-1.5"
           >
@@ -136,24 +198,50 @@ export function SessionJournalModal({ outletId, outletName, onClose }: SessionJo
           </button>
           <button
             onClick={async () => {
-              const r = await fetch(`/api/outlets/${encodeURIComponent(outletId)}/daily-report?date=${new Date().toISOString().slice(0,10)}`);
-              if (!r.ok) { alert('Erreur'); return; }
-              const { data } = await r.json();
-              downloadStandJournalPdf({
-                outletName: data.outlet.name,
-                outletCode: data.outlet.code,
-                date: data.date,
-                sessions: data.sessions,
-                byProduct: data.byProduct,
-                bySeller: data.bySeller,
-                deposits: data.deposits,
-                totals: data.totals,
-              });
+              try {
+                const data = await buildPdfData();
+                downloadStandJournalPdf(data);
+              } catch (e: any) { alert(e.message); }
             }}
             className="px-2.5 py-1.5 rounded-md border border-amber-300 bg-white text-amber-800 text-xs font-semibold hover:bg-amber-100 inline-flex items-center gap-1.5"
           >
             <FileDown className="w-3.5 h-3.5" /> PDF
           </button>
+        </div>
+
+        {/* Observation libre du commercial — apparaît dans le PDF */}
+        <div className="px-5 py-3 border-b bg-stone-50">
+          <div className="flex items-center justify-between mb-1.5">
+            <label className="text-xs font-semibold text-stone-700 inline-flex items-center gap-1.5">
+              <MessageSquare className="w-3.5 h-3.5" /> Observation de la journée
+            </label>
+            {savedObs && (
+              <span className="text-[11px] text-emerald-700 inline-flex items-center gap-1">
+                <Check className="w-3 h-3" /> Enregistré
+              </span>
+            )}
+          </div>
+          <textarea
+            value={observation}
+            onChange={(e) => setObservation(e.target.value)}
+            placeholder="Affluence, incidents, retours clients, ruptures…"
+            rows={2}
+            className="w-full text-sm px-2.5 py-2 border border-stone-300 rounded-md focus:outline-none focus:ring-2 focus:ring-amber-500 resize-none"
+            maxLength={1000}
+          />
+          <div className="flex items-center justify-between mt-1.5">
+            <p className="text-[11px] text-stone-500">
+              {obsAuthor ? `Dernière saisie : ${obsAuthor}` : 'Sera visible dans le journal PDF.'}
+            </p>
+            <button
+              onClick={saveObservation}
+              disabled={savingObs}
+              className="px-2.5 py-1 text-xs font-semibold border border-stone-300 bg-white rounded-md hover:bg-stone-100 disabled:opacity-50 inline-flex items-center gap-1"
+            >
+              {savingObs && <Loader2 className="w-3 h-3 animate-spin" />}
+              Enregistrer
+            </button>
+          </div>
         </div>
 
         {/* Totaux */}
