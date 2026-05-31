@@ -32,6 +32,7 @@ import { ProductDetailsModal } from '@/components/pos/product-details-modal';
 import { CashRegisterModal } from '@/components/pos/cash-register-modal';
 import { SendStockModal } from '@/components/pos/send-stock-modal';
 import { SaleReceiptModal, type SaleReceiptData } from '@/components/pos/sale-receipt-modal';
+import { CloseCashModal } from '@/components/pos/close-cash-modal';
 
 interface Outlet { id: string; Code: string; Name: string; City?: string; AllowsCredit?: boolean; source?: 'assignment' | 'fallback' }
 interface Product { Id?: string; id?: string; ProductId: string; Code: string; Name: string; Category?: string; ImageUrl?: string }
@@ -84,6 +85,9 @@ export default function QuickSalePage() {
   // Reçu de vente affiché après un encaissement réussi (remplace
   // l'ancien bandeau success qui était trop discret).
   const [receipt, setReceipt] = useState<SaleReceiptData | null>(null);
+
+  // Fermeture de caisse (Z-out).
+  const [showCloseCash, setShowCloseCash] = useState(false);
 
   // Recherche live de client existant dans la base.
   // L'input du bandeau client interroge /api/clients/search avec debounce.
@@ -617,6 +621,8 @@ export default function QuickSalePage() {
                         onClick={() => { setShowSendStock(true); setShowMenu(false); }} />
                       <MenuItem icon={<Truck className="w-4 h-4 text-gray-600" />} label="Réception ad hoc"
                         onClick={() => { setShowReceive(true); setShowMenu(false); }} />
+                      <MenuItem icon={<Wallet className="w-4 h-4 text-amber-600" />} label="Clôturer ma caisse"
+                        onClick={() => { setShowCloseCash(true); setShowMenu(false); }} />
                       <MenuItem icon={<BarChart3 className="w-4 h-4 text-amber-600" />} label="Mes performances"
                         onClick={() => { router.push('/dashboard/sales'); setShowMenu(false); }} />
                       <div className="border-t my-1" />
@@ -1103,6 +1109,22 @@ export default function QuickSalePage() {
             data={receipt}
             onClose={() => setReceipt(null)}
             onNewSale={() => setReceipt(null)}
+          />
+        )}
+
+        {showCloseCash && currentOutlet && (
+          <CloseCashModal
+            outletId={activeOutletId}
+            outletName={currentOutlet.Name || ''}
+            onClose={() => setShowCloseCash(false)}
+            onClosed={() => {
+              setShowCloseCash(false);
+              setFeedback({ type: 'success', message: 'Caisse clôturée. Bonne fin de journée !' });
+              // La session est fermée — on retire l'outlet actif pour
+              // forcer un re-pick + ouverture de nouvelle session à la
+              // prochaine connexion.
+              setActiveOutletId(null);
+            }}
           />
         )}
       </div>

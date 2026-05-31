@@ -126,13 +126,58 @@ export class PosSessionService {
     const r = await db.query(
       `UPDATE pos_sessions
        SET ended_at = CURRENT_TIMESTAMP,
-           notes = COALESCE($2, notes)
+           notes = COALESCE($2::text, notes)
        WHERE id = $1 AND ended_at IS NULL
        RETURNING *`,
       [sessionId, notes ?? null]
     );
     if (r.rows.length === 0) throw new Error('Session introuvable ou déjà fermée');
     return mapRow(r.rows[0]);
+  }
+
+  /**
+   * Fermeture de caisse formelle (Z-out) : enregistre le cash physiquement
+   * compté par le vendeur et la discordance par rapport au solde attendu
+   * (= balance du wallet caisse à cet instant). Trace qui a clôturé.
+   *
+   * Atomique : SELECT FOR UPDATE du wallet pour figer le solde, puis
+   * UPDATE pos_sessions dans la même transaction.
+   */
+  async closeWithCashCount(
+    sessionId: string,
+    input: { cashCounted: number; cashWalletId: string; closedByUserUuid: string; notes?: string }
+  ): Promise<PosSession & { CashExpected: number; CashCounted: number; Discrepancy: number }> {
+    return await db.transaction(async (client) => {
+      const walletRes = await client.query<any>(
+        `SELECT balance FROM wallets WHERE id = $1 FOR UPDATE`,
+        [input.cashWalletId]
+      );
+      if (walletRes.rows.length === 0) throw new Error('Wallet caisse introuvable');
+      const expected = Number(walletRes.rows[0].balance);
+      const counted = Number(input.cashCounted);
+      const discrepancy = counted - expected;
+
+      const r = await client.query(
+        `UPDATE pos_sessions
+         SET ended_at = CURRENT_TIMESTAMP,
+             closing_cash_expected = $2,
+             closing_cash_counted = $3,
+             closing_discrepancy = $4,
+             closed_by_id = $5::uuid,
+             notes = COALESCE($6::text, notes)
+         WHERE id = $1 AND ended_at IS NULL
+         RETURNING *`,
+        [sessionId, expected, counted, discrepancy, input.closedByUserUuid, input.notes ?? null]
+      );
+      if (r.rows.length === 0) throw new Error('Session introuvable ou déjà fermée');
+      const row = r.rows[0];
+      return {
+        ...mapRow(row),
+        CashExpected: Number(row.closing_cash_expected),
+        CashCounted: Number(row.closing_cash_counted),
+        Discrepancy: Number(row.closing_discrepancy),
+      };
+    });
   }
 
   /** Auto-ferme toutes les sessions actives ouvertes depuis plus de N heures (housekeeping). */

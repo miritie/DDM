@@ -37,7 +37,8 @@
     "migrate:outlet-payment-methods-perm": "tsx scripts/database/apply-outlet-payment-methods-permission.ts",
     "migrate:outlet-allows-credit": "tsx scripts/database/apply-outlet-allows-credit.ts",
     "migrate:cash-deposits": "tsx scripts/database/apply-cash-deposits.ts",
-    "migrate:cash-deposits-perms": "tsx scripts/database/apply-cash-deposits-permissions.ts"
+    "migrate:cash-deposits-perms": "tsx scripts/database/apply-cash-deposits-permissions.ts",
+    "migrate:pos-session-closing": "tsx scripts/database/apply-pos-session-closing.ts"
   },
   "dependencies": {
     "@radix-ui/react-checkbox": "^1.3.3",
