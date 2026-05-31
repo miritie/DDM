@@ -159,6 +159,8 @@ export const PERMISSIONS = {
   OUTLET_PRICE_MANAGE: 'outlet:price:manage',
   OUTLET_PAYMENT_METHODS_MANAGE: 'outlet:payment_methods:manage', // Admin / mgr commercial / comptable
   POS_SESSION_OPEN: 'pos:session:open',     // Commercial peut ouvrir/fermer sa session
+  CASH_DEPOSIT_CREATE: 'cash:deposit:create',     // Vendeur + mgr + comptable : verser la caisse
+  CASH_DEPOSIT_VALIDATE: 'cash:deposit:validate', // Comptable + admin : valider/rejeter
 } as const;
 
 export type Permission = (typeof PERMISSIONS)[keyof typeof PERMISSIONS];
