@@ -32,6 +32,9 @@ export default function NewProductPage() {
   const [form, setForm] = useState({
     name: '',
     description: '',
+    benefits: '',
+    usageNotes: '',
+    composition: '',
     category: '',
     unit: 'piece',
     unitPrice: '',
@@ -75,6 +78,9 @@ export default function NewProductPage() {
         body: JSON.stringify({
           name: form.name.trim(),
           description: form.description.trim() || undefined,
+          benefits: form.benefits.trim() || undefined,
+          usageNotes: form.usageNotes.trim() || undefined,
+          composition: form.composition.trim() || undefined,
           category: form.category || undefined,
           unit: form.unit || 'piece',
           unitPrice: Number(form.unitPrice),
@@ -213,6 +219,49 @@ export default function NewProductPage() {
                     ))}
                   </select>
                 </div>
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle>Fiche détaillée</CardTitle>
+              <CardDescription>
+                Visible dans la fiche produit du POS (aide-mémoire commercial).
+                Optionnel — les sections vides ne s'affichent pas. Les images
+                additionnelles s'ajoutent après création depuis l'édition.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Bienfaits</label>
+                <textarea
+                  value={form.benefits}
+                  onChange={(e) => setForm({ ...form, benefits: e.target.value })}
+                  placeholder="Ex : Riche en fibres, digestion facile, index glycémique bas."
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md"
+                  rows={3}
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Indications / mode d'emploi</label>
+                <textarea
+                  value={form.usageNotes}
+                  onChange={(e) => setForm({ ...form, usageNotes: e.target.value })}
+                  placeholder="Ex : Idéal le matin avec miel, 1-2 tranches par repas."
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md"
+                  rows={3}
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Composition / ingrédients</label>
+                <textarea
+                  value={form.composition}
+                  onChange={(e) => setForm({ ...form, composition: e.target.value })}
+                  placeholder="Ex : Farine T80 bio, levain naturel, sel de Guérande, eau."
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md"
+                  rows={3}
+                />
               </div>
             </CardContent>
           </Card>
