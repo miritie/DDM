@@ -82,14 +82,19 @@ export class PosSessionService {
     const existing = await this.getActiveSession(input.outletId, userUuid);
     if (existing) return existing;
 
+    // Casts explicites : sans config GPS (cas web desktop ou refus permission),
+    // gps_lat/lng/accuracy sont null et device_id/notes aussi. pg ne peut
+    // alors pas inférer le type → erreur « could not determine data type
+    // of parameter $5 » bloquante au tout premier encaissement.
     const r = await db.query(
       `INSERT INTO pos_sessions
         (outlet_id, user_id, start_method, device_id,
          gps_lat, gps_lng, gps_accuracy, gps_captured_at,
          notes, workspace_id)
-       VALUES ($1, $2, $3, $4, $5, $6, $7,
-               CASE WHEN $5 IS NOT NULL THEN CURRENT_TIMESTAMP ELSE NULL END,
-               $8, $9)
+       VALUES ($1::uuid, $2::uuid, $3, $4::varchar,
+               $5::numeric, $6::numeric, $7::numeric,
+               CASE WHEN $5::numeric IS NOT NULL THEN CURRENT_TIMESTAMP ELSE NULL END,
+               $8::text, $9::uuid)
        RETURNING *`,
       [
         input.outletId,

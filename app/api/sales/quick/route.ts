@@ -155,13 +155,20 @@ export async function POST(request: NextRequest) {
                       'unpaid';
 
     // ===== Insert vente =====
+    // Casts explicites : pg ne peut pas inférer le type des paramètres
+    // null (client_id, notes, loyalty_rule_id) sans cast, ce qui faisait
+    // remonter « could not determine data type of parameter $5 » en
+    // vente anonyme.
     const saleRes = await db.query(
       `INSERT INTO sales
         (sale_id, sale_number, client_id, total_amount, amount_paid, balance,
          currency, status, payment_status, sale_date, notes,
          sales_person_id, outlet_id, pos_session_id, workspace_id,
          loyalty_rule_id, discount_amount)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,CURRENT_DATE,$10,$11,$12,$13,$14,$15,$16)
+       VALUES ($1, $2, $3::uuid, $4, $5, $6,
+               $7, $8, $9, CURRENT_DATE, $10::text,
+               $11::uuid, $12::uuid, $13::uuid, $14::uuid,
+               $15::uuid, $16)
        RETURNING *`,
       [
         saleUuid, saleNumber, clientId, totalAmount,
@@ -202,7 +209,8 @@ export async function POST(request: NextRequest) {
         `INSERT INTO sale_payments
           (payment_id, sale_id, payment_number, amount, payment_method_id, payment_date,
            wallet_id, received_by_id, workspace_id, notes)
-         VALUES ($1, $2, $3, $4, $5, CURRENT_TIMESTAMP, $6, $7, $8, $9)`,
+         VALUES ($1, $2::uuid, $3, $4, $5::uuid, CURRENT_TIMESTAMP,
+                 $6::uuid, $7::uuid, $8::uuid, $9::text)`,
         [
           uuidv4(), sale.id, paymentNumber, paidNow, pm.Id,
           walletUuid, sellerUuid, workspaceId,
@@ -236,7 +244,8 @@ export async function POST(request: NextRequest) {
         `INSERT INTO sale_items
           (sale_item_id, sale_id, product_id, product_name,
            quantity, unit_price, total_price, currency)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,'XOF')`,
+         VALUES ($1, $2::uuid, $3::uuid, $4,
+                 $5, $6, $7, 'XOF')`,
         [uuidv4(), sale.id, line.productId, line.productName,
          line.quantity, line.unitPrice, line.totalPrice]
       );

@@ -160,14 +160,26 @@ export class SaleService {
         throw new Error(`Article sans productId — un product_id est requis pour résoudre le prix`);
       }
       assertPositiveFinishedProductQuantity(item.quantity, `Quantité pour ${item.productName}`);
-      const price = await outletService.resolvePrice(item.productId, input.outletId, saleDateForPrice);
+      // Pattern dual-id : item.productId peut être un UUID PK ou un
+      // business code (PROD-…). On résout systématiquement vers l'UUID
+      // pour les INSERTs sale_items / stock decrement qui exigent un UUID.
+      const productUuidRes = await postgresClient.query<any>(
+        `SELECT id FROM products WHERE id::text = $1 OR product_id = $1 LIMIT 1`,
+        [item.productId]
+      );
+      if (productUuidRes.rows.length === 0) {
+        throw new Error(`Produit introuvable : ${item.productId}`);
+      }
+      const productUuid = productUuidRes.rows[0].id;
+
+      const price = await outletService.resolvePrice(productUuid, input.outletId, saleDateForPrice);
       if (!price) {
         throw new Error(
           `Aucun prix défini pour ${item.productName} sur ce point de vente à la date du ${saleDateForPrice}`
         );
       }
       resolvedLines.push({
-        productId: item.productId,
+        productId: productUuid,
         productName: item.productName,
         description: item.description,
         quantity: item.quantity,

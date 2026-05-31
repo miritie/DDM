@@ -145,11 +145,14 @@ export class StockService {
     const newUnitCost = input.unitCost !== undefined ? input.unitCost : existing.UnitCost;
     const newTotalValue = newQuantity * newUnitCost;
 
+    // Casts explicites : pg ne peut pas inférer le type d'un paramètre
+    // null non casté dans COALESCE — symptôme « could not determine
+    // data type of parameter ». minimum/maximum_stock sont DECIMAL(10,3).
     const r = await db.query(
       `UPDATE stock_items
        SET quantity = $2,
-           minimum_stock = COALESCE($3, minimum_stock),
-           maximum_stock = COALESCE($4, maximum_stock),
+           minimum_stock = COALESCE($3::numeric, minimum_stock),
+           maximum_stock = COALESCE($4::numeric, maximum_stock),
            unit_cost = $5,
            total_value = $6,
            updated_at = CURRENT_TIMESTAMP
