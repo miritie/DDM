@@ -11,14 +11,11 @@
  */
 
 import { jsPDF } from 'jspdf';
-import 'jspdf-autotable';
+import autoTable from 'jspdf-autotable';
 
-declare module 'jspdf' {
-  interface jsPDF {
-    autoTable: (options: any) => jsPDF;
-    lastAutoTable: { finalY: number };
-  }
-}
+// jspdf-autotable v5 : API fonctionnelle pour survivre au minify de prod
+// (cf. lib/pdf/stand-journal-pdf.ts pour le détail du bug Safari iOS).
+type DocWithAutoTable = jsPDF & { lastAutoTable: { finalY: number } };
 
 export interface SaleReceiptPdfData {
   saleNumber: string;
@@ -99,7 +96,7 @@ export function generateSaleReceiptPdf(data: SaleReceiptPdfData): Blob {
   }
 
   // === Tableau articles ===
-  doc.autoTable({
+  autoTable(doc, {
     startY: y + 1,
     margin: { left: margin, right: margin },
     head: [['Article', 'Qté', 'P.U.', 'Total']],
@@ -125,7 +122,7 @@ export function generateSaleReceiptPdf(data: SaleReceiptPdfData): Blob {
   });
 
   // === Totaux ===
-  let yt = doc.lastAutoTable.finalY + 3;
+  let yt = (doc as DocWithAutoTable).lastAutoTable.finalY + 3;
   doc.setFont('helvetica', 'normal');
   doc.setFontSize(8);
   doc.setTextColor(0, 0, 0);

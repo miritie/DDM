@@ -5,12 +5,14 @@
  *
  * Le vendeur saisit le cash physiquement compté dans son tiroir.
  * Le modal affiche en parallèle :
- *   - Le cash attendu (= balance du wallet caisse de son stand)
+ *   - Le cash attendu de la SESSION (= ventes cash − dépôts cash effectués
+ *     pendant que la session était active). Calcul faisant autorité côté
+ *     serveur via /api/pos/sessions/{id}/cash-summary.
  *   - La discordance calculée live (compté − attendu)
  * Au valider, POST /api/pos/sessions/{id}/close-cash :
+ *   - le serveur recalcule expected (zéro confiance dans le client)
  *   - marque la session ended_at + closed_by_id + closing_cash_*
- *   - le wallet balance n'est PAS modifié (la discordance est tracée
- *     pour audit, pas appliquée automatiquement)
+ *   - le wallet balance n'est PAS modifié
  */
 
 import { useCallback, useEffect, useState } from 'react';
@@ -30,7 +32,11 @@ const fmt = (n: number) => new Intl.NumberFormat('fr-FR').format(Math.round(n)) 
 export function CloseCashModal({ outletId, outletName, onClose, onClosed }: CloseCashModalProps) {
   const [loading, setLoading] = useState(true);
   const [session, setSession] = useState<Session | null>(null);
-  const [wallet, setWallet] = useState<{ id: string; name: string; balance: number } | null>(null);
+  const [wallet, setWallet] = useState<{ id: string; name: string } | null>(null);
+  // Cash attendu = ventes cash de la session − dépôts cash. NE PAS confondre
+  // avec le solde cumulé du wallet (qui n'est jamais crédité par les ventes
+  // dans la V1 et représente l'historique total).
+  const [summary, setSummary] = useState<{ cashIn: number; cashOut: number; expected: number } | null>(null);
   const [counted, setCounted] = useState('');
   const [notes, setNotes] = useState('');
   const [busy, setBusy] = useState(false);
@@ -40,19 +46,27 @@ export function CloseCashModal({ outletId, outletName, onClose, onClosed }: Clos
     setLoading(true);
     setError(null);
     try {
-      const [sessRes, balRes] = await Promise.allSettled([
-        fetch('/api/pos/sessions/active?outletId=' + encodeURIComponent(outletId)),
-        fetch('/api/outlets/' + encodeURIComponent(outletId) + '/cash-balance'),
-      ]);
+      // 1) Récupère la session active
+      const sessRes = await fetch('/api/pos/sessions/active?outletId=' + encodeURIComponent(outletId));
+      const sess = sessRes.ok ? (await sessRes.json()).data : null;
+      setSession(sess ?? null);
 
-      if (sessRes.status === 'fulfilled' && sessRes.value.ok) {
-        const { data } = await sessRes.value.json();
-        setSession(data ?? null);
+      // 2) Cash attendu (cash-summary nécessite l'id de session)
+      if (sess?.id) {
+        const sumRes = await fetch('/api/pos/sessions/' + sess.id + '/cash-summary');
+        if (sumRes.ok) {
+          const { data } = await sumRes.json();
+          setSummary({ cashIn: data.cashIn, cashOut: data.cashOut, expected: data.expected });
+          // Pré-remplit le compté avec l'attendu pour faciliter le cas équilibré
+          setCounted(String(Math.max(0, Math.round(Number(data.expected)))));
+        }
       }
-      if (balRes.status === 'fulfilled' && balRes.value.ok) {
-        const { data } = await balRes.value.json();
-        setWallet(data?.wallet ?? null);
-        if (data?.wallet) setCounted(String(Math.round(Number(data.wallet.balance))));
+
+      // 3) Wallet caisse — pour info (label), pas pour le calcul d'expected
+      const balRes = await fetch('/api/outlets/' + encodeURIComponent(outletId) + '/cash-balance');
+      if (balRes.ok) {
+        const { data } = await balRes.json();
+        setWallet(data?.wallet ? { id: data.wallet.id, name: data.wallet.name } : null);
       }
     } catch (e: any) {
       setError(e.message);
@@ -63,14 +77,13 @@ export function CloseCashModal({ outletId, outletName, onClose, onClosed }: Clos
 
   useEffect(() => { void load(); }, [load]);
 
-  const expected = wallet?.balance ?? 0;
+  const expected = summary?.expected ?? 0;
   const countedNum = Number(counted) || 0;
   const discrepancy = countedNum - expected;
   const hasDiscrepancy = Math.abs(discrepancy) > 0;
 
   async function submit() {
     if (!session) { setError('Aucune session active à clôturer.'); return; }
-    if (!wallet) { setError('Aucun wallet caisse trouvé.'); return; }
     if (!Number.isFinite(countedNum) || countedNum < 0) {
       setError('Saisis un montant compté valide (≥ 0).');
       return;
@@ -83,7 +96,7 @@ export function CloseCashModal({ outletId, outletName, onClose, onClosed }: Clos
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           cashCounted: countedNum,
-          cashWalletId: wallet.id,
+          cashWalletId: wallet?.id ?? null,
           notes: notes.trim() || undefined,
         }),
       });
@@ -122,16 +135,24 @@ export function CloseCashModal({ outletId, outletName, onClose, onClosed }: Clos
             <div className="text-sm text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
               Aucune session POS active à clôturer sur ce stand.
             </div>
-          ) : !wallet ? (
-            <div className="text-sm text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
-              Aucun wallet caisse rattaché à ce stand. Demande au comptable d'en créer un.
-            </div>
           ) : (
             <>
               <div className="bg-gradient-to-r from-amber-50 to-orange-50 border border-amber-200 rounded-xl p-4">
                 <p className="text-[11px] uppercase font-semibold text-amber-700 tracking-wide">Cash attendu en caisse</p>
                 <p className="text-3xl font-bold text-amber-900 mt-1">{fmt(expected)}</p>
-                <p className="text-xs text-amber-700 mt-1">Solde du wallet « {wallet.name} »</p>
+                {summary && (
+                  <div className="mt-2 grid grid-cols-2 gap-2 text-[11px] text-amber-800">
+                    <div className="flex justify-between bg-white/60 rounded px-2 py-1">
+                      <span>Ventes cash</span><span className="font-semibold">+{fmt(summary.cashIn)}</span>
+                    </div>
+                    <div className="flex justify-between bg-white/60 rounded px-2 py-1">
+                      <span>Dépôts</span><span className="font-semibold">−{fmt(summary.cashOut)}</span>
+                    </div>
+                  </div>
+                )}
+                <p className="text-[11px] text-amber-700 mt-2">
+                  Cumul des ventes cash de la session moins les versements de caisse effectués.
+                </p>
               </div>
 
               <div>
@@ -206,7 +227,7 @@ export function CloseCashModal({ outletId, outletName, onClose, onClosed }: Clos
           </button>
           <button
             onClick={submit}
-            disabled={busy || loading || !session || !wallet}
+            disabled={busy || loading || !session}
             className="flex-1 py-2.5 rounded-md bg-amber-600 text-white font-semibold hover:bg-amber-700 disabled:opacity-50 inline-flex items-center justify-center gap-2"
           >
             {busy ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />}

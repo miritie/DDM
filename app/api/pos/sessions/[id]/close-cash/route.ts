@@ -1,9 +1,11 @@
 /**
  * POST /api/pos/sessions/{id}/close-cash
- *   { cashCounted: number, cashWalletId: string, notes?: string }
+ *   { cashCounted: number, cashWalletId?: string | null, notes?: string }
  *
  * Fermeture de caisse formelle (Z-out) : trace le cash compté et la
- * discordance par rapport au solde wallet attendu.
+ * discordance par rapport à l'attendu de session (ventes cash − dépôts).
+ * Le serveur recalcule l'expected — la valeur client n'est pas envoyée.
+ * cashWalletId est optionnel (audit uniquement, pas utilisé pour expected).
  * Permission : pos:session:open (le vendeur ouvre/ferme sa propre caisse).
  */
 
@@ -28,9 +30,6 @@ export async function POST(
     if (typeof body.cashCounted !== 'number' || body.cashCounted < 0) {
       return NextResponse.json({ error: 'cashCounted invalide' }, { status: 400 });
     }
-    if (!body.cashWalletId) {
-      return NextResponse.json({ error: 'cashWalletId requis' }, { status: 400 });
-    }
 
     const userIdOrSlug = await getCurrentUserId();
     const userRes = await db.query<any>(
@@ -44,7 +43,7 @@ export async function POST(
 
     const data = await service.closeWithCashCount(id, {
       cashCounted: body.cashCounted,
-      cashWalletId: body.cashWalletId,
+      cashWalletId: body.cashWalletId ?? null,
       closedByUserUuid: userUuid,
       notes: body.notes,
     });

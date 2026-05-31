@@ -16,14 +16,14 @@
  */
 
 import { jsPDF } from 'jspdf';
-import 'jspdf-autotable';
+import autoTable from 'jspdf-autotable';
 
-declare module 'jspdf' {
-  interface jsPDF {
-    autoTable: (options: any) => jsPDF;
-    lastAutoTable: { finalY: number };
-  }
-}
+// jspdf-autotable v5 : on utilise l'API fonctionnelle `autoTable(doc, opts)`
+// au lieu de `doc.autoTable(opts)`. Le side-effect qui attache la méthode au
+// prototype est éliminé en build de production minifié → Safari iOS renvoie
+// « i.autoTable is not a function ». La forme fonctionnelle est immune.
+// `doc.lastAutoTable.finalY` reste assigné par autoTable lui-même.
+type DocWithAutoTable = jsPDF & { lastAutoTable: { finalY: number } };
 
 export interface StandJournalSession {
   userName: string;
@@ -132,7 +132,7 @@ export function generateStandJournalPdf(data: StandJournalPdfData): Blob {
     doc.text('(Aucune session POS enregistrée ce jour)', margin, y);
     y += 6;
   } else {
-    doc.autoTable({
+    autoTable(doc, {
       startY: y,
       margin: { left: margin, right: margin },
       head: [['Vendeur', 'Ouvert', 'Fermé', 'Cash attendu', 'Compté', 'Écart']],
@@ -154,7 +154,7 @@ export function generateStandJournalPdf(data: StandJournalPdfData): Blob {
         5: { halign: 'right' },
       },
     });
-    y = doc.lastAutoTable.finalY + 6;
+    y = (doc as DocWithAutoTable).lastAutoTable.finalY + 6;
   }
 
   // === Observation du jour (saisie commercial) ===
@@ -206,7 +206,7 @@ export function generateStandJournalPdf(data: StandJournalPdfData): Blob {
     doc.text('(Aucune vente ni stock à cette date)', margin, y);
     y += 6;
   } else {
-    doc.autoTable({
+    autoTable(doc, {
       startY: y,
       margin: { left: margin, right: margin },
       head: [[
@@ -244,7 +244,7 @@ export function generateStandJournalPdf(data: StandJournalPdfData): Blob {
         7: { halign: 'right', cellWidth: 26 },
       },
     });
-    y = doc.lastAutoTable.finalY + 6;
+    y = (doc as DocWithAutoTable).lastAutoTable.finalY + 6;
   }
 
   // === Ventes par commercial ===
@@ -263,7 +263,7 @@ export function generateStandJournalPdf(data: StandJournalPdfData): Blob {
     doc.text('(Aucun commercial n\'a vendu ce jour)', margin, y);
     y += 6;
   } else {
-    doc.autoTable({
+    autoTable(doc, {
       startY: y,
       margin: { left: margin, right: margin },
       head: [['Commercial', 'Nb ventes', 'CA', 'Encaissé', 'Signature']],
@@ -289,7 +289,7 @@ export function generateStandJournalPdf(data: StandJournalPdfData): Blob {
         4: { cellWidth: 40 },
       },
     });
-    y = doc.lastAutoTable.finalY + 6;
+    y = (doc as DocWithAutoTable).lastAutoTable.finalY + 6;
   }
 
   // === Dépôts caisse ===
@@ -300,7 +300,7 @@ export function generateStandJournalPdf(data: StandJournalPdfData): Blob {
     doc.setTextColor(0, 0, 0);
     doc.text('VERSEMENTS DE CAISSE', margin, y);
     y += 2;
-    doc.autoTable({
+    autoTable(doc, {
       startY: y,
       margin: { left: margin, right: margin },
       head: [['Destination', 'Type', 'Nb', 'Total']],
@@ -320,7 +320,7 @@ export function generateStandJournalPdf(data: StandJournalPdfData): Blob {
         3: { halign: 'right' },
       },
     });
-    y = doc.lastAutoTable.finalY + 6;
+    y = (doc as DocWithAutoTable).lastAutoTable.finalY + 6;
   }
 
   // === Totaux récapitulatifs ===

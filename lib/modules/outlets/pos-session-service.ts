@@ -145,39 +145,98 @@ export class PosSessionService {
    */
   async closeWithCashCount(
     sessionId: string,
-    input: { cashCounted: number; cashWalletId: string; closedByUserUuid: string; notes?: string }
+    input: { cashCounted: number; cashWalletId?: string | null; closedByUserUuid: string; notes?: string }
   ): Promise<PosSession & { CashExpected: number; CashCounted: number; Discrepancy: number }> {
-    return await db.transaction(async (client) => {
-      const walletRes = await client.query<any>(
-        `SELECT balance FROM wallets WHERE id = $1 FOR UPDATE`,
-        [input.cashWalletId]
-      );
-      if (walletRes.rows.length === 0) throw new Error('Wallet caisse introuvable');
-      const expected = Number(walletRes.rows[0].balance);
-      const counted = Number(input.cashCounted);
-      const discrepancy = counted - expected;
+    // Source de vérité : le calcul de session (ventes cash − dépôts cash),
+    // pas le solde wallet cumulé. Le wallet n'est utilisé que pour l'audit
+    // si fourni (et n'est PAS modifié — la discordance n'applique aucune
+    // correction automatique).
+    const summary = await this.getSessionCashSummary(sessionId);
+    const expected = summary.expected;
+    const counted = Number(input.cashCounted);
+    const discrepancy = counted - expected;
 
-      const r = await client.query(
-        `UPDATE pos_sessions
-         SET ended_at = CURRENT_TIMESTAMP,
-             closing_cash_expected = $2,
-             closing_cash_counted = $3,
-             closing_discrepancy = $4,
-             closed_by_id = $5::uuid,
-             notes = COALESCE($6::text, notes)
-         WHERE id = $1 AND ended_at IS NULL
-         RETURNING *`,
-        [sessionId, expected, counted, discrepancy, input.closedByUserUuid, input.notes ?? null]
-      );
-      if (r.rows.length === 0) throw new Error('Session introuvable ou déjà fermée');
-      const row = r.rows[0];
-      return {
-        ...mapRow(row),
-        CashExpected: Number(row.closing_cash_expected),
-        CashCounted: Number(row.closing_cash_counted),
-        Discrepancy: Number(row.closing_discrepancy),
-      };
-    });
+    const r = await db.query(
+      `UPDATE pos_sessions
+       SET ended_at = CURRENT_TIMESTAMP,
+           closing_cash_expected = $2,
+           closing_cash_counted = $3,
+           closing_discrepancy = $4,
+           closed_by_id = $5::uuid,
+           notes = COALESCE($6::text, notes)
+       WHERE id = $1 AND ended_at IS NULL
+       RETURNING *`,
+      [sessionId, expected, counted, discrepancy, input.closedByUserUuid, input.notes ?? null]
+    );
+    if (r.rows.length === 0) throw new Error('Session introuvable ou déjà fermée');
+    const row = r.rows[0];
+    return {
+      ...mapRow(row),
+      CashExpected: Number(row.closing_cash_expected),
+      CashCounted: Number(row.closing_cash_counted),
+      Discrepancy: Number(row.closing_discrepancy),
+    };
+  }
+
+/**
+   * Cash attendu d'une session POS.
+   *
+   * Calcul faisant autorité (ne dépend PAS du solde wallet, qui est cumulé
+   * sur toute l'histoire et donc incohérent comme « cash de session ») :
+   *
+   *   cash_in  = SUM(sale_payments.amount) pour cette session,
+   *              méthode = 'cash', vente non annulée
+   *   cash_out = SUM(cash_deposits.amount) faits sur l'outlet
+   *              pendant la fenêtre [started_at … ended_at|now]
+   *   expected = cash_in − cash_out
+   *
+   * On suppose un fond de caisse d'ouverture à 0 (V1). Si un fond initial
+   * est introduit plus tard, l'ajouter ici.
+   */
+  async getSessionCashSummary(sessionId: string): Promise<{
+    sessionId: string;
+    outletId: string;
+    startedAt: string;
+    endedAt: string | null;
+    cashIn: number;
+    cashOut: number;
+    expected: number;
+  }> {
+    const sRes = await db.query<any>(
+      `SELECT id, outlet_id, started_at, ended_at
+       FROM pos_sessions WHERE id = $1 LIMIT 1`,
+      [sessionId]
+    );
+    if (sRes.rows.length === 0) throw new Error('Session introuvable');
+    const s = sRes.rows[0];
+
+    const cashInRes = await db.query<any>(
+      `SELECT COALESCE(SUM(sp.amount), 0)::float AS total
+       FROM sale_payments sp
+       JOIN sales sa ON sa.id = sp.sale_id
+       JOIN payment_methods pm ON pm.id = sp.payment_method_id
+       WHERE sa.pos_session_id = $1
+         AND pm.code = 'cash'
+         AND sa.status <> 'cancelled'`,
+      [sessionId]
+    );
+    const cashOutRes = await db.query<any>(
+      `SELECT COALESCE(SUM(cd.amount), 0)::float AS total
+       FROM cash_deposits cd
+       WHERE cd.outlet_id = $1
+         AND cd.deposited_at >= $2
+         AND cd.deposited_at <= COALESCE($3::timestamp, CURRENT_TIMESTAMP)`,
+      [s.outlet_id, s.started_at, s.ended_at]
+    );
+    const cashIn = Number(cashInRes.rows[0].total);
+    const cashOut = Number(cashOutRes.rows[0].total);
+    return {
+      sessionId: s.id,
+      outletId: s.outlet_id,
+      startedAt: s.started_at?.toISOString?.() ?? s.started_at,
+      endedAt: s.ended_at ? (s.ended_at.toISOString?.() ?? s.ended_at) : null,
+      cashIn, cashOut, expected: cashIn - cashOut,
+    };
   }
 
   /** Auto-ferme toutes les sessions actives ouvertes depuis plus de N heures (housekeeping). */
