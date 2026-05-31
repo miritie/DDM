@@ -1,30 +1,44 @@
 /**
- * API - Upload d'image produit (multipart/form-data).
+ * API - Upload d'image produit (multipart/form-data) vers Cloudinary.
  *
- * Sauvegarde sous public/uploads/products/{uuid}.{ext} et renvoie l'URL publique.
+ * L'image est envoyée vers le compte Cloudinary configuré via la variable
+ * d'environnement CLOUDINARY_URL (format cloudinary://API_KEY:API_SECRET@CLOUD_NAME).
+ * Cloudinary nous renvoie une URL HTTPS publique CDN ; on retourne cette
+ * URL au client, qui la stocke dans products.image_url.
  *
- * NOTE : stockage local. Pour la prod (déploiement serverless), basculer sur
- * un stockage cloud (S3, Vercel Blob, etc.).
+ * Avantages vs ancien stockage local :
+ *  - compatible serverless (Vercel) — pas de filesystem persistant requis
+ *  - transformations à la volée (resize, format=auto/webp) directement
+ *    via paramètres d'URL côté frontend
+ *  - CDN global, cache HTTP automatique
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import { writeFile, mkdir } from 'fs/promises';
-import path from 'path';
-import { v4 as uuidv4 } from 'uuid';
+import { v2 as cloudinary, type UploadApiResponse } from 'cloudinary';
 import { requirePermission, PERMISSIONS } from '@/lib/rbac/server';
 
 const MAX_BYTES = 5 * 1024 * 1024; // 5 MB
 const ALLOWED = new Set(['image/jpeg', 'image/png', 'image/webp', 'image/gif']);
-const EXT: Record<string, string> = {
-  'image/jpeg': 'jpg',
-  'image/png': 'png',
-  'image/webp': 'webp',
-  'image/gif': 'gif',
-};
+
+// Configure Cloudinary une seule fois au boot du module.
+// Le SDK lit automatiquement CLOUDINARY_URL si présent (cf. doc Cloudinary).
+// Forcing HTTPS pour éviter les mixed-content sur les vignettes.
+if (process.env.CLOUDINARY_URL) {
+  cloudinary.config({ secure: true });
+} else {
+  console.warn('[upload/product-image] CLOUDINARY_URL non définie — uploads échoueront');
+}
 
 export async function POST(request: NextRequest) {
   try {
     await requirePermission(PERMISSIONS.SALES_EDIT);
+
+    if (!process.env.CLOUDINARY_URL) {
+      return NextResponse.json(
+        { error: 'Stockage cloud non configuré (CLOUDINARY_URL manquant).' },
+        { status: 500 }
+      );
+    }
 
     const formData = await request.formData();
     const file = formData.get('file');
@@ -48,15 +62,33 @@ export async function POST(request: NextRequest) {
     }
 
     const buffer = Buffer.from(await file.arrayBuffer());
-    const ext = EXT[file.type];
-    const filename = `${uuidv4()}.${ext}`;
 
-    const uploadsDir = path.join(process.cwd(), 'public', 'uploads', 'products');
-    await mkdir(uploadsDir, { recursive: true });
-    await writeFile(path.join(uploadsDir, filename), buffer);
+    // Upload via stream (le SDK n'expose pas d'upload Buffer direct
+    // pratique côté serverless).
+    const result = await new Promise<UploadApiResponse>((resolve, reject) => {
+      const stream = cloudinary.uploader.upload_stream(
+        {
+          folder: 'ddm/products',
+          resource_type: 'image',
+          // Garde le format original (jpg/png/webp/gif).
+          // Le frontend pourra demander des transformations via URL.
+        },
+        (err, res) => {
+          if (err || !res) return reject(err ?? new Error('Upload Cloudinary échoué'));
+          resolve(res);
+        }
+      );
+      stream.end(buffer);
+    });
 
-    const url = `/uploads/products/${filename}`;
-    return NextResponse.json({ url, size: file.size, type: file.type });
+    return NextResponse.json({
+      url: result.secure_url,
+      publicId: result.public_id,
+      size: file.size,
+      type: file.type,
+      width: result.width,
+      height: result.height,
+    });
   } catch (error: any) {
     console.error('Image upload error:', error);
     return NextResponse.json(
