@@ -102,7 +102,7 @@ export class StockService {
 
   async getById(stockItemId: string): Promise<StockItem | null> {
     const r = await db.query(
-      `SELECT * FROM stock_items WHERE id = $1 OR stock_item_id = $1 LIMIT 1`,
+      `SELECT * FROM stock_items WHERE id::text = $1 OR stock_item_id = $1 LIMIT 1`,
       [stockItemId]
     );
     return r.rows.length > 0 ? mapStockRow(r.rows[0]) : null;

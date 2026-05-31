@@ -96,8 +96,11 @@ export async function POST(request: NextRequest) {
     let subtotal = 0;
 
     for (const item of items) {
+      // id::text pour éviter que pg infère $1 comme uuid (à cause du
+      // id = $1) puis échoue sur product_id = $1::uuid (product_id est
+      // varchar) : « operator does not exist: character varying = uuid ».
       const prodRes = await db.query(
-        `SELECT id, name, code FROM products WHERE id = $1 OR product_id = $1 LIMIT 1`,
+        `SELECT id, name, code FROM products WHERE id::text = $1 OR product_id = $1 LIMIT 1`,
         [item.productId]
       );
       if (prodRes.rows.length === 0) {
