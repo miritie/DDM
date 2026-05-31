@@ -18,8 +18,9 @@ interface Wallet {
 export type PosPaymentMethod = string; // code dynamique issu de la DB, ou 'credit'
 
 interface ApiPaymentMethod {
-  PaymentMethodId: string;
-  Code: string;
+  Id: string;                  // UUID PK (utilisé pour le filtrage par outlet)
+  PaymentMethodId: string;     // business code (PM-…)
+  Code: string;                // code métier (cash, mobile_money, …)
   Label: string;
   RequiredWalletType?: string | null;
   DisplayOrder: number;
@@ -62,14 +63,18 @@ const CREDIT_METHOD = {
   color: 'amber',
 };
 
-export function CheckoutModal({ total, onClose, onConfirm }: {
+export function CheckoutModal({ total, outletId, onClose, onConfirm }: {
   total: number;
+  /** Si fourni, le modal filtre les payment_methods sur ceux acceptés par
+   *  ce point de vente (config /admin/outlets/[id] → section paiements). */
+  outletId?: string;
   onClose: () => void;
   onConfirm: (r: CheckoutResult) => Promise<void>;
 }) {
   const [method, setMethod] = useState<PosPaymentMethod>('cash');
   const [wallets, setWallets] = useState<Wallet[]>([]);
   const [paymentMethods, setPaymentMethods] = useState<ApiPaymentMethod[]>([]);
+  const [acceptedIds, setAcceptedIds] = useState<Set<string> | null>(null);
   const [walletId, setWalletId] = useState<string>('');
   const [amountPaid, setAmountPaid] = useState<string>(String(total));
   const [submitting, setSubmitting] = useState(false);
@@ -79,15 +84,30 @@ export function CheckoutModal({ total, onClose, onConfirm }: {
     // Wallets actifs + méthodes de paiement actives (dynamiques depuis la DB).
     fetch('/api/treasury/wallets?isActive=true')
       .then(r => r.ok ? r.json() : { data: [] })
-      .then(d => setWallets(d.data || []));
+      .then(d => setWallets(d.data || []))
+      .catch(() => {});
     fetch('/api/treasury/payment-methods?isActive=true')
       .then(r => r.ok ? r.json() : { data: [] })
-      .then(d => setPaymentMethods((d.data || []) as ApiPaymentMethod[]));
-  }, []);
+      .then(d => setPaymentMethods((d.data || []) as ApiPaymentMethod[]))
+      .catch(() => {});
+    // Liste acceptée par cet outlet (filtrage) — si pas d'outletId, on
+    // affiche tout (cas legacy, mais en pratique le POS passe toujours
+    // un outletId).
+    if (outletId) {
+      fetch('/api/outlets/' + encodeURIComponent(outletId) + '/payment-methods')
+        .then(r => r.ok ? r.json() : { data: { acceptedIds: [] } })
+        .then(d => setAcceptedIds(new Set(d.data?.acceptedIds ?? [])))
+        .catch(() => setAcceptedIds(null));
+    } else {
+      setAcceptedIds(null);
+    }
+  }, [outletId]);
 
-  // Méthodes affichées : celles actives en DB + crédit (cas à part)
+  // Méthodes affichées : celles actives en DB filtrées par acceptedIds
+  // (si configuration outlet présente) + crédit (toujours dispo, cas à part).
   const displayedMethods = useMemo(() => {
     const dynamic = paymentMethods
+      .filter(pm => acceptedIds === null || acceptedIds.has(pm.Id))
       .slice()
       .sort((a, b) => a.DisplayOrder - b.DisplayOrder)
       .map(pm => ({
@@ -98,7 +118,7 @@ export function CheckoutModal({ total, onClose, onConfirm }: {
         color: colorFor(pm.Code),
       }));
     return [...dynamic, CREDIT_METHOD];
-  }, [paymentMethods]);
+  }, [paymentMethods, acceptedIds]);
 
   // S'assure que la méthode sélectionnée existe encore (fallback sur la première)
   useEffect(() => {

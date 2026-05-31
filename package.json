@@ -32,7 +32,9 @@
     "migrate:production:v1:perms": "tsx scripts/database/apply-production-v1-permissions.ts",
     "migrate:commercial-stock-view": "tsx scripts/database/apply-commercial-stock-view-permission.ts",
     "migrate:product-images-to-cloudinary": "tsx scripts/database/migrate-product-images-to-cloudinary.ts",
-    "migrate:product-details": "tsx scripts/database/apply-product-details.ts"
+    "migrate:product-details": "tsx scripts/database/apply-product-details.ts",
+    "migrate:outlet-payment-methods": "tsx scripts/database/apply-outlet-payment-methods.ts",
+    "migrate:outlet-payment-methods-perm": "tsx scripts/database/apply-outlet-payment-methods-permission.ts"
   },
   "dependencies": {
     "@radix-ui/react-checkbox": "^1.3.3",

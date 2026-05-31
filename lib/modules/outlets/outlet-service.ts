@@ -456,6 +456,79 @@ export class OutletService {
     );
     return r.rows.map((row: any) => row.outlet_id as string);
   }
+
+  // ===== Moyens de paiement acceptés par outlet =====
+
+  /**
+   * Liste les payment_methods (UUID PK) explicitement configurés pour cet
+   * outlet. Si aucun n'est configuré, on retourne UN SEUL élément : le
+   * payment_method de code 'cash' du workspace (défaut prudent métier).
+   *
+   * Cette même règle est appliquée côté UI checkout : un outlet sans
+   * configuration explicite n'accepte que le cash.
+   */
+  async listAcceptedPaymentMethods(outletIdOrSlug: string): Promise<string[]> {
+    const outletUuid = await resolveUuid('outlets', 'code', outletIdOrSlug);
+    if (!outletUuid) throw new Error('Outlet introuvable');
+
+    const r = await db.query(
+      `SELECT payment_method_id FROM outlet_payment_methods WHERE outlet_id = $1`,
+      [outletUuid]
+    );
+    if (r.rows.length > 0) {
+      return r.rows.map((row: any) => row.payment_method_id as string);
+    }
+    // Fallback : cash uniquement.
+    const wsRow = await db.query(
+      `SELECT workspace_id FROM outlets WHERE id = $1 LIMIT 1`,
+      [outletUuid]
+    );
+    if (wsRow.rows.length === 0) return [];
+    const cashRow = await db.query(
+      `SELECT id FROM payment_methods
+       WHERE workspace_id = $1 AND code = 'cash' AND is_active = true
+       LIMIT 1`,
+      [wsRow.rows[0].workspace_id]
+    );
+    return cashRow.rows.map((row: any) => row.id as string);
+  }
+
+  /**
+   * Remplace en bloc la liste des payment_methods acceptés pour cet
+   * outlet. Une liste vide réinitialise la configuration : on retombe
+   * sur le fallback « cash uniquement ».
+   * Atomique : DELETE + INSERT dans une transaction.
+   */
+  async setAcceptedPaymentMethods(outletIdOrSlug: string, paymentMethodIds: string[]): Promise<void> {
+    const outletUuid = await resolveUuid('outlets', 'code', outletIdOrSlug);
+    if (!outletUuid) throw new Error('Outlet introuvable');
+
+    await db.transaction(async (client) => {
+      await client.query(
+        `DELETE FROM outlet_payment_methods WHERE outlet_id = $1`,
+        [outletUuid]
+      );
+      for (const pmId of paymentMethodIds) {
+        await client.query(
+          `INSERT INTO outlet_payment_methods (outlet_id, payment_method_id)
+           VALUES ($1, $2) ON CONFLICT DO NOTHING`,
+          [outletUuid, pmId]
+        );
+      }
+    });
+  }
+}
+
+/**
+ * Résolution UUID|business code → UUID PK. Pattern dual-id du projet.
+ * Helper local pour éviter d'importer le helper global du stock-transfer-service.
+ */
+async function resolveUuid(table: string, slugCol: string, value: string): Promise<string | null> {
+  const r = await db.query(
+    `SELECT id FROM ${table} WHERE id::text = $1 OR ${slugCol} = $1 LIMIT 1`,
+    [value]
+  );
+  return r.rows[0]?.id ?? null;
 }
 
 // ---------------------------------------------------------------------------

@@ -152,6 +152,9 @@ export default function OutletDetailPage({ params }: { params: Promise<{ id: str
         {/* PRIX */}
         <PricesSection outletId={outletId} products={products} prices={prices} onChange={loadAll} />
 
+        {/* MOYENS DE PAIEMENT ACCEPTÉS */}
+        <PaymentMethodsSection outletId={outletId} />
+
         {/* FACTURES */}
         <InvoicesSection outletId={outletId} invoices={invoices} onChange={loadAll} />
       </div>
@@ -227,6 +230,181 @@ function PricesSection({ outletId, products, prices, onChange }: {
     </div>
   );
 }
+
+// ============================================================================
+
+interface PaymentMethodOption {
+  id: string;
+  code: string;
+  label: string;
+  isActive: boolean;
+  requiredWalletType: string | null;
+}
+
+function PaymentMethodsSection({ outletId }: { outletId: string }) {
+  const [methods, setMethods] = useState<PaymentMethodOption[]>([]);
+  const [acceptedIds, setAcceptedIds] = useState<Set<string>>(new Set());
+  const [fallback, setFallback] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [feedback, setFeedback] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
+
+  useEffect(() => {
+    void load();
+    /* eslint-disable-next-line react-hooks/exhaustive-deps */
+  }, [outletId]);
+
+  async function load() {
+    setLoading(true);
+    try {
+      const [pmRes, accRes] = await Promise.all([
+        fetch('/api/treasury/payment-methods?isActive=true'),
+        fetch(`/api/outlets/${outletId}/payment-methods`),
+      ]);
+      if (pmRes.ok) {
+        const { data } = await pmRes.json();
+        setMethods((data ?? []).map((m: any) => ({
+          id: m.id,
+          code: m.Code ?? m.code,
+          label: m.Label ?? m.label,
+          isActive: m.IsActive ?? m.is_active ?? true,
+          requiredWalletType: m.RequiredWalletType ?? m.required_wallet_type ?? null,
+        })));
+      }
+      if (accRes.ok) {
+        const { data } = await accRes.json();
+        setAcceptedIds(new Set(data?.acceptedIds ?? []));
+        setFallback(Boolean(data?.fallback));
+      }
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  function toggle(id: string) {
+    setAcceptedIds(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  }
+
+  async function save() {
+    setSaving(true);
+    setFeedback(null);
+    try {
+      const res = await fetch(`/api/outlets/${outletId}/payment-methods`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ids: Array.from(acceptedIds) }),
+      });
+      if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.error || 'Erreur sauvegarde');
+      }
+      const { data } = await res.json();
+      setAcceptedIds(new Set(data.acceptedIds));
+      setFallback(Boolean(data.fallback));
+      setFeedback({ type: 'success', message: 'Moyens de paiement enregistrés' });
+    } catch (e: any) {
+      setFeedback({ type: 'error', message: e.message });
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  function reset() {
+    setAcceptedIds(new Set());
+  }
+
+  return (
+    <div className="bg-white p-6 rounded-2xl border">
+      <div className="flex items-start justify-between mb-3 gap-3">
+        <div>
+          <h2 className="font-bold text-lg">Moyens de paiement acceptés sur ce stand</h2>
+          <p className="text-sm text-gray-600 mt-1">
+            Coche les moyens autorisés pour ce point de vente. Le checkout du POS
+            filtrera la liste en conséquence. Sans sélection explicite, seul le
+            cash est accepté par défaut.
+          </p>
+        </div>
+        <Link href="/treasury/payment-methods" className="text-xs text-blue-600 hover:underline shrink-0 mt-1">
+          Gérer le catalogue →
+        </Link>
+      </div>
+
+      {fallback && acceptedIds.size === 0 && !loading && (
+        <div className="mb-3 text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded-md px-3 py-2">
+          ⚠ Aucune sélection — par défaut, seul le cash est accepté sur ce stand.
+        </div>
+      )}
+
+      {loading ? (
+        <p className="text-sm text-gray-500"><Loader2 className="w-4 h-4 animate-spin inline" /> Chargement…</p>
+      ) : methods.length === 0 ? (
+        <p className="text-sm text-gray-500 italic">
+          Aucun moyen de paiement défini au niveau du workspace. Crée d'abord les méthodes
+          depuis <Link href="/treasury/payment-methods" className="text-blue-600 hover:underline">Trésorerie &gt; Moyens de paiement</Link>.
+        </p>
+      ) : (
+        <>
+          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2 mt-2">
+            {methods.map(m => {
+              const checked = acceptedIds.has(m.id);
+              return (
+                <label key={m.id} className={
+                  'flex items-start gap-2 px-3 py-2.5 rounded-lg border cursor-pointer transition ' +
+                  (checked ? 'border-blue-400 bg-blue-50' : 'border-gray-200 bg-white hover:bg-gray-50')
+                }>
+                  <input
+                    type="checkbox"
+                    checked={checked}
+                    onChange={() => toggle(m.id)}
+                    className="mt-0.5 w-4 h-4"
+                  />
+                  <div className="min-w-0 flex-1">
+                    <p className="text-sm font-medium truncate">{m.label}</p>
+                    <p className="text-[11px] text-gray-500 font-mono">
+                      {m.code}
+                      {m.requiredWalletType && ' · wallet ' + m.requiredWalletType}
+                    </p>
+                  </div>
+                </label>
+              );
+            })}
+          </div>
+
+          {feedback && (
+            <div className={
+              'mt-3 px-3 py-2 rounded-md border text-sm ' +
+              (feedback.type === 'success'
+                ? 'bg-green-50 border-green-200 text-green-800'
+                : 'bg-red-50 border-red-200 text-red-800')
+            }>
+              {feedback.message}
+            </div>
+          )}
+
+          <div className="flex items-center justify-between gap-2 mt-4 pt-3 border-t">
+            <button
+              onClick={reset}
+              disabled={saving}
+              className="text-xs text-gray-600 hover:text-red-600 underline disabled:opacity-50"
+            >
+              Tout décocher (retour défaut cash)
+            </button>
+            <Button onClick={save} disabled={saving}>
+              <Save className="w-4 h-4 mr-1" />
+              {saving ? 'Sauvegarde…' : 'Enregistrer'}
+            </Button>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+// ============================================================================
 
 function InvoicesSection({ outletId, invoices, onChange }: {
   outletId: string; invoices: OutletInvoice[]; onChange: () => void;

@@ -157,6 +157,7 @@ export const PERMISSIONS = {
   OUTLET_INVOICE_VIEW: 'outlet:invoice:view',
   OUTLET_INVOICE_MANAGE: 'outlet:invoice:manage',
   OUTLET_PRICE_MANAGE: 'outlet:price:manage',
+  OUTLET_PAYMENT_METHODS_MANAGE: 'outlet:payment_methods:manage', // Admin / mgr commercial / comptable
   POS_SESSION_OPEN: 'pos:session:open',     // Commercial peut ouvrir/fermer sa session
 } as const;
 

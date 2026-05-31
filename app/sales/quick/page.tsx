@@ -941,6 +941,7 @@ export default function QuickSalePage() {
         {showCheckout && (
           <CheckoutModal
             total={subtotal}
+            outletId={activeOutletId}
             onClose={() => setShowCheckout(false)}
             onConfirm={processCheckout}
           />
