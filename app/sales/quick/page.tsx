@@ -20,7 +20,7 @@ import {
   Search, Package, ShoppingCart, Plus, Minus, X, Check, Loader2,
   MapPin, Users, ClipboardList, RefreshCw, Truck, QrCode, UserPlus,
   BarChart3, PackageCheck, MoreVertical, ChevronUp, Smartphone,
-  List, LayoutGrid, Info,
+  List, LayoutGrid, Info, Wallet, ArrowRightLeft,
 } from 'lucide-react';
 import { ReceiveStockModal } from '@/components/pos/receive-stock-modal';
 import { CheckoutModal, type CheckoutResult } from '@/components/pos/checkout-modal';
@@ -29,6 +29,8 @@ import { SessionJournalModal } from '@/components/pos/session-journal-modal';
 import { IncomingTransfersModal } from '@/components/pos/incoming-transfers-modal';
 import { QrCustomerModal } from '@/components/sales/qr-customer-modal';
 import { ProductDetailsModal } from '@/components/pos/product-details-modal';
+import { CashRegisterModal } from '@/components/pos/cash-register-modal';
+import { SendStockModal } from '@/components/pos/send-stock-modal';
 
 interface Outlet { id: string; Code: string; Name: string; City?: string; AllowsCredit?: boolean; source?: 'assignment' | 'fallback' }
 interface Product { Id?: string; id?: string; ProductId: string; Code: string; Name: string; Category?: string; ImageUrl?: string }
@@ -73,6 +75,10 @@ export default function QuickSalePage() {
   // Fiche produit détaillée (modal plein écran), accessible par icône ℹ
   // sur la grille compact ou tap sur nom en vue liste.
   const [detailsProductId, setDetailsProductId] = useState<string | null>(null);
+
+  // Modals stock + caisse accessibles par les icônes du bandeau header.
+  const [showCashRegister, setShowCashRegister] = useState(false);
+  const [showSendStock, setShowSendStock] = useState(false);
 
   // Recherche live de client existant dans la base.
   // L'input du bandeau client interroge /api/clients/search avec debounce.
@@ -537,6 +543,33 @@ export default function QuickSalePage() {
                       : <span className="text-gray-400">—</span>}
                 </p>
               </div>
+              {/* Icône 📦 Stock — ouvre directement les réceptions à confirmer
+                  (cas le plus fréquent) ; le bouton « Envoyer du stock » est
+                  dans le modal lui-même. Badge violet si réceptions en attente. */}
+              <button
+                onClick={() => setShowIncoming(true)}
+                className="relative p-2 rounded-lg border border-gray-200 hover:bg-gray-100"
+                title="Stock : recevoir / envoyer"
+                aria-label="Stock"
+              >
+                <Package className="w-5 h-5 text-purple-600" />
+                {incomingCount > 0 && (
+                  <span className="absolute -top-0.5 -right-0.5 min-w-[18px] h-[18px] px-1 rounded-full bg-purple-600 text-white text-[10px] font-bold flex items-center justify-center border-2 border-white">
+                    {incomingCount}
+                  </span>
+                )}
+              </button>
+
+              {/* Icône 💰 Caisse — ouvre la vue caisse (solde + dépôt) */}
+              <button
+                onClick={() => setShowCashRegister(true)}
+                className="p-2 rounded-lg border border-gray-200 hover:bg-gray-100"
+                title="Caisse stand"
+                aria-label="Caisse"
+              >
+                <Wallet className="w-5 h-5 text-emerald-600" />
+              </button>
+
               {/* Bouton kebab actions secondaires */}
               <div className="relative">
                 <button
@@ -545,11 +578,6 @@ export default function QuickSalePage() {
                   aria-label="Actions"
                 >
                   <MoreVertical className="w-5 h-5" />
-                  {incomingCount > 0 && (
-                    <span className="absolute -top-0.5 -right-0.5 min-w-[18px] h-[18px] px-1 rounded-full bg-purple-600 text-white text-[10px] font-bold flex items-center justify-center border-2 border-white">
-                      {incomingCount}
-                    </span>
-                  )}
                 </button>
                 {showMenu && (
                   <>
@@ -557,9 +585,8 @@ export default function QuickSalePage() {
                     <div className="absolute right-0 top-full mt-1 w-60 bg-white border border-gray-200 rounded-lg shadow-xl z-30 overflow-hidden">
                       <MenuItem icon={<ClipboardList className="w-4 h-4 text-emerald-600" />} label="Journal de caisse"
                         onClick={() => { setShowJournal(true); setShowMenu(false); }} />
-                      <MenuItem icon={<PackageCheck className="w-4 h-4 text-purple-600" />} label="Réceptions à confirmer"
-                        badge={incomingCount}
-                        onClick={() => { setShowIncoming(true); setShowMenu(false); }} />
+                      <MenuItem icon={<ArrowRightLeft className="w-4 h-4 text-purple-600" />} label="Envoyer du stock vers un autre stand"
+                        onClick={() => { setShowSendStock(true); setShowMenu(false); }} />
                       <MenuItem icon={<Truck className="w-4 h-4 text-gray-600" />} label="Réception ad hoc"
                         onClick={() => { setShowReceive(true); setShowMenu(false); }} />
                       <MenuItem icon={<BarChart3 className="w-4 h-4 text-amber-600" />} label="Mes performances"
@@ -998,6 +1025,28 @@ export default function QuickSalePage() {
             setShowQr(false);
           }}
         />
+
+        {showCashRegister && (
+          <CashRegisterModal
+            outletId={activeOutletId}
+            outletName={currentOutlet?.Name || ''}
+            onClose={() => setShowCashRegister(false)}
+          />
+        )}
+
+        {showSendStock && currentOutlet && (
+          <SendStockModal
+            outletId={activeOutletId}
+            outletName={currentOutlet.Name || ''}
+            outletCode={currentOutlet.Code}
+            onClose={() => setShowSendStock(false)}
+            onSent={() => {
+              setShowSendStock(false);
+              setFeedback({ type: 'success', message: 'Transfert envoyé. Le stand destination doit confirmer la réception.' });
+              void loadCatalog();
+            }}
+          />
+        )}
 
         {detailsProductId && (() => {
           const p = sellableProducts.find(x => x._id === detailsProductId);
