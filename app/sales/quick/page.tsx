@@ -20,6 +20,7 @@ import {
   Search, Package, ShoppingCart, Plus, Minus, X, Check, Loader2,
   MapPin, Users, ClipboardList, RefreshCw, Truck, QrCode, UserPlus,
   BarChart3, PackageCheck, MoreVertical, ChevronUp, Smartphone,
+  List, LayoutGrid,
 } from 'lucide-react';
 import { ReceiveStockModal } from '@/components/pos/receive-stock-modal';
 import { CheckoutModal, type CheckoutResult } from '@/components/pos/checkout-modal';
@@ -72,9 +73,26 @@ export default function QuickSalePage() {
   // Clés = product UUID PK (matche Product.Id ou .id côté catalogue).
   const [stockByProduct, setStockByProduct] = useState<Map<string, { qty: number; min: number }>>(new Map());
 
+  // Quantité vendue par produit sur 30j glissants (cet outlet) : sert à
+  // ranger les top vendeurs en premier dans la grille catalogue.
+  const [popularityByProduct, setPopularityByProduct] = useState<Map<string, number>>(new Map());
+
   // Compteur de lignes de transfert pending sur cet outlet : alimente le
   // badge du bouton « Réceptions ».
   const [incomingCount, setIncomingCount] = useState(0);
+
+  // Vue : compact (grille avec images, ~9 par écran) ou list (1 ligne par
+  // produit, ~15-20 par écran). Persisté en localStorage.
+  const [viewMode, setViewMode] = useState<'compact' | 'list'>('compact');
+  useEffect(() => {
+    const saved = typeof window !== 'undefined' ? localStorage.getItem('posViewMode') : null;
+    if (saved === 'list' || saved === 'compact') setViewMode(saved);
+  }, []);
+  function toggleViewMode() {
+    const next = viewMode === 'compact' ? 'list' : 'compact';
+    setViewMode(next);
+    try { localStorage.setItem('posViewMode', next); } catch { /* private mode */ }
+  }
 
   // ===== Outlets disponibles pour ce commercial =====
   useEffect(() => {
@@ -122,18 +140,19 @@ export default function QuickSalePage() {
     }
   }
 
-  // ===== Catalogue : produits + prix outlet + stock outlet =====
-  // Les 3 fetchs sont indépendants : on tolère qu'un seul échoue (réseau
+  // ===== Catalogue : produits + prix outlet + stock outlet + popularité =====
+  // Les 4 fetchs sont indépendants : on tolère qu'un seul échoue (réseau
   // mobile flaky, dev server qui recompile). Promise.allSettled évite
   // qu'un fail collectif ne plante l'UI avec un « Load failed ».
   const loadCatalog = useCallback(async () => {
     if (!activeOutletId) return;
     setLoadingCatalog(true);
     try {
-      const [pSettled, prSettled, stSettled] = await Promise.allSettled([
+      const [pSettled, prSettled, stSettled, popSettled] = await Promise.allSettled([
         fetch('/api/products?isActive=true'),
         fetch(`/api/outlets/${activeOutletId}/applicable-prices`),
         fetch(`/api/stock/locations/outlet/${activeOutletId}/summary`),
+        fetch(`/api/sales/popularity?outletId=${activeOutletId}&days=30`),
       ]);
       if (pSettled.status === 'fulfilled' && pSettled.value.ok) {
         try { setProducts((await pSettled.value.json()).data || []); } catch { /* json fail */ }
@@ -149,6 +168,16 @@ export default function QuickSalePage() {
             m.set(it.product.id, { qty: Number(it.quantity), min: Number(it.minimumStock) });
           }
           setStockByProduct(m);
+        } catch { /* json fail */ }
+      }
+      if (popSettled.status === 'fulfilled' && popSettled.value.ok) {
+        try {
+          const { data } = await popSettled.value.json();
+          const m = new Map<string, number>();
+          for (const it of (data ?? []) as Array<{ productId: string; qtySold: number }>) {
+            m.set(it.productId, Number(it.qtySold));
+          }
+          setPopularityByProduct(m);
         } catch { /* json fail */ }
       }
     } finally { setLoadingCatalog(false); }
@@ -212,8 +241,16 @@ export default function QuickSalePage() {
       .filter(p => p.hasPrice)
       .filter(p => !search.trim() ||
         p.Name.toLowerCase().includes(search.toLowerCase()) ||
-        p.Code.toLowerCase().includes(search.toLowerCase()));
-  }, [products, prices, search]);
+        p.Code.toLowerCase().includes(search.toLowerCase()))
+      // Tri : top vendeurs (30j) en premier, puis alpha. Les produits
+      // jamais vendus sur la période tombent à la fin, ordonnés par nom.
+      .sort((a, b) => {
+        const sa = popularityByProduct.get(a._id) ?? 0;
+        const sb = popularityByProduct.get(b._id) ?? 0;
+        if (sb !== sa) return sb - sa;
+        return a.Name.localeCompare(b.Name);
+      });
+  }, [products, prices, search, popularityByProduct]);
 
   // Stock cap : on ne laisse pas dépasser la quantité disponible sur l'outlet
   // pour ne pas se faire rejeter au checkout (CHECK SQL côté base + service).
@@ -495,6 +532,13 @@ export default function QuickSalePage() {
                       <MenuItem icon={<BarChart3 className="w-4 h-4 text-amber-600" />} label="Mes performances"
                         onClick={() => { router.push('/dashboard/sales'); setShowMenu(false); }} />
                       <div className="border-t my-1" />
+                      <MenuItem
+                        icon={viewMode === 'compact'
+                          ? <List className="w-4 h-4 text-gray-600" />
+                          : <LayoutGrid className="w-4 h-4 text-gray-600" />}
+                        label={viewMode === 'compact' ? 'Vue liste (max produits)' : 'Vue grille (avec images)'}
+                        onClick={() => { toggleViewMode(); setShowMenu(false); }} />
+                      <div className="border-t my-1" />
                       <MenuItem icon={<MapPin className="w-4 h-4 text-gray-600" />} label="Changer de stand"
                         onClick={() => { setActiveOutletId(null); setShowMenu(false); }} />
                     </div>
@@ -576,45 +620,20 @@ export default function QuickSalePage() {
                   <p className="text-gray-500">Aucun produit avec un prix défini sur ce point de vente.</p>
                   <p className="text-xs text-gray-400 mt-2">L'admin doit configurer les prix dans /admin/outlets.</p>
                 </div>
-              ) : (
+              ) : viewMode === 'compact' ? (
                 <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 xl:grid-cols-6 gap-1.5">
                   {sellableProducts.map(p => {
+                    const meta = getStockMeta(stockByProduct.get(p._id));
                     const inCart = cart.find(c => c.productId === p._id);
-                    const stock = stockByProduct.get(p._id);
-                    const qty = stock?.qty ?? null;
-                    const min = stock?.min ?? 0;
-
-                    let dotClass = 'bg-gray-300';
-                    let stockText = 'Stock non suivi';
-                    let stockTextClass = 'text-gray-500';
-                    let showStockText = true;
-                    if (qty !== null) {
-                      if (qty <= 0) {
-                        dotClass = 'bg-red-500';
-                        stockText = 'Rupture';
-                        stockTextClass = 'text-red-700 font-semibold';
-                      } else if (qty <= min) {
-                        dotClass = 'bg-amber-500';
-                        stockText = 'Bas : ' + new Intl.NumberFormat('fr-FR').format(qty);
-                        stockTextClass = 'text-amber-700 font-semibold';
-                      } else {
-                        dotClass = 'bg-emerald-500';
-                        stockText = new Intl.NumberFormat('fr-FR').format(qty) + ' en stock';
-                        showStockText = false;
-                      }
-                    }
-                    const disabled = qty !== null && qty <= 0;
-                    const titleAttr = qty !== null ? stockText : 'Stock non suivi';
-
                     return (
                       <button
                         key={p._id}
-                        onClick={() => !disabled && addToCart(p)}
-                        disabled={disabled}
-                        title={titleAttr}
+                        onClick={() => !meta.disabled && addToCart(p)}
+                        disabled={meta.disabled}
+                        title={meta.titleAttr}
                         className={
                           'text-left bg-white border rounded-lg overflow-hidden transition ' +
-                          (disabled
+                          (meta.disabled
                             ? 'opacity-60 cursor-not-allowed border-gray-200'
                             : 'border-gray-200 active:scale-95 hover:border-blue-500 hover:shadow-md')
                         }
@@ -634,14 +653,61 @@ export default function QuickSalePage() {
                           <p className="text-[11px] font-semibold line-clamp-1 leading-tight">{p.Name}</p>
                           <div className="flex items-center justify-between gap-1 mt-0.5">
                             <span className="text-xs font-bold text-blue-600 leading-none">{formatPrice(p.outletPrice)}</span>
-                            <span className={'w-2 h-2 rounded-full shrink-0 ' + dotClass} />
+                            <span className={'w-2 h-2 rounded-full shrink-0 ' + meta.dotClass} />
                           </div>
-                          {showStockText && (
-                            <p className={'text-[9px] leading-tight truncate mt-0.5 ' + stockTextClass}>
-                              {stockText}
+                          {meta.showStockText && (
+                            <p className={'text-[9px] leading-tight truncate mt-0.5 ' + meta.stockTextClass}>
+                              {meta.stockText}
                             </p>
                           )}
                         </div>
+                      </button>
+                    );
+                  })}
+                </div>
+              ) : (
+                <div className="space-y-1">
+                  {sellableProducts.map(p => {
+                    const meta = getStockMeta(stockByProduct.get(p._id));
+                    const inCart = cart.find(c => c.productId === p._id);
+                    return (
+                      <button
+                        key={p._id}
+                        onClick={() => !meta.disabled && addToCart(p)}
+                        disabled={meta.disabled}
+                        title={meta.titleAttr}
+                        className={
+                          'w-full flex items-center gap-2 p-1.5 bg-white border rounded-lg transition ' +
+                          (meta.disabled
+                            ? 'opacity-60 cursor-not-allowed border-gray-200'
+                            : 'border-gray-200 active:bg-gray-50 hover:border-blue-500')
+                        }
+                      >
+                        <div className="relative w-10 h-10 shrink-0 rounded bg-gray-50 overflow-hidden flex items-center justify-center">
+                          {p.ImageUrl
+                            /* eslint-disable-next-line @next/next/no-img-element */
+                            ? <img src={p.ImageUrl} alt={p.Name} className="w-full h-full object-cover" />
+                            : <Package className="w-4 h-4 text-gray-300" />}
+                        </div>
+                        <div className="flex-1 min-w-0 text-left">
+                          <p className="text-xs font-semibold line-clamp-1 leading-tight">{p.Name}</p>
+                          <div className="flex items-center gap-1 mt-0.5">
+                            <span className={'w-1.5 h-1.5 rounded-full shrink-0 ' + meta.dotClass} />
+                            <span className={'text-[10px] leading-tight truncate ' + meta.stockTextClass}>
+                              {meta.stockText}
+                            </span>
+                          </div>
+                        </div>
+                        <span className="text-sm font-bold text-blue-600 shrink-0">{formatPrice(p.outletPrice)}</span>
+                        {inCart ? (
+                          <span className="min-w-[24px] h-6 px-1 rounded-full bg-blue-600 text-white text-[10px] font-bold flex items-center justify-center shrink-0">
+                            ×{inCart.quantity}
+                          </span>
+                        ) : (
+                          <span className="w-6 h-6 rounded-full bg-blue-100 text-blue-700 flex items-center justify-center shrink-0">
+                            <Plus className="w-3.5 h-3.5" />
+                          </span>
+                        )}
                       </button>
                     );
                   })}
@@ -804,6 +870,54 @@ export default function QuickSalePage() {
 
 function formatPrice(v: number) {
   return new Intl.NumberFormat('fr-FR').format(v) + ' XOF';
+}
+
+/**
+ * Calcule la présentation visuelle du stock à partir des données brutes.
+ * Quatre états : non suivi (gris), rupture (rouge, désactivé), bas
+ * (ambre), normal (vert, libellé masqué pour économiser une ligne).
+ * Partagé entre la vue compacte (grille) et la vue liste.
+ */
+function getStockMeta(stock: { qty: number; min: number } | undefined): {
+  qty: number | null;
+  dotClass: string;
+  stockText: string;
+  stockTextClass: string;
+  showStockText: boolean;
+  disabled: boolean;
+  titleAttr: string;
+} {
+  const qty = stock?.qty ?? null;
+  const min = stock?.min ?? 0;
+  let dotClass = 'bg-gray-300';
+  let stockText = 'Stock non suivi';
+  let stockTextClass = 'text-gray-500';
+  let showStockText = true;
+  if (qty !== null) {
+    if (qty <= 0) {
+      dotClass = 'bg-red-500';
+      stockText = 'Rupture';
+      stockTextClass = 'text-red-700 font-semibold';
+    } else if (qty <= min) {
+      dotClass = 'bg-amber-500';
+      stockText = 'Bas : ' + new Intl.NumberFormat('fr-FR').format(qty);
+      stockTextClass = 'text-amber-700 font-semibold';
+    } else {
+      dotClass = 'bg-emerald-500';
+      stockText = new Intl.NumberFormat('fr-FR').format(qty) + ' en stock';
+      stockTextClass = 'text-emerald-700';
+      showStockText = false;
+    }
+  }
+  return {
+    qty,
+    dotClass,
+    stockText,
+    stockTextClass,
+    showStockText,
+    disabled: qty !== null && qty <= 0,
+    titleAttr: qty !== null ? stockText : 'Stock non suivi',
+  };
 }
 
 /** Ligne du menu kebab — icône colorée + libellé + badge optionnel. */
