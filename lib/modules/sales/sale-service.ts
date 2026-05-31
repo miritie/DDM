@@ -192,13 +192,20 @@ export class SaleService {
     const saleNumber = await this.generateSaleNumber(input.workspaceId);
     const saleUuid = uuidv4();
 
+    // Casts explicites sur les paramètres potentiellement NULL :
+    // pg ne peut pas inférer le type d'un paramètre `null` non casté et
+    // remonte une erreur « could not determine data type of parameter ».
+    // Vue anonyme (clientId/clientName null) déclenchait ce bug.
     const r = await postgresClient.query(
       `INSERT INTO sales
         (sale_id, sale_number, client_id, client_name,
          total_amount, amount_paid, balance, currency,
          status, payment_status, sale_date, due_date, notes,
          sales_person_id, outlet_id, pos_session_id, workspace_id)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)
+       VALUES ($1, $2, $3::uuid, $4::varchar,
+               $5, $6, $7, $8,
+               $9, $10, $11::date, $12::date, $13::text,
+               $14::uuid, $15::uuid, $16::uuid, $17::uuid)
        RETURNING *`,
       [
         saleUuid,
@@ -228,7 +235,8 @@ export class SaleService {
         `INSERT INTO sale_items
           (sale_item_id, sale_id, product_id, product_name, description,
            quantity, unit_price, total_price, currency)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
+         VALUES ($1, $2, $3::uuid, $4, $5::text,
+                 $6, $7, $8, $9)`,
         [
           uuidv4(),
           saleRowId,
