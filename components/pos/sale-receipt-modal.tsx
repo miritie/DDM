@@ -11,8 +11,14 @@
  *   - inciter à enchaîner sur la prochaine vente avec un bouton focus
  */
 
-import { useEffect } from 'react';
-import { Check, X, Share2, Plus, Receipt, Wallet, Clock, AlertTriangle } from 'lucide-react';
+import { useEffect, useState } from 'react';
+import { Check, X, Share2, Plus, Receipt, Wallet, Clock, AlertTriangle, FileDown, Loader2 } from 'lucide-react';
+import {
+  generateSaleReceiptPdf,
+  shareSaleReceiptPdf,
+  downloadSaleReceiptPdf,
+  type SaleReceiptPdfData,
+} from '@/lib/pdf/sale-receipt-pdf';
 
 export interface SaleReceiptData {
   saleNumber: string;
@@ -36,6 +42,9 @@ interface SaleReceiptModalProps {
 const fmt = (n: number) => new Intl.NumberFormat('fr-FR').format(Math.round(n)) + ' XOF';
 
 export function SaleReceiptModal({ data, onClose, onNewSale }: SaleReceiptModalProps) {
+  const [pdfBusy, setPdfBusy] = useState<'share' | 'download' | null>(null);
+  const [pdfMessage, setPdfMessage] = useState<string | null>(null);
+
   useEffect(() => {
     // Vibration tactile mobile pour confirmer le succès (silencieux si
     // non supporté ou non activé par l'utilisateur).
@@ -46,43 +55,47 @@ export function SaleReceiptModal({ data, onClose, onNewSale }: SaleReceiptModalP
 
   const hasCredit = data.balance > 0;
 
-  function buildShareText(): string {
-    const lines: string[] = [];
-    lines.push(`Reçu de vente N° ${data.saleNumber}`);
-    lines.push(`${data.outletName} — ${new Date(data.date).toLocaleString('fr-FR')}`);
-    if (data.clientLabel) lines.push(`Client : ${data.clientLabel}`);
-    lines.push('');
-    lines.push('Articles :');
-    for (const it of data.items) {
-      lines.push(`  - ${it.name} × ${it.quantity} = ${fmt(it.quantity * it.unitPrice)}`);
+  const pdfData: SaleReceiptPdfData = {
+    saleNumber: data.saleNumber,
+    date: data.date,
+    outletName: data.outletName,
+    sellerName: data.sellerName,
+    clientLabel: data.clientLabel,
+    items: data.items,
+    totalAmount: data.totalAmount,
+    amountPaid: data.amountPaid,
+    balance: data.balance,
+    paymentMethodLabel: data.paymentMethodLabel,
+  };
+
+  async function handleShare() {
+    setPdfBusy('share');
+    setPdfMessage(null);
+    try {
+      const blob = generateSaleReceiptPdf(pdfData);
+      const res = await shareSaleReceiptPdf(pdfData, blob);
+      if (res.shared) {
+        setPdfMessage('Reçu partagé ✓');
+      } else if (res.downloaded) {
+        setPdfMessage('PDF téléchargé — joins-le à ton message WhatsApp.');
+      }
+    } catch (e: any) {
+      setPdfMessage('Erreur : ' + e.message);
+    } finally {
+      setPdfBusy(null);
     }
-    lines.push('');
-    lines.push(`Total : ${fmt(data.totalAmount)}`);
-    lines.push(`Encaissé (${data.paymentMethodLabel}) : ${fmt(data.amountPaid)}`);
-    if (hasCredit) lines.push(`Reste dû : ${fmt(data.balance)}`);
-    lines.push('');
-    lines.push(`Merci de votre achat !`);
-    return lines.join('\n');
   }
 
-  async function share() {
-    const text = buildShareText();
-    if (typeof navigator !== 'undefined' && (navigator as any).share) {
-      try {
-        await (navigator as any).share({
-          title: `Reçu ${data.saleNumber}`,
-          text,
-        });
-      } catch {
-        // L'utilisateur a annulé — on tombe sur le fallback ci-dessous
-      }
-    } else if (typeof navigator !== 'undefined' && navigator.clipboard) {
-      try {
-        await navigator.clipboard.writeText(text);
-        alert('Reçu copié — collez-le dans WhatsApp ou SMS.');
-      } catch {
-        alert('Partage non disponible sur ce navigateur.');
-      }
+  function handleDownload() {
+    setPdfBusy('download');
+    setPdfMessage(null);
+    try {
+      downloadSaleReceiptPdf(pdfData);
+      setPdfMessage('PDF téléchargé ✓');
+    } catch (e: any) {
+      setPdfMessage('Erreur : ' + e.message);
+    } finally {
+      setPdfBusy(null);
     }
   }
 
@@ -158,6 +171,11 @@ export function SaleReceiptModal({ data, onClose, onNewSale }: SaleReceiptModalP
 
       {/* Actions bas */}
       <div className="border-t bg-white p-3 space-y-2" style={{ paddingBottom: 'max(0.75rem, env(safe-area-inset-bottom))' }}>
+        {pdfMessage && (
+          <div className="text-xs text-center text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-md px-2 py-1.5">
+            {pdfMessage}
+          </div>
+        )}
         <button
           onClick={onNewSale}
           className="w-full py-3.5 rounded-xl bg-emerald-600 text-white font-bold text-base hover:bg-emerald-700 active:scale-[0.98] transition inline-flex items-center justify-center gap-2"
@@ -165,20 +183,31 @@ export function SaleReceiptModal({ data, onClose, onNewSale }: SaleReceiptModalP
           <Plus className="w-5 h-5" />
           Nouvelle vente
         </button>
-        <div className="grid grid-cols-2 gap-2">
+        <div className="grid grid-cols-3 gap-2">
           <button
-            onClick={share}
-            className="py-2.5 rounded-lg border border-gray-300 bg-white text-gray-700 font-medium hover:bg-gray-50 inline-flex items-center justify-center gap-1.5"
+            onClick={handleShare}
+            disabled={!!pdfBusy}
+            className="py-2.5 rounded-lg bg-green-600 text-white font-medium hover:bg-green-700 disabled:opacity-50 inline-flex items-center justify-center gap-1.5"
+            title="Partager le reçu PDF (WhatsApp, SMS…)"
           >
-            <Share2 className="w-4 h-4" />
-            Partager
+            {pdfBusy === 'share' ? <Loader2 className="w-4 h-4 animate-spin" /> : <Share2 className="w-4 h-4" />}
+            <span>Partager</span>
+          </button>
+          <button
+            onClick={handleDownload}
+            disabled={!!pdfBusy}
+            className="py-2.5 rounded-lg border border-gray-300 bg-white text-gray-700 font-medium hover:bg-gray-50 disabled:opacity-50 inline-flex items-center justify-center gap-1.5"
+            title="Télécharger le PDF"
+          >
+            {pdfBusy === 'download' ? <Loader2 className="w-4 h-4 animate-spin" /> : <FileDown className="w-4 h-4" />}
+            <span>PDF</span>
           </button>
           <button
             onClick={onClose}
             className="py-2.5 rounded-lg border border-gray-300 bg-white text-gray-700 font-medium hover:bg-gray-50 inline-flex items-center justify-center gap-1.5"
           >
             <X className="w-4 h-4" />
-            Fermer
+            <span>Fermer</span>
           </button>
         </div>
       </div>
