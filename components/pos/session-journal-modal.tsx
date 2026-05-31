@@ -12,7 +12,11 @@
  */
 
 import { useEffect, useState } from 'react';
-import { Loader2, X, ClipboardList, RefreshCw } from 'lucide-react';
+import { Loader2, X, ClipboardList, RefreshCw, FileDown, Share2 } from 'lucide-react';
+import {
+  shareStandJournalPdf,
+  downloadStandJournalPdf,
+} from '@/lib/pdf/stand-journal-pdf';
 
 interface Sale {
   id: string;
@@ -104,6 +108,52 @@ export function SessionJournalModal({ outletId, outletName, onClose }: SessionJo
               <X className="w-5 h-5" />
             </button>
           </div>
+        </div>
+
+        {/* Boutons PDF : récupère l'agrégat journalier complet et génère
+            le journal à transmettre par WhatsApp (équivalent papier). */}
+        <div className="px-5 py-2 border-b bg-amber-50 flex items-center gap-2">
+          <p className="text-xs text-amber-800 flex-1">Journal complet du jour pour la direction :</p>
+          <button
+            onClick={async () => {
+              const r = await fetch(`/api/outlets/${encodeURIComponent(outletId)}/daily-report?date=${new Date().toISOString().slice(0,10)}`);
+              if (!r.ok) { alert('Erreur chargement journal'); return; }
+              const { data } = await r.json();
+              await shareStandJournalPdf({
+                outletName: data.outlet.name,
+                outletCode: data.outlet.code,
+                date: data.date,
+                sessions: data.sessions,
+                byProduct: data.byProduct,
+                bySeller: data.bySeller,
+                deposits: data.deposits,
+                totals: data.totals,
+              });
+            }}
+            className="px-2.5 py-1.5 rounded-md bg-green-600 text-white text-xs font-semibold hover:bg-green-700 inline-flex items-center gap-1.5"
+          >
+            <Share2 className="w-3.5 h-3.5" /> Partager
+          </button>
+          <button
+            onClick={async () => {
+              const r = await fetch(`/api/outlets/${encodeURIComponent(outletId)}/daily-report?date=${new Date().toISOString().slice(0,10)}`);
+              if (!r.ok) { alert('Erreur'); return; }
+              const { data } = await r.json();
+              downloadStandJournalPdf({
+                outletName: data.outlet.name,
+                outletCode: data.outlet.code,
+                date: data.date,
+                sessions: data.sessions,
+                byProduct: data.byProduct,
+                bySeller: data.bySeller,
+                deposits: data.deposits,
+                totals: data.totals,
+              });
+            }}
+            className="px-2.5 py-1.5 rounded-md border border-amber-300 bg-white text-amber-800 text-xs font-semibold hover:bg-amber-100 inline-flex items-center gap-1.5"
+          >
+            <FileDown className="w-3.5 h-3.5" /> PDF
+          </button>
         </div>
 
         {/* Totaux */}
