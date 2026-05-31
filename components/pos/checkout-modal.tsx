@@ -30,7 +30,9 @@ interface ApiPaymentMethod {
 
 export interface CheckoutResult {
   paymentMethod: PosPaymentMethod;
+  paymentMethodLabel: string;  // « Espèces », « Carte / TPE », etc.
   walletId: string | null;
+  walletName?: string | null;
   amountPaid: number;       // montant encaissé maintenant (peut être < total → crédit)
 }
 
@@ -167,9 +169,13 @@ export function CheckoutModal({ total, outletId, allowsCredit = false, onClose, 
 
     setSubmitting(true);
     try {
+      const currentMethod = displayedMethods.find(m => m.id === method);
+      const selectedWallet = walletId ? wallets.find(w => (w.Id ?? w.id) === walletId) : null;
       await onConfirm({
         paymentMethod: method,
+        paymentMethodLabel: currentMethod?.label ?? method,
         walletId: walletId || null,
+        walletName: selectedWallet?.Name ?? selectedWallet?.name ?? null,
         amountPaid: paid,
       });
     } catch (e: any) {
@@ -249,10 +255,16 @@ export function CheckoutModal({ total, outletId, allowsCredit = false, onClose, 
         {error && <div className="mb-3 px-3 py-2 bg-red-50 text-red-800 rounded text-sm">{error}</div>}
 
         <div className="flex gap-2 justify-end">
-          <Button variant="outline" onClick={onClose}>Annuler</Button>
-          <Button onClick={submit} disabled={submitting}>
-            {submitting ? <><Loader2 className="w-4 h-4 mr-1 animate-spin" />Encaissement…</> : <><Check className="w-4 h-4 mr-1" />Confirmer</>}
-          </Button>
+          <Button variant="outline" onClick={onClose} disabled={submitting}>Annuler</Button>
+          {/* Confirmer = action positive d'encaissement → emerald (cohérence
+              avec la sémantique du module : vert = argent qui rentre). */}
+          <button
+            onClick={submit}
+            disabled={submitting}
+            className="inline-flex items-center justify-center gap-1.5 px-4 py-2 rounded-md bg-emerald-600 text-white font-semibold hover:bg-emerald-700 active:scale-95 transition disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            {submitting ? <><Loader2 className="w-4 h-4 animate-spin" />Encaissement…</> : <><Check className="w-4 h-4" />Confirmer</>}
+          </button>
         </div>
       </div>
     </div>

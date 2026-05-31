@@ -31,6 +31,7 @@ import { QrCustomerModal } from '@/components/sales/qr-customer-modal';
 import { ProductDetailsModal } from '@/components/pos/product-details-modal';
 import { CashRegisterModal } from '@/components/pos/cash-register-modal';
 import { SendStockModal } from '@/components/pos/send-stock-modal';
+import { SaleReceiptModal, type SaleReceiptData } from '@/components/pos/sale-receipt-modal';
 
 interface Outlet { id: string; Code: string; Name: string; City?: string; AllowsCredit?: boolean; source?: 'assignment' | 'fallback' }
 interface Product { Id?: string; id?: string; ProductId: string; Code: string; Name: string; Category?: string; ImageUrl?: string }
@@ -79,6 +80,10 @@ export default function QuickSalePage() {
   // Modals stock + caisse accessibles par les icônes du bandeau header.
   const [showCashRegister, setShowCashRegister] = useState(false);
   const [showSendStock, setShowSendStock] = useState(false);
+
+  // Reçu de vente affiché après un encaissement réussi (remplace
+  // l'ancien bandeau success qui était trop discret).
+  const [receipt, setReceipt] = useState<SaleReceiptData | null>(null);
 
   // Recherche live de client existant dans la base.
   // L'input du bandeau client interroge /api/clients/search avec debounce.
@@ -329,6 +334,9 @@ export default function QuickSalePage() {
   async function processCheckout(payment: CheckoutResult) {
     if (!activeOutletId) return;
     setSubmitting(true); setFeedback(null);
+    // Snapshot du panier AVANT de le vider — nécessaire pour le reçu.
+    const snapshotItems = cart.map(c => ({ name: c.name, quantity: c.quantity, unitPrice: c.unitPrice }));
+    const snapshotClient = activeClientLabel;
     try {
       const res = await fetch('/api/sales/quick', {
         method: 'POST',
@@ -346,10 +354,21 @@ export default function QuickSalePage() {
       });
       if (!res.ok) throw new Error((await res.json()).error || 'Erreur');
       const { data } = await res.json();
-      const remainingMsg = data.Balance > 0
-        ? ` · Reste dû : ${formatPrice(Number(data.Balance))} (à recouvrer)`
-        : '';
-      setFeedback({ type: 'success', message: `Vente ${data.SaleNumber} encaissée — ${formatPrice(Number(data.TotalAmount))}${remainingMsg}` });
+
+      // Construit le reçu plein écran qui remplace l'ancien bandeau.
+      setReceipt({
+        saleNumber: data.SaleNumber,
+        date: data.SaleDate ?? new Date().toISOString(),
+        outletName: currentOutlet?.Name ?? '',
+        sellerName: 'Vendeur', // session.user.name si récupérable plus tard
+        clientLabel: snapshotClient,
+        items: snapshotItems,
+        totalAmount: Number(data.TotalAmount),
+        amountPaid: Number(data.AmountPaid ?? payment.amountPaid),
+        balance: Number(data.Balance ?? 0),
+        paymentMethodLabel: payment.paymentMethodLabel,
+      });
+
       setCart([]); setSelectedScan(null); setManualClient(null);
       setShowCheckout(false);
       void loadScans();
@@ -517,9 +536,18 @@ export default function QuickSalePage() {
           <span className="text-sm text-gray-600">Total</span>
           <span className="text-2xl font-bold">{formatPrice(subtotal)}</span>
         </div>
-        <Button onClick={checkout} disabled={cart.length === 0 || submitting} className="w-full py-6 text-base">
-          {submitting ? <><Loader2 className="w-5 h-5 mr-2 animate-spin" />Encaissement…</> : <><Check className="w-5 h-5 mr-2" />Encaisser</>}
-        </Button>
+        {/* Bouton principal d'encaissement — emerald pour la sémantique
+            positive « argent qui rentre ». Cohérent avec le Confirmer du
+            CheckoutModal et la palette caisse. */}
+        <button
+          onClick={checkout}
+          disabled={cart.length === 0 || submitting}
+          className="w-full py-4 rounded-xl bg-emerald-600 text-white text-base font-bold hover:bg-emerald-700 active:scale-[0.98] transition disabled:opacity-50 disabled:bg-gray-400 disabled:cursor-not-allowed inline-flex items-center justify-center gap-2"
+        >
+          {submitting
+            ? <><Loader2 className="w-5 h-5 animate-spin" />Encaissement…</>
+            : <><Check className="w-5 h-5" />Encaisser</>}
+        </button>
       </div>
     </div>
   );
@@ -713,7 +741,7 @@ export default function QuickSalePage() {
             {/* Feedback inline (non bloquant) */}
             {feedback && (
               <div className={`mx-3 mt-2 px-3 py-2 rounded-md border text-sm flex items-start gap-2 ${
-                feedback.type === 'success' ? 'bg-green-50 border-green-200 text-green-800' : 'bg-red-50 border-red-200 text-red-800'
+                feedback.type === 'success' ? 'bg-emerald-50 border-emerald-200 text-emerald-800' : 'bg-red-50 border-red-200 text-red-800'
               }`}>
                 {feedback.type === 'success' && <Check className="w-4 h-4 flex-shrink-0 mt-0.5" />}
                 <span className="flex-1">{feedback.message}</span>
@@ -888,7 +916,7 @@ export default function QuickSalePage() {
           <button
             onClick={() => setShowCart(true)}
             disabled={cart.length === 0}
-            className="w-full flex items-center justify-between gap-3 px-4 py-3 rounded-xl bg-blue-600 text-white font-semibold disabled:opacity-50 disabled:bg-gray-400"
+            className="w-full flex items-center justify-between gap-3 px-4 py-3 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-semibold disabled:opacity-50 disabled:bg-gray-400 active:scale-[0.98] transition"
           >
             <span className="flex items-center gap-2">
               <ShoppingCart className="w-5 h-5" />
@@ -1069,6 +1097,14 @@ export default function QuickSalePage() {
             />
           );
         })()}
+
+        {receipt && (
+          <SaleReceiptModal
+            data={receipt}
+            onClose={() => setReceipt(null)}
+            onNewSale={() => setReceipt(null)}
+          />
+        )}
       </div>
     </ProtectedPage>
   );
