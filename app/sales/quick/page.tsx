@@ -577,72 +577,70 @@ export default function QuickSalePage() {
                   <p className="text-xs text-gray-400 mt-2">L'admin doit configurer les prix dans /admin/outlets.</p>
                 </div>
               ) : (
-                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6 gap-2">
+                <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 xl:grid-cols-6 gap-1.5">
                   {sellableProducts.map(p => {
                     const inCart = cart.find(c => c.productId === p._id);
                     const stock = stockByProduct.get(p._id);
                     const qty = stock?.qty ?? null;
                     const min = stock?.min ?? 0;
-                    // Stock : trois états visuels, libellé clair.
-                    //  - inconnu  : gris + « Stock non suivi »
-                    //  - rupture  : rouge + « Rupture »
-                    //  - faible   : ambre + « Stock faible : N »
-                    //  - normal   : vert + « N en stock »
+
                     let dotClass = 'bg-gray-300';
-                    let stockText: string;
+                    let stockText = 'Stock non suivi';
                     let stockTextClass = 'text-gray-500';
-                    if (qty === null) {
-                      stockText = 'Stock non suivi';
-                    } else if (qty <= 0) {
-                      dotClass = 'bg-red-500';
-                      stockText = 'Rupture';
-                      stockTextClass = 'text-red-700 font-semibold';
-                    } else if (qty <= min) {
-                      dotClass = 'bg-amber-500';
-                      stockText = `Stock bas : ${new Intl.NumberFormat('fr-FR').format(qty)}`;
-                      stockTextClass = 'text-amber-700 font-semibold';
-                    } else {
-                      dotClass = 'bg-emerald-500';
-                      stockText = `${new Intl.NumberFormat('fr-FR').format(qty)} en stock`;
-                      stockTextClass = 'text-emerald-700';
+                    let showStockText = true;
+                    if (qty !== null) {
+                      if (qty <= 0) {
+                        dotClass = 'bg-red-500';
+                        stockText = 'Rupture';
+                        stockTextClass = 'text-red-700 font-semibold';
+                      } else if (qty <= min) {
+                        dotClass = 'bg-amber-500';
+                        stockText = 'Bas : ' + new Intl.NumberFormat('fr-FR').format(qty);
+                        stockTextClass = 'text-amber-700 font-semibold';
+                      } else {
+                        dotClass = 'bg-emerald-500';
+                        stockText = new Intl.NumberFormat('fr-FR').format(qty) + ' en stock';
+                        showStockText = false;
+                      }
                     }
                     const disabled = qty !== null && qty <= 0;
+                    const titleAttr = qty !== null ? stockText : 'Stock non suivi';
+
                     return (
                       <button
                         key={p._id}
                         onClick={() => !disabled && addToCart(p)}
                         disabled={disabled}
-                        className={`text-left bg-white border rounded-lg overflow-hidden relative transition ${
-                          disabled
+                        title={titleAttr}
+                        className={
+                          'text-left bg-white border rounded-lg overflow-hidden transition ' +
+                          (disabled
                             ? 'opacity-60 cursor-not-allowed border-gray-200'
-                            : 'border-gray-200 active:scale-95 hover:border-blue-500 hover:shadow-md'
-                        }`}
+                            : 'border-gray-200 active:scale-95 hover:border-blue-500 hover:shadow-md')
+                        }
                       >
-                        {/* Image : hauteur fixe en mobile pour ne pas exploser
-                            l'écran, redevient carrée à partir de sm pour
-                            occuper plus joliment l'espace. */}
-                        <div className="h-24 sm:h-28 md:aspect-square md:h-auto bg-gray-50 flex items-center justify-center relative">
+                        <div className="aspect-square bg-gray-50 relative">
                           {p.ImageUrl
                             /* eslint-disable-next-line @next/next/no-img-element */
                             ? <img src={p.ImageUrl} alt={p.Name} className="w-full h-full object-cover" />
-                            : <Package className="w-8 h-8 text-gray-300" />}
-                          {/* Compteur panier — coin haut-droit */}
+                            : <div className="w-full h-full flex items-center justify-center"><Package className="w-6 h-6 text-gray-300" /></div>}
                           {inCart && (
-                            <span className="absolute top-1.5 right-1.5 min-w-[24px] h-6 px-1.5 rounded-full bg-blue-600 text-white text-[11px] font-bold flex items-center justify-center shadow">
+                            <span className="absolute top-1 right-1 min-w-[20px] h-5 px-1 rounded-full bg-blue-600 text-white text-[10px] font-bold flex items-center justify-center shadow border border-white">
                               ×{inCart.quantity}
                             </span>
                           )}
                         </div>
-                        <div className="px-2 py-1.5">
-                          <p className="text-xs font-medium line-clamp-2 leading-tight min-h-[2em]">{p.Name}</p>
-                          <p className="text-sm font-bold text-blue-600 mt-0.5">{formatPrice(p.outletPrice)}</p>
-                          {/* Ligne stock — toujours présente, libellé clair */}
-                          <div className="flex items-center gap-1 mt-1">
-                            <span className={`w-2 h-2 rounded-full shrink-0 ${dotClass}`} />
-                            <span className={`text-[10px] leading-tight truncate ${stockTextClass}`}>
-                              {stockText}
-                            </span>
+                        <div className="px-1.5 py-1">
+                          <p className="text-[11px] font-semibold line-clamp-1 leading-tight">{p.Name}</p>
+                          <div className="flex items-center justify-between gap-1 mt-0.5">
+                            <span className="text-xs font-bold text-blue-600 leading-none">{formatPrice(p.outletPrice)}</span>
+                            <span className={'w-2 h-2 rounded-full shrink-0 ' + dotClass} />
                           </div>
+                          {showStockText && (
+                            <p className={'text-[9px] leading-tight truncate mt-0.5 ' + stockTextClass}>
+                              {stockText}
+                            </p>
+                          )}
                         </div>
                       </button>
                     );
