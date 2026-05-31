@@ -20,7 +20,10 @@ export async function GET(
     await requirePermission(PERMISSIONS.SALES_VIEW);
     const { id } = await params;
 
-    const product = await service.getById(id);
+    // getByIdWithDetails renvoie aussi benefits / usage_notes / composition
+    // + tableau AdditionalImages — utilisé par le ProductDetailsModal POS
+    // et l'écran d'édition admin. Coût marginal (1 SELECT supplémentaire).
+    const product = await service.getByIdWithDetails(id);
 
     if (!product) {
       return NextResponse.json(

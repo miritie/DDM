@@ -20,7 +20,7 @@ import {
   Search, Package, ShoppingCart, Plus, Minus, X, Check, Loader2,
   MapPin, Users, ClipboardList, RefreshCw, Truck, QrCode, UserPlus,
   BarChart3, PackageCheck, MoreVertical, ChevronUp, Smartphone,
-  List, LayoutGrid,
+  List, LayoutGrid, Info,
 } from 'lucide-react';
 import { ReceiveStockModal } from '@/components/pos/receive-stock-modal';
 import { CheckoutModal, type CheckoutResult } from '@/components/pos/checkout-modal';
@@ -28,6 +28,7 @@ import { NewClientModal } from '@/components/pos/new-client-modal';
 import { SessionJournalModal } from '@/components/pos/session-journal-modal';
 import { IncomingTransfersModal } from '@/components/pos/incoming-transfers-modal';
 import { QrCustomerModal } from '@/components/sales/qr-customer-modal';
+import { ProductDetailsModal } from '@/components/pos/product-details-modal';
 
 interface Outlet { id: string; Code: string; Name: string; City?: string; source?: 'assignment' | 'fallback' }
 interface Product { Id?: string; id?: string; ProductId: string; Code: string; Name: string; Category?: string; ImageUrl?: string }
@@ -68,6 +69,10 @@ export default function QuickSalePage() {
   const [showCart, setShowCart] = useState(false);
   const [showMenu, setShowMenu] = useState(false);
   const [showScansList, setShowScansList] = useState(false);
+
+  // Fiche produit détaillée (modal plein écran), accessible par icône ℹ
+  // sur la grille compact ou tap sur nom en vue liste.
+  const [detailsProductId, setDetailsProductId] = useState<string | null>(null);
 
   // Recherche live de client existant dans la base.
   // L'input du bandeau client interroge /api/clients/search avec debounce.
@@ -747,6 +752,19 @@ export default function QuickSalePage() {
                               ×{inCart.quantity}
                             </span>
                           )}
+                          {/* Icône ℹ — ouvre la fiche produit. stopPropagation
+                              pour ne pas re-incrémenter le panier au passage. */}
+                          <span
+                            role="button"
+                            tabIndex={0}
+                            onClick={(e) => { e.stopPropagation(); setDetailsProductId(p._id); }}
+                            onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); e.stopPropagation(); setDetailsProductId(p._id); } }}
+                            title="Voir la fiche produit"
+                            aria-label="Voir la fiche"
+                            className="absolute bottom-1 left-1 w-6 h-6 rounded-full bg-white/90 hover:bg-white text-gray-600 hover:text-blue-600 flex items-center justify-center shadow border border-gray-200 cursor-pointer"
+                          >
+                            <Info className="w-3.5 h-3.5" />
+                          </span>
                         </div>
                         <div className="px-1.5 py-1">
                           <p className="text-[11px] font-semibold line-clamp-1 leading-tight">{p.Name}</p>
@@ -789,7 +807,17 @@ export default function QuickSalePage() {
                             : <Package className="w-4 h-4 text-gray-300" />}
                         </div>
                         <div className="flex-1 min-w-0 text-left">
-                          <p className="text-xs font-semibold line-clamp-1 leading-tight">{p.Name}</p>
+                          <span
+                            role="button"
+                            tabIndex={0}
+                            onClick={(e) => { e.stopPropagation(); setDetailsProductId(p._id); }}
+                            onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); e.stopPropagation(); setDetailsProductId(p._id); } }}
+                            title="Voir la fiche produit"
+                            className="inline-flex items-center gap-1 text-xs font-semibold leading-tight text-blue-700 hover:underline cursor-pointer"
+                          >
+                            <span className="line-clamp-1">{p.Name}</span>
+                            <Info className="w-3 h-3 shrink-0 opacity-60" />
+                          </span>
                           <div className="flex items-center gap-1 mt-0.5">
                             <span className={'w-1.5 h-1.5 rounded-full shrink-0 ' + meta.dotClass} />
                             <span className={'text-[10px] leading-tight truncate ' + meta.stockTextClass}>
@@ -966,6 +994,28 @@ export default function QuickSalePage() {
             setShowQr(false);
           }}
         />
+
+        {detailsProductId && (() => {
+          const p = sellableProducts.find(x => x._id === detailsProductId);
+          if (!p) {
+            setDetailsProductId(null);
+            return null;
+          }
+          const inCart = cart.find(c => c.productId === p._id);
+          const stock = stockByProduct.get(p._id);
+          return (
+            <ProductDetailsModal
+              productId={p._id}
+              outletPrice={p.outletPrice}
+              stockQty={stock?.qty ?? null}
+              stockMin={stock?.min ?? 0}
+              cartQty={inCart?.quantity ?? 0}
+              onClose={() => setDetailsProductId(null)}
+              onAddToCart={() => addToCart(p)}
+              onDecrement={() => changeQty(p._id, -1)}
+            />
+          );
+        })()}
       </div>
     </ProtectedPage>
   );

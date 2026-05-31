@@ -31,7 +31,8 @@
     "migrate:production:v1": "tsx scripts/database/apply-migration-production-v1.ts",
     "migrate:production:v1:perms": "tsx scripts/database/apply-production-v1-permissions.ts",
     "migrate:commercial-stock-view": "tsx scripts/database/apply-commercial-stock-view-permission.ts",
-    "migrate:product-images-to-cloudinary": "tsx scripts/database/migrate-product-images-to-cloudinary.ts"
+    "migrate:product-images-to-cloudinary": "tsx scripts/database/migrate-product-images-to-cloudinary.ts",
+    "migrate:product-details": "tsx scripts/database/apply-product-details.ts"
   },
   "dependencies": {
     "@radix-ui/react-checkbox": "^1.3.3",

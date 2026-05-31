@@ -11,7 +11,7 @@ import { PERMISSIONS } from '@/lib/rbac';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Product } from '@/types/modules';
-import { Package, ArrowLeft, Loader2, Save, AlertCircle, Power, PowerOff } from 'lucide-react';
+import { Package, ArrowLeft, Loader2, Save, AlertCircle, Power, PowerOff, X, Plus } from 'lucide-react';
 import { ProductImageUpload } from '@/components/products/image-upload';
 
 const COMMON_UNITS = ['piece', 'kg', 'g', 'L', 'mL', 'carton', 'pack', 'bouteille', 'casier'];
@@ -38,6 +38,9 @@ export default function EditProductPage() {
   const [form, setForm] = useState({
     name: '',
     description: '',
+    benefits: '',
+    usageNotes: '',
+    composition: '',
     category: '',
     unit: 'piece',
     unitPrice: '',
@@ -45,6 +48,9 @@ export default function EditProductPage() {
   });
   const [imageUrl, setImageUrl] = useState<string | null>(null);
   const [categories, setCategories] = useState<Category[]>([]);
+  const [additionalImages, setAdditionalImages] = useState<Array<{ id: string; url: string; position: number }>>([]);
+  const [pendingNewImage, setPendingNewImage] = useState<string | null>(null);
+  const [removingImageId, setRemovingImageId] = useState<string | null>(null);
 
   useEffect(() => {
     void load();
@@ -72,17 +78,26 @@ export default function EditProductPage() {
         return;
       }
       const data = await res.json();
-      const p: Product = data.data;
+      const p = data.data as Product & {
+        Benefits?: string | null;
+        UsageNotes?: string | null;
+        Composition?: string | null;
+        AdditionalImages?: Array<{ id: string; url: string; position: number }>;
+      };
       setProduct(p);
       setForm({
         name: p.Name || '',
         description: p.Description || '',
+        benefits: p.Benefits || '',
+        usageNotes: p.UsageNotes || '',
+        composition: p.Composition || '',
         category: p.Category || '',
         unit: p.Unit || 'piece',
         unitPrice: String(p.UnitPrice ?? ''),
         isActive: p.IsActive ?? true,
       });
       setImageUrl(p.ImageUrl || null);
+      setAdditionalImages(p.AdditionalImages || []);
     } catch (err) {
       console.error(err);
       setProduct(null);
@@ -112,6 +127,9 @@ export default function EditProductPage() {
         body: JSON.stringify({
           name: form.name.trim(),
           description: form.description.trim() || undefined,
+          benefits: form.benefits.trim() || null,
+          usageNotes: form.usageNotes.trim() || null,
+          composition: form.composition.trim() || null,
           category: form.category || null,
           unit: form.unit,
           unitPrice: Number(form.unitPrice),
@@ -130,6 +148,43 @@ export default function EditProductPage() {
       setFeedback({ type: 'error', message: err.message });
     } finally {
       setSaving(false);
+    }
+  }
+
+  async function addAdditionalImage(url: string) {
+    try {
+      const res = await fetch(`/api/products/${productId}/images`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ url }),
+      });
+      if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.error || 'Erreur ajout image');
+      }
+      const { data } = await res.json();
+      setAdditionalImages((imgs) => [...imgs, data]);
+      setPendingNewImage(null);
+    } catch (err: any) {
+      setFeedback({ type: 'error', message: err.message });
+    }
+  }
+
+  async function removeAdditionalImage(imageId: string) {
+    setRemovingImageId(imageId);
+    try {
+      const res = await fetch(`/api/products/${productId}/images?id=${encodeURIComponent(imageId)}`, {
+        method: 'DELETE',
+      });
+      if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.error || 'Erreur suppression image');
+      }
+      setAdditionalImages((imgs) => imgs.filter((i) => i.id !== imageId));
+    } catch (err: any) {
+      setFeedback({ type: 'error', message: err.message });
+    } finally {
+      setRemovingImageId(null);
     }
   }
 
@@ -342,6 +397,95 @@ export default function EditProductPage() {
                   }`}
                 />
                 {errors.unitPrice && <p className="text-red-500 text-xs mt-1">{errors.unitPrice}</p>}
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle>Fiche détaillée</CardTitle>
+              <CardDescription>
+                Visible dans la fiche produit du POS — aide-mémoire pour les commerciaux.
+                Les sections vides ne s'affichent pas.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Bienfaits</label>
+                <textarea
+                  value={form.benefits}
+                  onChange={(e) => setForm({ ...form, benefits: e.target.value })}
+                  placeholder="Ex : Riche en fibres, digestion facile, index glycémique bas."
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md"
+                  rows={3}
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Indications / mode d'emploi</label>
+                <textarea
+                  value={form.usageNotes}
+                  onChange={(e) => setForm({ ...form, usageNotes: e.target.value })}
+                  placeholder="Ex : Idéal le matin avec miel, 1-2 tranches par repas."
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md"
+                  rows={3}
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Composition / ingrédients</label>
+                <textarea
+                  value={form.composition}
+                  onChange={(e) => setForm({ ...form, composition: e.target.value })}
+                  placeholder="Ex : Farine T80 bio, levain naturel, sel de Guérande, eau."
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md"
+                  rows={3}
+                />
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle>Images additionnelles</CardTitle>
+              <CardDescription>
+                Apparaissent en carrousel dans la fiche produit POS, après l'image principale.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              {additionalImages.length > 0 && (
+                <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 gap-2 mb-4">
+                  {additionalImages.map((img) => (
+                    <div key={img.id} className="relative aspect-square rounded-md overflow-hidden bg-gray-50 border">
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img src={img.url} alt="" className="w-full h-full object-cover" />
+                      <button
+                        type="button"
+                        onClick={() => removeAdditionalImage(img.id)}
+                        disabled={removingImageId === img.id}
+                        className="absolute top-1 right-1 w-6 h-6 rounded-full bg-white/90 shadow text-red-600 hover:bg-red-50 flex items-center justify-center disabled:opacity-50"
+                        aria-label="Supprimer cette image"
+                      >
+                        {removingImageId === img.id
+                          ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                          : <X className="w-3.5 h-3.5" />}
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2 inline-flex items-center gap-1.5">
+                  <Plus className="w-4 h-4" /> Ajouter une image
+                </label>
+                <ProductImageUpload
+                  value={pendingNewImage}
+                  onChange={(url) => {
+                    if (url) {
+                      void addAdditionalImage(url);
+                    } else {
+                      setPendingNewImage(null);
+                    }
+                  }}
+                />
               </div>
             </CardContent>
           </Card>
