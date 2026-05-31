@@ -317,13 +317,27 @@ export class SaleService {
       orderBy: { field: 'sale_date', direction: 'desc' },
     });
 
-    // Apply date filters in application code
+    // Apply date filters in application code.
+    // ATTENTION : s.SaleDate vient du driver pg comme un objet Date.
+    // Une comparaison directe `Date >= '2026-05-31'` force la Date en
+    // string via toString() (« Sun May 31 2026 … »), qui en compare
+    // lexicographique est TOUJOURS > qu'une date ISO YYYY-MM-DD. Le
+    // filtre dateTo rejetait ainsi toutes les ventes silencieusement —
+    // le journal de caisse paraissait vide alors que les ventes étaient
+    // bien en DB.
+    const toIsoDay = (v: any): string => {
+      if (!v) return '';
+      if (v instanceof Date) return v.toISOString().slice(0, 10);
+      // Si déjà string (cas legacy), normalise les 10 premiers chars.
+      return String(v).slice(0, 10);
+    };
     if (filters.dateFrom) {
-      sales = sales.filter(s => s.SaleDate >= filters.dateFrom!);
+      const from = filters.dateFrom.slice(0, 10);
+      sales = sales.filter(s => toIsoDay(s.SaleDate) >= from);
     }
-
     if (filters.dateTo) {
-      sales = sales.filter(s => s.SaleDate <= filters.dateTo!);
+      const to = filters.dateTo.slice(0, 10);
+      sales = sales.filter(s => toIsoDay(s.SaleDate) <= to);
     }
 
     return sales;
