@@ -17,6 +17,7 @@ import { ArrowLeft, QrCode, Loader2, Save, Trash2, Plus } from 'lucide-react';
 interface Outlet {
   id: string; Code: string; Name: string; OutletTypeId?: string;
   Address?: string; City?: string; QrToken: string; IsActive: boolean;
+  AllowsCredit?: boolean;
 }
 interface OutletType { id: string; Code: string; Name: string }
 interface Product { Id: string; ProductId: string; Name: string; Code: string; UnitPrice: number }
@@ -66,6 +67,7 @@ export default function OutletDetailPage({ params }: { params: Promise<{ id: str
         body: JSON.stringify({
           Name: outlet.Name, Address: outlet.Address, City: outlet.City,
           OutletTypeId: outlet.OutletTypeId, IsActive: outlet.IsActive,
+          AllowsCredit: outlet.AllowsCredit ?? false,
         }),
       });
       if (!res.ok) alert((await res.json()).error || 'Erreur');
@@ -130,6 +132,23 @@ export default function OutletDetailPage({ params }: { params: Promise<{ id: str
                 <label className="text-xs text-gray-600">Adresse</label>
                 <input value={outlet.Address || ''} onChange={e => setOutlet({ ...outlet, Address: e.target.value })}
                   className="w-full px-3 py-2 border rounded-md" />
+              </div>
+              <div className="col-span-2">
+                <label className="flex items-start gap-2 cursor-pointer p-2 rounded hover:bg-gray-50">
+                  <input
+                    type="checkbox"
+                    checked={Boolean(outlet.AllowsCredit)}
+                    onChange={e => setOutlet({ ...outlet, AllowsCredit: e.target.checked })}
+                    className="mt-1 w-4 h-4"
+                  />
+                  <div className="text-sm">
+                    <p className="font-medium">Autoriser la vente à crédit sur ce stand</p>
+                    <p className="text-xs text-gray-500">
+                      Si coché, l'option « Crédit » apparaît dans l'écran d'encaissement du POS.
+                      Sinon (défaut), le vendeur doit toujours encaisser le montant total.
+                    </p>
+                  </div>
+                </label>
               </div>
             </div>
           </div>

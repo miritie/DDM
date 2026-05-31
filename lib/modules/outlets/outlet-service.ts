@@ -162,7 +162,8 @@ export class OutletService {
            gps_lat = COALESCE($6, gps_lat),
            gps_lng = COALESCE($7, gps_lng),
            manager_id = COALESCE($8, manager_id),
-           is_active = COALESCE($9, is_active)
+           is_active = COALESCE($9, is_active),
+           allows_credit = COALESCE($10, allows_credit)
        WHERE id = $1 RETURNING *`,
       [
         id,
@@ -174,6 +175,7 @@ export class OutletService {
         patch.GpsLng ?? null,
         patch.ManagerId ?? null,
         patch.IsActive ?? null,
+        patch.AllowsCredit ?? null,
       ]
     );
     if (r.rows.length === 0) throw new Error('Outlet introuvable');
@@ -478,19 +480,20 @@ export class OutletService {
     if (r.rows.length > 0) {
       return r.rows.map((row: any) => row.payment_method_id as string);
     }
-    // Fallback : cash uniquement.
+    // Fallback : Espèces (cash) + TPE (card) — les deux moyens universels
+    // d'un stand. Si l'un des deux n'existe pas en DB, on n'inclut que
+    // celui qui existe.
     const wsRow = await db.query(
       `SELECT workspace_id FROM outlets WHERE id = $1 LIMIT 1`,
       [outletUuid]
     );
     if (wsRow.rows.length === 0) return [];
-    const cashRow = await db.query(
+    const defaultsRow = await db.query(
       `SELECT id FROM payment_methods
-       WHERE workspace_id = $1 AND code = 'cash' AND is_active = true
-       LIMIT 1`,
+       WHERE workspace_id = $1 AND code IN ('cash', 'card') AND is_active = true`,
       [wsRow.rows[0].workspace_id]
     );
-    return cashRow.rows.map((row: any) => row.id as string);
+    return defaultsRow.rows.map((row: any) => row.id as string);
   }
 
   /**
@@ -559,6 +562,7 @@ function mapOutletRow(r: any): Outlet {
     QrToken: r.qr_token,
     ManagerId: r.manager_id ?? undefined,
     IsActive: r.is_active,
+    AllowsCredit: r.allows_credit ?? false,
     WorkspaceId: r.workspace_id,
     CreatedAt: r.created_at?.toISOString?.() ?? r.created_at,
     UpdatedAt: r.updated_at?.toISOString?.() ?? r.updated_at,

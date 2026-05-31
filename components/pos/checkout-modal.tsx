@@ -63,11 +63,15 @@ const CREDIT_METHOD = {
   color: 'amber',
 };
 
-export function CheckoutModal({ total, outletId, onClose, onConfirm }: {
+export function CheckoutModal({ total, outletId, allowsCredit = false, onClose, onConfirm }: {
   total: number;
   /** Si fourni, le modal filtre les payment_methods sur ceux acceptés par
    *  ce point de vente (config /admin/outlets/[id] → section paiements). */
   outletId?: string;
+  /** Si true, l'option « Crédit » (paiement partiel) est proposée.
+   *  Désactivé par défaut : un vendeur ne peut pas faire de crédit sans
+   *  configuration explicite du manager. */
+  allowsCredit?: boolean;
   onClose: () => void;
   onConfirm: (r: CheckoutResult) => Promise<void>;
 }) {
@@ -104,7 +108,9 @@ export function CheckoutModal({ total, outletId, onClose, onConfirm }: {
   }, [outletId]);
 
   // Méthodes affichées : celles actives en DB filtrées par acceptedIds
-  // (si configuration outlet présente) + crédit (toujours dispo, cas à part).
+  // (config outlet). Le « Crédit » n'est ajouté QUE si l'outlet l'autorise
+  // explicitement (outlet.allows_credit) — c'est un cas à part qui doit
+  // être expressément ouvert par le manager.
   const displayedMethods = useMemo(() => {
     const dynamic = paymentMethods
       .filter(pm => acceptedIds === null || acceptedIds.has(pm.Id))
@@ -117,8 +123,8 @@ export function CheckoutModal({ total, outletId, onClose, onConfirm }: {
         walletType: pm.RequiredWalletType || null,
         color: colorFor(pm.Code),
       }));
-    return [...dynamic, CREDIT_METHOD];
-  }, [paymentMethods, acceptedIds]);
+    return allowsCredit ? [...dynamic, CREDIT_METHOD] : dynamic;
+  }, [paymentMethods, acceptedIds, allowsCredit]);
 
   // S'assure que la méthode sélectionnée existe encore (fallback sur la première)
   useEffect(() => {
@@ -203,25 +209,14 @@ export function CheckoutModal({ total, outletId, onClose, onConfirm }: {
           })}
         </div>
 
-        {/* Sélecteur wallet si nécessaire */}
-        {requiredType && (
-          <div className="mb-4">
-            <label className="text-xs font-semibold text-gray-600 mb-1 block">
-              {method === 'cash' ? 'Caisse' : method === 'mobile_money' ? 'Compte Mobile Money' : 'Compte bancaire / TPE'}
-            </label>
-            {filteredWallets.length === 0 ? (
-              <div className="px-3 py-2 bg-amber-50 border border-amber-200 rounded text-sm text-amber-800">
-                Aucun wallet de type <strong>{requiredType}</strong> n'est configuré.
-                <a href="/treasury/wallets/new" className="underline ml-1">En créer un</a>
-              </div>
-            ) : (
-              <select value={walletId} onChange={e => setWalletId(e.target.value)}
-                className="w-full px-3 py-2 border rounded-md">
-                {filteredWallets.map(w => (
-                  <option key={w.Id || w.id} value={w.Id || w.id}>{w.Name || w.name}</option>
-                ))}
-              </select>
-            )}
+        {/* Caisse / wallet : auto-pickée (premier wallet actif compatible).
+            Le vendeur ne choisit PAS la caisse — c'est celle de sa session
+            POS en cours. Si aucun wallet du type requis n'existe, on alerte
+            avec un lien vers la création (admin/comptable). */}
+        {requiredType && filteredWallets.length === 0 && (
+          <div className="mb-4 px-3 py-2 bg-amber-50 border border-amber-200 rounded text-sm text-amber-800">
+            Aucune caisse de type <strong>{requiredType}</strong> n'est configurée pour ce moyen de paiement.
+            <a href="/treasury/wallets/new" className="underline ml-1">En créer une</a>
           </div>
         )}
 
@@ -234,7 +229,7 @@ export function CheckoutModal({ total, outletId, onClose, onConfirm }: {
             onChange={e => setAmountPaid(e.target.value)}
             disabled={method !== 'credit'}
             className="w-full px-3 py-2 border rounded-md text-right text-xl font-bold disabled:bg-gray-50" />
-          {method !== 'credit' && (
+          {method !== 'credit' && allowsCredit && (
             <p className="text-xs text-gray-500 mt-1">
               Pour un paiement partiel (crédit), choisissez « Crédit » ci-dessus.
             </p>

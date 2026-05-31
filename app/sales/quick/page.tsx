@@ -30,7 +30,7 @@ import { IncomingTransfersModal } from '@/components/pos/incoming-transfers-moda
 import { QrCustomerModal } from '@/components/sales/qr-customer-modal';
 import { ProductDetailsModal } from '@/components/pos/product-details-modal';
 
-interface Outlet { id: string; Code: string; Name: string; City?: string; source?: 'assignment' | 'fallback' }
+interface Outlet { id: string; Code: string; Name: string; City?: string; AllowsCredit?: boolean; source?: 'assignment' | 'fallback' }
 interface Product { Id?: string; id?: string; ProductId: string; Code: string; Name: string; Category?: string; ImageUrl?: string }
 interface OutletPrice { Id?: string; ProductId: string; UnitPrice: number }
 interface CartItem { productId: string; name: string; unitPrice: number; quantity: number; imageUrl?: string }
@@ -752,8 +752,10 @@ export default function QuickSalePage() {
                               ×{inCart.quantity}
                             </span>
                           )}
-                          {/* Icône ℹ — ouvre la fiche produit. stopPropagation
-                              pour ne pas re-incrémenter le panier au passage. */}
+                          {/* Icône ℹ — ouvre la fiche produit. Placée en
+                              coin HAUT-gauche (opposé au compteur ×N en
+                              haut-droit) pour ne pas chevaucher le libellé
+                              du produit qui suit l'image. */}
                           <span
                             role="button"
                             tabIndex={0}
@@ -761,7 +763,7 @@ export default function QuickSalePage() {
                             onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); e.stopPropagation(); setDetailsProductId(p._id); } }}
                             title="Voir la fiche produit"
                             aria-label="Voir la fiche"
-                            className="absolute bottom-1 left-1 w-6 h-6 rounded-full bg-white/90 hover:bg-white text-gray-600 hover:text-blue-600 flex items-center justify-center shadow border border-gray-200 cursor-pointer"
+                            className="absolute top-1 left-1 w-6 h-6 rounded-full bg-white/90 hover:bg-white text-gray-600 hover:text-blue-600 flex items-center justify-center shadow border border-gray-200 cursor-pointer"
                           >
                             <Info className="w-3.5 h-3.5" />
                           </span>
@@ -942,6 +944,7 @@ export default function QuickSalePage() {
           <CheckoutModal
             total={subtotal}
             outletId={activeOutletId}
+            allowsCredit={Boolean(currentOutlet?.AllowsCredit)}
             onClose={() => setShowCheckout(false)}
             onConfirm={processCheckout}
           />

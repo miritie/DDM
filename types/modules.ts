@@ -2788,6 +2788,9 @@ export interface Outlet {
   QrToken: string;
   ManagerId?: string;
   IsActive: boolean;
+  /** Si true, le mode « Crédit » est proposé dans le CheckoutModal pour ce stand.
+   *  Désactivé par défaut — configurable depuis /admin/outlets/[id]. */
+  AllowsCredit?: boolean;
   WorkspaceId: string;
   CreatedAt: string;
   UpdatedAt: string;
