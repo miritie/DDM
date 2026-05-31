@@ -69,6 +69,16 @@ export default function QuickSalePage() {
   const [showMenu, setShowMenu] = useState(false);
   const [showScansList, setShowScansList] = useState(false);
 
+  // Recherche live de client existant dans la base.
+  // L'input du bandeau client interroge /api/clients/search avec debounce.
+  // Le dropdown des résultats permet de sélectionner un client, ou de
+  // créer un nouveau client pré-rempli si rien ne matche.
+  const [clientSearch, setClientSearch] = useState('');
+  const [clientSearchResults, setClientSearchResults] = useState<Array<{ id: string; name: string | null; phone: string | null }>>([]);
+  const [clientSearchOpen, setClientSearchOpen] = useState(false);
+  // Pré-remplissage à passer au NewClientModal si on l'ouvre depuis le dropdown.
+  const [newClientInitial, setNewClientInitial] = useState<{ name?: string; phone?: string }>({});
+
   // Stock par produit pour cet outlet : alimente les badges produits.
   // Clés = product UUID PK (matche Product.Id ou .id côté catalogue).
   const [stockByProduct, setStockByProduct] = useState<Map<string, { qty: number; min: number }>>(new Map());
@@ -93,6 +103,24 @@ export default function QuickSalePage() {
     setViewMode(next);
     try { localStorage.setItem('posViewMode', next); } catch { /* private mode */ }
   }
+
+  // Debounced search clients : 250 ms après dernière frappe.
+  useEffect(() => {
+    const q = clientSearch.trim();
+    if (q.length === 0) {
+      setClientSearchResults([]);
+      return;
+    }
+    const t = setTimeout(async () => {
+      try {
+        const r = await fetch('/api/clients/search?q=' + encodeURIComponent(q));
+        if (!r.ok) return;
+        const { data } = await r.json();
+        setClientSearchResults(Array.isArray(data) ? data : []);
+      } catch { /* réseau flaky, on retentera à la prochaine frappe */ }
+    }, 250);
+    return () => clearTimeout(t);
+  }, [clientSearch]);
 
   // ===== Outlets disponibles pour ce commercial =====
   useEffect(() => {
@@ -547,42 +575,106 @@ export default function QuickSalePage() {
               </div>
             </div>
 
-            {/* Bandeau client compact 1 ligne */}
-            <div className="px-3 py-2 bg-white border-b flex items-center gap-2">
-              <Users className={`w-4 h-4 shrink-0 ${activeClientLabel ? 'text-indigo-600' : 'text-gray-400'}`} />
-              <p className={`text-sm truncate flex-1 ${activeClientLabel ? 'font-medium text-indigo-900' : 'text-gray-500 italic'}`}>
-                {activeClientLabel || 'Vente anonyme'}
-              </p>
-              {activeClientLabel && (
-                <button onClick={clearActiveClient}
-                  className="p-1.5 text-gray-400 hover:text-red-600"
-                  aria-label="Retirer client">
-                  <X className="w-4 h-4" />
-                </button>
-              )}
-              {!activeClientLabel && (
-                <>
-                  <button onClick={() => setShowNewClient(true)}
-                    className="px-2.5 py-1.5 rounded-md border border-indigo-300 bg-indigo-50 text-indigo-700 hover:bg-indigo-100 inline-flex items-center gap-1.5 text-xs font-semibold shrink-0"
-                    title="Créer un client">
-                    <UserPlus className="w-4 h-4" />
-                    Client
-                  </button>
-                  <button onClick={() => setShowQr(true)}
-                    className="px-2.5 py-1.5 rounded-md border border-blue-300 bg-blue-50 text-blue-700 hover:bg-blue-100 inline-flex items-center gap-1.5 text-xs font-semibold shrink-0"
-                    title="Afficher le QR au client">
-                    <QrCode className="w-4 h-4" />
-                    QR
-                  </button>
-                  {scans.length > 0 && (
-                    <button onClick={() => setShowScansList(true)}
-                      className="relative px-2.5 py-1.5 rounded-md border border-amber-300 bg-amber-50 text-amber-700 hover:bg-amber-100 inline-flex items-center gap-1.5 text-xs font-semibold shrink-0"
-                      title="Scans QR en attente">
-                      <Smartphone className="w-4 h-4" />
-                      <span>{scans.length}</span>
+            {/* Bandeau client : input recherche live + boutons QR/Scans */}
+            <div className="relative px-3 py-2 bg-white border-b">
+              <div className="flex items-center gap-2">
+                <Users className={'w-4 h-4 shrink-0 ' + (activeClientLabel ? 'text-indigo-600' : 'text-gray-400')} />
+                {activeClientLabel ? (
+                  <>
+                    <p className="text-sm truncate flex-1 font-medium text-indigo-900">
+                      {activeClientLabel}
+                    </p>
+                    <button onClick={clearActiveClient}
+                      className="p-1.5 text-gray-400 hover:text-red-600"
+                      aria-label="Retirer client">
+                      <X className="w-4 h-4" />
                     </button>
+                  </>
+                ) : (
+                  <>
+                    <input
+                      type="search"
+                      value={clientSearch}
+                      onChange={e => { setClientSearch(e.target.value); setClientSearchOpen(true); }}
+                      onFocus={() => setClientSearchOpen(true)}
+                      onBlur={() => { setTimeout(() => setClientSearchOpen(false), 200); }}
+                      placeholder="Rechercher un client (nom ou tél)…"
+                      className="flex-1 min-w-0 text-sm bg-transparent outline-none placeholder:text-gray-400"
+                      aria-label="Recherche client"
+                    />
+                    <button onClick={() => setShowQr(true)}
+                      className="px-2.5 py-1.5 rounded-md border border-blue-300 bg-blue-50 text-blue-700 hover:bg-blue-100 inline-flex items-center gap-1.5 text-xs font-semibold shrink-0"
+                      title="Afficher le QR au client">
+                      <QrCode className="w-4 h-4" />
+                      QR
+                    </button>
+                    {scans.length > 0 && (
+                      <button onClick={() => setShowScansList(true)}
+                        className="relative px-2.5 py-1.5 rounded-md border border-amber-300 bg-amber-50 text-amber-700 hover:bg-amber-100 inline-flex items-center gap-1.5 text-xs font-semibold shrink-0"
+                        title="Scans QR en attente">
+                        <Smartphone className="w-4 h-4" />
+                        <span>{scans.length}</span>
+                      </button>
+                    )}
+                  </>
+                )}
+              </div>
+
+              {/* Dropdown résultats : visible dès qu'on a tapé qqch et que l'input a le focus */}
+              {!activeClientLabel && clientSearchOpen && clientSearch.trim().length > 0 && (
+                <div className="absolute left-3 right-3 top-full mt-1 z-30 bg-white border border-gray-200 rounded-lg shadow-xl overflow-hidden max-h-72 overflow-y-auto">
+                  {clientSearchResults.length === 0 ? (
+                    <button
+                      onMouseDown={(e) => e.preventDefault()}
+                      onClick={() => {
+                        // Heuristique : si la chaîne ne contient que chiffres / espaces / + . - → téléphone
+                        const q = clientSearch.trim();
+                        const isPhone = /^[\d +.\-]+$/.test(q);
+                        setNewClientInitial(isPhone ? { phone: q } : { name: q });
+                        setShowNewClient(true);
+                        setClientSearchOpen(false);
+                      }}
+                      className="w-full text-left px-3 py-2.5 hover:bg-indigo-50 text-sm text-indigo-700 font-medium inline-flex items-center gap-2"
+                    >
+                      <UserPlus className="w-4 h-4" />
+                      Créer « {clientSearch.trim()} » comme nouveau client
+                    </button>
+                  ) : (
+                    <>
+                      {clientSearchResults.map(c => (
+                        <button
+                          key={c.id}
+                          onMouseDown={(e) => e.preventDefault()}
+                          onClick={() => {
+                            setManualClient({ id: c.id, name: c.name ?? '', phone: c.phone ?? null });
+                            setSelectedScan(null);
+                            setClientSearch('');
+                            setClientSearchResults([]);
+                            setClientSearchOpen(false);
+                          }}
+                          className="w-full text-left px-3 py-2 hover:bg-gray-50 border-b border-gray-100 last:border-b-0"
+                        >
+                          <p className="text-sm font-medium text-gray-900 truncate">{c.name || '(sans nom)'}</p>
+                          {c.phone && <p className="text-xs text-gray-500 truncate">{c.phone}</p>}
+                        </button>
+                      ))}
+                      <button
+                        onMouseDown={(e) => e.preventDefault()}
+                        onClick={() => {
+                          const q = clientSearch.trim();
+                          const isPhone = /^[\d +.\-]+$/.test(q);
+                          setNewClientInitial(isPhone ? { phone: q } : { name: q });
+                          setShowNewClient(true);
+                          setClientSearchOpen(false);
+                        }}
+                        className="w-full text-left px-3 py-2 hover:bg-indigo-50 text-sm text-indigo-700 font-medium inline-flex items-center gap-2 border-t border-gray-100"
+                      >
+                        <UserPlus className="w-4 h-4" />
+                        Créer « {clientSearch.trim()} » à la place
+                      </button>
+                    </>
                   )}
-                </>
+                </div>
               )}
             </div>
 
@@ -644,7 +736,14 @@ export default function QuickSalePage() {
                             ? <img src={p.ImageUrl} alt={p.Name} className="w-full h-full object-cover" />
                             : <div className="w-full h-full flex items-center justify-center"><Package className="w-6 h-6 text-gray-300" /></div>}
                           {inCart && (
-                            <span className="absolute top-1 right-1 min-w-[20px] h-5 px-1 rounded-full bg-blue-600 text-white text-[10px] font-bold flex items-center justify-center shadow border border-white">
+                            <span
+                              role="button"
+                              tabIndex={0}
+                              onClick={(e) => { e.stopPropagation(); changeQty(p._id, -1); }}
+                              onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); e.stopPropagation(); changeQty(p._id, -1); } }}
+                              title="Toucher pour retirer 1"
+                              className="absolute top-1 right-1 min-w-[24px] h-6 px-1.5 rounded-full bg-blue-600 hover:bg-red-600 active:bg-red-700 text-white text-[10px] font-bold flex items-center justify-center shadow border border-white cursor-pointer transition-colors"
+                            >
                               ×{inCart.quantity}
                             </span>
                           )}
@@ -821,11 +920,15 @@ export default function QuickSalePage() {
 
         {showNewClient && (
           <NewClientModal
-            onClose={() => setShowNewClient(false)}
+            initialName={newClientInitial.name}
+            initialPhone={newClientInitial.phone}
+            onClose={() => { setShowNewClient(false); setNewClientInitial({}); }}
             onCreated={(c) => {
               setManualClient(c);
               setSelectedScan(null);
               setShowNewClient(false);
+              setClientSearch('');
+              setNewClientInitial({});
               setFeedback({ type: 'success', message: `${c.name || c.phone} rattaché à la prochaine vente` });
             }}
           />

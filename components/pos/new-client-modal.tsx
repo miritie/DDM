@@ -25,11 +25,14 @@ interface QuickClientCreated {
 interface NewClientModalProps {
   onClose: () => void;
   onCreated: (client: { id: string; name: string; phone: string | null }) => void;
+  /** Pré-remplit le formulaire — utile quand on ouvre depuis une recherche vide. */
+  initialName?: string;
+  initialPhone?: string;
 }
 
-export function NewClientModal({ onClose, onCreated }: NewClientModalProps) {
-  const [name, setName] = useState('');
-  const [phone, setPhone] = useState('');
+export function NewClientModal({ onClose, onCreated, initialName, initialPhone }: NewClientModalProps) {
+  const [name, setName] = useState(initialName ?? '');
+  const [phone, setPhone] = useState(initialPhone ?? '');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
