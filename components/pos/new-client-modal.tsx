@@ -10,11 +10,16 @@
 import { useState } from 'react';
 import { Loader2, X, UserPlus, Check } from 'lucide-react';
 
+/**
+ * ClientService expose les champs en lowercase (cf. SELECT_FIELDS dans
+ * lib/modules/sales/client-service.ts) — exception à la convention
+ * PascalCase générale du projet.
+ */
 interface QuickClientCreated {
   id: string;
-  ClientId: string;
-  Name: string;
-  Phone?: string;
+  clientId: string;
+  name: string | null;
+  phone: string | null;
 }
 
 interface NewClientModalProps {
@@ -46,7 +51,7 @@ export function NewClientModal({ onClose, onCreated }: NewClientModalProps) {
         throw new Error(err.error || 'Erreur création client');
       }
       const { data } = (await res.json()) as { data: QuickClientCreated };
-      onCreated({ id: data.id, name: data.Name, phone: data.Phone ?? null });
+      onCreated({ id: data.id, name: data.name ?? '', phone: data.phone ?? null });
     } catch (e: any) {
       setError(e.message);
     } finally {
