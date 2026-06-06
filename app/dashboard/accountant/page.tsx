@@ -320,7 +320,7 @@ export default function AccountantDashboardPage() {
                   </span>
                 </div>
                 <Button
-                  onClick={() => router.push('/depenses?filter=pending')}
+                  onClick={() => router.push('/expenses/requests?status=submitted')}
                   variant="outline"
                   size="sm"
                   className="w-full mt-2 border-orange-600 text-orange-700 hover:bg-orange-100"
@@ -430,7 +430,7 @@ export default function AccountantDashboardPage() {
         {/* Actions Rapides */}
         <div className="grid grid-cols-2 gap-4">
           <Button
-            onClick={() => router.push('/depenses/new')}
+            onClick={() => router.push('/expenses/requests/quick')}
             className="h-20 bg-gradient-to-br from-red-500 to-orange-600 hover:from-red-600 hover:to-orange-700 text-white font-bold flex flex-col items-center justify-center gap-2"
           >
             <TrendingDown className="w-6 h-6" />
@@ -495,7 +495,7 @@ export default function AccountantDashboardPage() {
                 <span className="font-semibold text-gray-900">Exporter les données</span>
               </div>
               <Button
-                onClick={() => router.push('/reports/export')}
+                onClick={() => router.push('/reports')}
                 variant="outline"
                 size="sm"
               >

@@ -194,7 +194,7 @@ export async function GET(request: NextRequest) {
       alerts.push({
         type: 'info',
         message: `${pendingExpenseRequests} demande(s) de dépense en attente d'approbation`,
-        link: '/depenses?filter=pending',
+        link: '/expenses/requests?status=submitted',
       });
     }
 

@@ -139,7 +139,7 @@ export default async function DashboardPage() {
           <span className="px-3 py-1 rounded-full bg-primary-100 text-primary-700 text-sm font-semibold">6 modules</span>
         </div>
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          <Link href="/depenses" className="group block">
+          <Link href="/expenses/requests" className="group block">
             <Card className="h-full border-2 border-primary-200 hover:border-primary-400 cursor-pointer transform hover:-translate-y-1 transition-all duration-200">
               <CardHeader className="pb-4">
                 <div className="w-14 h-14 rounded-xl gradient-primary flex items-center justify-center text-3xl mb-3 shadow-medium group-hover:scale-110 transition-transform duration-200">
