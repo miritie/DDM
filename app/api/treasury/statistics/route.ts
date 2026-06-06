@@ -6,6 +6,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getCurrentWorkspaceId } from '@/lib/auth/get-session';
 import { TransactionService } from '@/lib/modules/treasury/transaction-service';
 import { requirePermission, PERMISSIONS } from '@/lib/rbac/server';
+import { handleApiError } from '@/lib/http/api-error';
 
 const service = new TransactionService();
 
@@ -20,11 +21,7 @@ export async function GET(request: NextRequest) {
     const statistics = await service.getStatistics(workspaceId);
 
     return NextResponse.json({ data: statistics });
-  } catch (error: any) {
-    console.error('Error fetching statistics:', error);
-    return NextResponse.json(
-      { error: error.message || 'Erreur lors de la récupération des statistiques' },
-      { status: 500 }
-    );
+  } catch (error) {
+    return handleApiError(error, 'Erreur lors de la récupération des statistiques');
   }
 }

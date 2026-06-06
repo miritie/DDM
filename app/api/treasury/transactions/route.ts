@@ -6,6 +6,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getCurrentUser, getCurrentWorkspaceId } from '@/lib/auth/get-session';
 import { TransactionService } from '@/lib/modules/treasury/transaction-service';
 import { requirePermission, PERMISSIONS } from '@/lib/rbac/server';
+import { handleApiError, ValidationError } from '@/lib/http/api-error';
 
 const service = new TransactionService();
 
@@ -36,12 +37,8 @@ export async function GET(request: NextRequest) {
     const transactions = await service.list(workspaceId, filters);
 
     return NextResponse.json({ data: transactions });
-  } catch (error: any) {
-    console.error('Error fetching transactions:', error);
-    return NextResponse.json(
-      { error: error.message || 'Erreur lors de la récupération' },
-      { status: error.message?.includes('Permission') ? 403 : 500 }
-    );
+  } catch (error) {
+    return handleApiError(error, 'Erreur lors de la récupération');
   }
 }
 
@@ -82,15 +79,11 @@ export async function POST(request: NextRequest) {
         });
         break;
       default:
-        throw new Error('Type de transaction invalide');
+        throw new ValidationError('Type de transaction invalide');
     }
 
     return NextResponse.json({ data: transaction }, { status: 201 });
-  } catch (error: any) {
-    console.error('Error creating transaction:', error);
-    return NextResponse.json(
-      { error: error.message || 'Erreur lors de la création' },
-      { status: error.message?.includes('Permission') ? 403 : 500 }
-    );
+  } catch (error) {
+    return handleApiError(error, 'Erreur lors de la création');
   }
 }

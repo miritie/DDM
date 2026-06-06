@@ -3,6 +3,7 @@
  */
 
 import { getCurrentUser } from '@/lib/auth/get-session';
+import { PermissionError } from '@/lib/http/api-error';
 import { getUserPermissions } from './get-permissions';
 import { Permission, hasPermission, hasAllPermissions, hasAnyPermission } from './permissions';
 import { getPostgresClient } from '@/lib/database/postgres-client';
@@ -90,7 +91,7 @@ export async function canAccessAny(requiredPermissions: Permission[]): Promise<b
 export async function requirePermission(requiredPermission: Permission): Promise<void> {
   const hasAccess = await canAccess(requiredPermission);
   if (!hasAccess) {
-    throw new Error(`Permission refusée: ${requiredPermission}`);
+    throw new PermissionError(`Permission refusée: ${requiredPermission}`);
   }
 }
 
@@ -100,7 +101,7 @@ export async function requirePermission(requiredPermission: Permission): Promise
 export async function requireAllPermissions(requiredPermissions: Permission[]): Promise<void> {
   const hasAccess = await canAccessAll(requiredPermissions);
   if (!hasAccess) {
-    throw new Error(`Permissions refusées: ${requiredPermissions.join(', ')}`);
+    throw new PermissionError(`Permissions refusées: ${requiredPermissions.join(', ')}`);
   }
 }
 
@@ -110,6 +111,6 @@ export async function requireAllPermissions(requiredPermissions: Permission[]): 
 export async function requireAnyPermission(requiredPermissions: Permission[]): Promise<void> {
   const hasAccess = await canAccessAny(requiredPermissions);
   if (!hasAccess) {
-    throw new Error(`Au moins une permission requise parmi: ${requiredPermissions.join(', ')}`);
+    throw new PermissionError(`Au moins une permission requise parmi: ${requiredPermissions.join(', ')}`);
   }
 }

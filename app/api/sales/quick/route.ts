@@ -31,6 +31,7 @@ import { PaymentMethodService } from '@/lib/modules/treasury/payment-method-serv
 import { TransactionService } from '@/lib/modules/treasury/transaction-service';
 import { assertPositiveFinishedProductQuantity } from '@/lib/schemas/quantity';
 import { nextDocSequence } from '@/lib/database/doc-counters';
+import { handleApiError } from '@/lib/http/api-error';
 import { v4 as uuidv4 } from 'uuid';
 
 const db = getPostgresClient();
@@ -323,11 +324,7 @@ export async function POST(request: NextRequest) {
         CreatedAt: sale.created_at,
       },
     }, { status: 201 });
-  } catch (error: any) {
-    console.error('Quick sale error:', error);
-    return NextResponse.json(
-      { error: error.message },
-      { status: error.message?.includes('Permission') ? 403 : 500 }
-    );
+  } catch (error) {
+    return handleApiError(error, "Erreur lors de l'encaissement");
   }
 }

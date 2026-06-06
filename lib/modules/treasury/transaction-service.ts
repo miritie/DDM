@@ -20,6 +20,7 @@ import { getPostgresClient } from '@/lib/database/postgres-client';
 import { Transaction, TransactionType, TransactionCategory, TransactionStatus, TreasuryStatistics } from '@/types/modules';
 import { WalletService } from './wallet-service';
 import { nextDocSequence, Queryable } from '@/lib/database/doc-counters';
+import { NotFoundError, ConflictError, ValidationError } from '@/lib/http/api-error';
 import { v4 as uuidv4 } from 'uuid';
 
 const postgresClient = getPostgresClient();
@@ -151,7 +152,7 @@ export class TransactionService {
    */
   async createIncome(input: CreateTransactionInput): Promise<Transaction> {
     if (!input.destinationWalletId) {
-      throw new Error('Le wallet de destination est requis pour un revenu');
+      throw new ValidationError('Le wallet de destination est requis pour un revenu');
     }
     this.assertValidAmount(input.amount);
 
@@ -174,7 +175,7 @@ export class TransactionService {
    */
   async createExpense(input: CreateTransactionInput): Promise<Transaction> {
     if (!input.sourceWalletId) {
-      throw new Error('Le wallet source est requis pour une dépense');
+      throw new ValidationError('Le wallet source est requis pour une dépense');
     }
     this.assertValidAmount(input.amount);
 
@@ -199,7 +200,7 @@ export class TransactionService {
    */
   async createTransfer(input: CreateTransactionInput): Promise<Transaction> {
     if (!input.sourceWalletId || !input.destinationWalletId) {
-      throw new Error('Les wallets source et destination sont requis pour un transfert');
+      throw new ValidationError('Les wallets source et destination sont requis pour un transfert');
     }
     this.assertValidAmount(input.amount);
 
@@ -209,7 +210,7 @@ export class TransactionService {
       if (!sourceUuid) throw new Error('Wallet source non trouvé');
       if (!destUuid) throw new Error('Wallet de destination non trouvé');
       if (sourceUuid === destUuid) {
-        throw new Error('Les wallets source et destination doivent être différents');
+        throw new ValidationError('Les wallets source et destination doivent être différents');
       }
 
       // Ordre de verrouillage déterministe (tri UUID) → pas de deadlock
@@ -255,10 +256,10 @@ export class TransactionService {
       );
       const tx = r.rows[0];
       if (!tx) {
-        throw new Error('Transaction non trouvée');
+        throw new NotFoundError('Transaction non trouvée');
       }
       if (tx.status === 'cancelled') {
-        throw new Error('Transaction déjà annulée');
+        throw new ConflictError('Transaction déjà annulée');
       }
 
       // Inverse les mouvements selon le type
@@ -308,7 +309,7 @@ export class TransactionService {
       params
     );
     if (r.rows.length === 0) {
-      throw new Error('Transaction non trouvée');
+      throw new NotFoundError('Transaction non trouvée');
     }
     return r.rows[0] as Transaction;
   }
@@ -399,7 +400,7 @@ export class TransactionService {
   private assertValidAmount(amount: number): void {
     const n = Number(amount);
     if (!Number.isFinite(n) || n <= 0) {
-      throw new Error('Montant invalide : doit être un nombre strictement positif');
+      throw new ValidationError('Montant invalide : doit être un nombre strictement positif');
     }
   }
 

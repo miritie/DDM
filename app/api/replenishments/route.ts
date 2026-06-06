@@ -8,6 +8,7 @@ import { getCurrentUser, getCurrentWorkspaceId } from '@/lib/auth/get-session';
 import { requirePermission, PERMISSIONS } from '@/lib/rbac/server';
 import { ReplenishmentService, ReplenishmentStatus } from '@/lib/modules/replenishments/replenishment-service';
 import { getPostgresClient } from '@/lib/database/postgres-client';
+import { handleApiError } from '@/lib/http/api-error';
 
 const service = new ReplenishmentService();
 const db = getPostgresClient();
@@ -38,9 +39,8 @@ export async function GET(request: NextRequest) {
     if (status) filters.status = status as ReplenishmentStatus;
     const data = await service.list(workspaceId, filters);
     return NextResponse.json({ data });
-  } catch (error: any) {
-    return NextResponse.json({ error: error.message },
-      { status: error.message?.includes('Permission') ? 403 : 500 });
+  } catch (error) {
+    return handleApiError(error);
   }
 }
 
@@ -112,8 +112,7 @@ export async function POST(request: NextRequest) {
       lines: resolvedLines,
     });
     return NextResponse.json({ data }, { status: 201 });
-  } catch (error: any) {
-    return NextResponse.json({ error: error.message },
-      { status: error.message?.includes('Permission') ? 403 : 500 });
+  } catch (error) {
+    return handleApiError(error);
   }
 }

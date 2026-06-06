@@ -4,6 +4,7 @@
 
 import { getServerSession } from 'next-auth';
 import { authOptions } from './auth-options';
+import { AuthenticationError } from '@/lib/http/api-error';
 
 /**
  * Récupère la session utilisateur côté serveur (Server Components, API Routes)
@@ -19,7 +20,8 @@ export async function getCurrentUser() {
   const session = await getSession();
 
   if (!session || !session.user) {
-    throw new Error('Non authentifié');
+    // Erreur typée → handleApiError la mappe en 401 (au lieu d'un 500 legacy)
+    throw new AuthenticationError('Non authentifié');
   }
 
   return session.user;

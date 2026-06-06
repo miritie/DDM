@@ -5,6 +5,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { TransactionService } from '@/lib/modules/treasury/transaction-service';
 import { requirePermission, PERMISSIONS } from '@/lib/rbac/server';
+import { handleApiError } from '@/lib/http/api-error';
 
 const service = new TransactionService();
 
@@ -29,12 +30,8 @@ export async function GET(
     }
 
     return NextResponse.json({ data: transaction });
-  } catch (error: any) {
-    console.error('Error fetching transaction:', error);
-    return NextResponse.json(
-      { error: error.message || 'Erreur lors de la récupération' },
-      { status: 500 }
-    );
+  } catch (error) {
+    return handleApiError(error, 'Erreur lors de la récupération');
   }
 }
 
@@ -52,11 +49,7 @@ export async function DELETE(
     await service.cancel(id);
 
     return NextResponse.json({ success: true });
-  } catch (error: any) {
-    console.error('Error cancelling transaction:', error);
-    return NextResponse.json(
-      { error: error.message || 'Erreur lors de l\'annulation' },
-      { status: 500 }
-    );
+  } catch (error) {
+    return handleApiError(error, "Erreur lors de l'annulation");
   }
 }
