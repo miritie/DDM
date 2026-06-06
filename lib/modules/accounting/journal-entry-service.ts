@@ -143,20 +143,59 @@ export class JournalEntryService {
     return r.rows;
   }
 
+  /**
+   * Liste des écritures. `journalId` accepte l'UUID PK (journals.id) OU le
+   * code métier (journals.journal_id) : journal_entries.journal_id stocke
+   * l'UUID — l'ancien filtre comparé au code métier ne matchait jamais
+   * (journaux toujours « vides » dans l'UI). Les bornes de dates étaient
+   * déclarées mais non supportées par le parser legacy — implémentées.
+   */
   async list(workspaceId: string, filters: { journalId?: string; status?: string; startDate?: string; endDate?: string } = {}): Promise<JournalEntry[]> {
-    const filterFormulas: string[] = [`{WorkspaceId} = '${workspaceId}'`];
+    const conds: string[] = ['e.workspace_id::text = $1'];
+    const params: any[] = [workspaceId];
 
-    if (filters.journalId) filterFormulas.push(`{JournalId} = '${filters.journalId}'`);
-    if (filters.status) filterFormulas.push(`{Status} = '${filters.status}'`);
-    if (filters.startDate) filterFormulas.push(`{EntryDate} >= '${filters.startDate}'`);
-    if (filters.endDate) filterFormulas.push(`{EntryDate} <= '${filters.endDate}'`);
+    if (filters.journalId) {
+      params.push(filters.journalId);
+      const n = params.length;
+      conds.push(`e.journal_id IN (SELECT j.id FROM journals j WHERE j.id::text = $${n} OR j.journal_id = $${n})`);
+    }
+    if (filters.status) {
+      params.push(filters.status);
+      conds.push(`e.status = $${params.length}`);
+    }
+    if (filters.startDate) {
+      params.push(filters.startDate);
+      conds.push(`e.entry_date >= $${params.length}::date`);
+    }
+    if (filters.endDate) {
+      params.push(filters.endDate);
+      conds.push(`e.entry_date <= $${params.length}::date`);
+    }
 
-    const filterByFormula = filterFormulas.length > 1 ? `AND(${filterFormulas.join(', ')})` : filterFormulas[0];
-
-    return await postgresClient.list<JournalEntry>('journal_entries', {
-      filterByFormula,
-      sort: [{ field: 'EntryDate', direction: 'desc' }],
-    });
+    const r = await postgresClient.query<any>(
+      `SELECT
+         e.id,
+         e.id            AS "Id",
+         e.entry_id      AS "EntryId",
+         e.entry_number  AS "EntryNumber",
+         e.journal_id    AS "JournalId",
+         e.entry_date    AS "EntryDate",
+         e.description   AS "Description",
+         e.reference     AS "Reference",
+         e.status        AS "Status",
+         e.posted_at     AS "PostedAt",
+         e.validated_at  AS "ValidatedAt",
+         e.fiscal_year   AS "FiscalYear",
+         e.fiscal_period AS "FiscalPeriod",
+         e.workspace_id  AS "WorkspaceId",
+         e.created_at    AS "CreatedAt",
+         e.updated_at    AS "UpdatedAt"
+       FROM journal_entries e
+       WHERE ${conds.join(' AND ')}
+       ORDER BY e.entry_date DESC, e.entry_number DESC`,
+      params
+    );
+    return r.rows as JournalEntry[];
   }
 
   async post(entryId: string, postedById: string): Promise<JournalEntry> {

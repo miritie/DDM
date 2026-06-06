@@ -44,6 +44,8 @@ export default function JournalsPage() {
         setJournals((await jRes.value.json()).data || []);
         if (eRes.status === 'fulfilled' && eRes.value.ok) {
           const entries: JournalEntry[] = (await eRes.value.json()).data || [];
+          // journal_entries.journal_id = UUID PK des journaux (pas le code
+          // métier) — on compte donc sur cet UUID.
           const m = new Map<string, number>();
           for (const e of entries) m.set(e.JournalId, (m.get(e.JournalId) || 0) + 1);
           setCountByJournal(m);
@@ -53,8 +55,11 @@ export default function JournalsPage() {
       .finally(() => setLoading(false));
   }, []);
 
+  /** UUID PK du journal (clé réelle des écritures) avec repli code métier. */
+  const journalKey = (j: Journal) => (j as any).Id || (j as any).id || j.JournalId;
+
   const openJournal = (j: Journal) =>
-    router.push(`/accounting/entries?journalId=${encodeURIComponent(j.JournalId)}&journal=${encodeURIComponent(j.Code + ' — ' + j.Label)}`);
+    router.push(`/accounting/entries?journalId=${encodeURIComponent(journalKey(j))}&journal=${encodeURIComponent(j.Code + ' — ' + j.Label)}`);
 
   return (
     <ProtectedPage permission={PERMISSIONS.TREASURY_VIEW}>
@@ -107,8 +112,8 @@ export default function JournalsPage() {
                       <td className="py-2.5">{j.Label}</td>
                       <td className="py-2.5 text-gray-500">{TYPE_LABELS[j.JournalType] || j.JournalType}</td>
                       <td className="py-2.5 text-right tabular-nums">
-                        {countByJournal.get(j.JournalId)
-                          ? <span className="font-semibold">{countByJournal.get(j.JournalId)}</span>
+                        {(countByJournal.get(journalKey(j)) || countByJournal.get(j.JournalId))
+                          ? <span className="font-semibold">{countByJournal.get(journalKey(j)) || countByJournal.get(j.JournalId)}</span>
                           : <span className="text-gray-300">0</span>}
                       </td>
                       <td className="py-2.5 text-center">
