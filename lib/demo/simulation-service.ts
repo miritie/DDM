@@ -157,8 +157,14 @@ async function loadContext(pool: Pool): Promise<SimContext> {
     fatou: await ensureUser('fatou', 'fatou@dunedemiel.ci', 'KONE Fatou', 'commercial123', 'agent_commercial'),
   };
 
-  // Caisse par stand + wallets
+  // Structures attendues mais absentes d'une base jamais passée par les
+  // scripts post-deploy (cas Vercel) : on les garantit ici, idempotent.
   await pool.query(`ALTER TABLE wallets ADD COLUMN IF NOT EXISTS outlet_id UUID REFERENCES outlets(id) ON DELETE SET NULL`);
+  await pool.query(`CREATE TABLE IF NOT EXISTS doc_counters (
+    scope      VARCHAR(160) PRIMARY KEY,
+    value      BIGINT NOT NULL DEFAULT 0,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL
+  )`);
   const walletByOutlet = new Map<string, { id: string; accountId: string | null }>();
   for (const o of outlets) {
     let w = (await pool.query(
@@ -282,10 +288,13 @@ export async function simulatePrepare(): Promise<PrepareResult> {
       empSeq++;
       const exist = await pool.query(`SELECT id FROM employees WHERE full_name = $1 AND workspace_id = $2 LIMIT 1`, [fullName, ctx.WS]);
       if (exist.rows[0]) return;
+      // employee_code unique : 'IRITIE Romulus/Ange/Helene' partagent le même
+      // prénom de famille → suffixer par le rang pour éviter les collisions
       await pool.query(
         `INSERT INTO employees (employee_id, employee_code, first_name, last_name, full_name, phone, hire_date, department, position, contract_type, base_salary, currency, user_id, workspace_id)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'permanent', $10, 'XOF', $11, $12)`,
-        [randomUUID(), 'EMP-' + first.toUpperCase().slice(0, 8), rest.join(' ') || first, first, fullName,
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'permanent', $10, 'XOF', $11, $12)
+         ON CONFLICT DO NOTHING`,
+        [randomUUID(), `EMP-${String(empSeq).padStart(2, '0')}-${(rest.join('') || first).toUpperCase().slice(0, 10)}`, rest.join(' ') || first, first, fullName,
          `+225 07 00 00 ${String(empSeq).padStart(2, '0')} ${String(empSeq * 11).padStart(2, '0')}`,
          hire, dept, position, salary, userId, ctx.WS]);
     };
