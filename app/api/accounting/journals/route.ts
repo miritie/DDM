@@ -12,7 +12,8 @@ const service = new JournalService();
 
 export async function GET(request: NextRequest) {
   try {
-    await requirePermission(PERMISSIONS.ADMIN_SETTINGS_VIEW);
+    // Lecture : accessible au comptable (treasury:view) — l'écriture reste admin.
+    await requirePermission(PERMISSIONS.TREASURY_VIEW);
     const workspaceId = await getCurrentWorkspaceId();
     const journals = await service.list(workspaceId);
     return NextResponse.json({ data: journals });

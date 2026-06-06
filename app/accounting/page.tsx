@@ -45,8 +45,13 @@ export default function AccountingPage() {
       if (res.ok) {
         alert(`${type === 'accounts' ? 'Plan comptable' : 'Journaux'} initialisé avec succès`);
         loadData();
+      } else {
+        // Avant : échec silencieux (rien ne se passait, bouton « cassé »)
+        const body = await res.json().catch(() => ({}));
+        alert(body.error || `Échec de l'initialisation (${res.status})`);
       }
-    } catch (error) {
+    } catch (error: any) {
+      alert(error?.message || 'Erreur réseau');
       console.error('Error initializing:', error);
     }
   };
