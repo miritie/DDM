@@ -32,11 +32,23 @@ export interface BatchOptions {
  * Client PostgreSQL compatible avec AirtableClient
  */
 export class PostgresClient {
-  private pool: Pool;
+  private _pool: Pool | null = null;
+  private readonly connectionString?: string;
 
   constructor(connectionString?: string) {
-    const connString = connectionString || process.env.DATABASE_URL;
+    // Pool paresseux : ne PAS créer la connexion ici. De nombreux services
+    // appellent getPostgresClient() au chargement de module ; pendant
+    // `next build` (collecte des page data), ces modules sont évalués sans
+    // DATABASE_URL et le throw du constructeur faisait échouer le build
+    // (« Failed to collect page data for /api/... »). La connexion n'est
+    // requise qu'au premier accès réel à la base.
+    this.connectionString = connectionString;
+  }
 
+  private get pool(): Pool {
+    if (this._pool) return this._pool;
+
+    const connString = this.connectionString || process.env.DATABASE_URL;
     if (!connString) {
       throw new Error('DATABASE_URL is required. Please check your .env.local file.');
     }
@@ -54,7 +66,8 @@ export class PostgresClient {
       poolConfig.ssl = { rejectUnauthorized: false };
     }
 
-    this.pool = new Pool(poolConfig);
+    this._pool = new Pool(poolConfig);
+    return this._pool;
   }
 
   /**
@@ -340,10 +353,13 @@ export class PostgresClient {
   }
 
   /**
-   * Fermer le pool de connexions
+   * Fermer le pool de connexions (no-op si jamais ouvert)
    */
   async close(): Promise<void> {
-    await this.pool.end();
+    if (this._pool) {
+      await this._pool.end();
+      this._pool = null;
+    }
   }
 
   /**
