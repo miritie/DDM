@@ -195,6 +195,9 @@ export default function QuickSalePage() {
 
       setCart([]); setSelectedScan(null); setManualClient(null);
       setShowCheckout(false);
+      // Mobile : referme le tiroir panier — au retour du reçu on doit
+      // retrouver directement la liste des produits, pas un panier vide.
+      setShowCart(false);
       void loadScans();
       void loadCatalog(); // refresh stock badges après décrément
     } catch (e: any) {
