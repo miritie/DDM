@@ -119,4 +119,18 @@ jobs:
             # Vérifie que le container répond
             sleep 5
             sudo docker compose ps
+
+            # Migration doc_counters (idempotente) : séquences atomiques de
+            # numérotation. Le code a un fallback si la table manque, mais
+            # l'appliquer ici ferme la fenêtre de course immédiatement.
+            sudo docker compose exec -T app npx tsx scripts/database/apply-doc-counters.ts \
+              || echo "⚠️ Migration doc_counters échouée — relancer : docker compose exec app npx tsx scripts/database/apply-doc-counters.ts"
+
+            # Sync permissions ↔ code : insère les permissions nouvellement
+            # déclarées et les attache aux rôles « accès total » (admin/pca).
+            # Sans ça, une route protégée par une permission fraîchement
+            # ajoutée renverrait 403 même à l'admin (permission fantôme).
+            sudo docker compose exec -T app npx tsx scripts/database/sync-all-permissions.ts \
+              || echo "⚠️ Sync permissions échouée — relancer : docker compose exec app npx tsx scripts/database/sync-all-permissions.ts"
+
             echo "✅ Déploiement OK"

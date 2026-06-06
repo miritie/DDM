@@ -15,7 +15,15 @@
  *   supprime jamais une permission existante (un autre rôle ou un
  *   anciens code pourrait encore s'y référer).
  *
+ *   Il ré-attache aussi TOUTES les permissions aux rôles « accès total »
+ *   (admin, pca) : le seed leur donne 'ALL' mais cette énumération est
+ *   figée dans role_permissions au moment du seed — toute permission
+ *   ajoutée ensuite serait refusée même à l'admin. Les autres rôles ne
+ *   sont JAMAIS touchés (pas d'escalade silencieuse) : leurs droits se
+ *   gèrent dans Admin > Rôles.
+ *
  * Usage : tsx scripts/database/sync-all-permissions.ts
+ *         (exécuté automatiquement après chaque déploiement — deploy.yml)
  */
 import { Pool } from 'pg';
 import * as path from 'path';
@@ -95,6 +103,28 @@ async function main() {
     // Total visible dans l'UI
     const totalActiveR = await pool.query(`SELECT COUNT(*)::int AS n FROM permissions WHERE is_active = true`);
     console.log(`📊 ${totalActiveR.rows[0].n} permissions actives en DB, visibles côté Admin > Rôles.`);
+
+    // -----------------------------------------------------------------
+    // Rôles « accès total » : ré-attache toute permission manquante.
+    // Sans ça, une permission ajoutée après le seed est refusée même à
+    // l'admin (role_permissions est une énumération figée, pas un wildcard).
+    const FULL_ACCESS_ROLE_SLUGS = ['admin', 'pca', 'role_admin'];
+    const fullRoles = await pool.query(
+      `SELECT id, role_id, name FROM roles WHERE role_id = ANY($1)`,
+      [FULL_ACCESS_ROLE_SLUGS]
+    );
+    for (const role of fullRoles.rows) {
+      const r = await pool.query(
+        `INSERT INTO role_permissions (role_id, permission_id)
+         SELECT $1, p.id FROM permissions p WHERE p.is_active = true
+         ON CONFLICT DO NOTHING`,
+        [role.id]
+      );
+      console.log(`🔑 Rôle « ${role.name} » (${role.role_id}) : ${r.rowCount} permission(s) attachée(s).`);
+    }
+    if (fullRoles.rows.length === 0) {
+      console.log('⚠️  Aucun rôle admin/pca trouvé — attachement « accès total » sauté.');
+    }
   } catch (e: any) {
     console.error('❌', e.message);
     process.exit(1);
