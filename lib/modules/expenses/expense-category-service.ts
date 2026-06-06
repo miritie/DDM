@@ -46,25 +46,32 @@ export class ExpenseCategoryService {
     return categories.length > 0 ? categories[0] : null;
   }
 
+  /**
+   * Liste des catégories — lignes brutes snake_case (label, code,
+   * charge_account_id, tva_*…), même forme que listAccessibleForUser.
+   * L'ancien chemin via le mapper PascalCase renvoyait Label/Code alors
+   * que TOUS les consommateurs (page admin, formulaires de dépense)
+   * lisent label/code → la page de configuration affichait des
+   * catégories entièrement vides. SELECT * inclut aussi les colonnes
+   * ajoutées par migration (mapping OHADA, rôles autorisés).
+   */
   async list(
     workspaceId: string,
     filters: { isActive?: boolean } = {}
-  ): Promise<ExpenseCategory[]> {
-    const filterFormulas: string[] = [`{workspace_id} = '${workspaceId}'`];
-
+  ): Promise<any[]> {
+    const conds: string[] = ['workspace_id = $1'];
+    const params: any[] = [workspaceId];
     if (filters.isActive !== undefined) {
-      filterFormulas.push(`{is_active} = ${filters.isActive ? '1' : '0'}`);
+      params.push(filters.isActive);
+      conds.push(`is_active = $${params.length}`);
     }
-
-    const filterByFormula =
-      filterFormulas.length > 1
-        ? `AND(${filterFormulas.join(', ')})`
-        : filterFormulas[0];
-
-    return await postgresClient.list<ExpenseCategory>('expense_categories', {
-      filterByFormula,
-      sort: [{ field: 'Label', direction: 'asc' }],
-    });
+    const r = await postgresClient.query<any>(
+      `SELECT * FROM expense_categories
+       WHERE ${conds.join(' AND ')}
+       ORDER BY label ASC`,
+      params
+    );
+    return r.rows;
   }
 
   /**
