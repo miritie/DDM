@@ -409,13 +409,15 @@ export async function simulateYearStep(year: number): Promise<YearResult> {
       if (!ACC.clients || !ACC.ventes) return;
       const usable = lines.filter(l => l[0]);
       if (usable.length < 2) return;
+      // entry_id / line_id : VARCHAR(50) UNIQUE → UUID complet obligatoire
+      // (8 caractères = collisions quasi certaines au-delà de ~10k lignes)
       const entryUuid = randomUUID();
       entryRows.push([
-        entryUuid, `JE-${entryUuid.slice(0, 8)}`, nextEntry(journalId, code), journalId,
+        entryUuid, `JE-${entryUuid}`, nextEntry(journalId, code), journalId,
         dateIso, desc, ref, 'posted', dateIso + 'T18:00:00Z', year, Number(dateIso.slice(5, 7)), WS,
       ]);
       usable.forEach((l, i) => lineRows.push([
-        `JEL-${randomUUID().slice(0, 8)}`, entryUuid, i + 1, l[0], l[1], l[2], l[3], ref,
+        `JEL-${randomUUID()}`, entryUuid, i + 1, l[0], l[1], l[2], l[3], ref,
       ]));
     };
 
