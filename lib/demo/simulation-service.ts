@@ -96,17 +96,32 @@ async function loadContext(pool: Pool): Promise<SimContext> {
   }));
   if (products.length === 0) throw new Error('Aucun produit actif');
 
-  const account = async (prefix: string) => {
-    const r = await pool.query(
+  // Comptes SYSCOHADA essentiels — réutilise l'existant (par préfixe),
+  // sinon CRÉE le compte (base vierge : plan comptable non initialisé).
+  const ensureAccount = async (prefix: string, number: string, label: string, type: string, klass: string) => {
+    const f = await pool.query(
       `SELECT id FROM chart_accounts WHERE workspace_id = $1 AND account_number LIKE $2 || '%'
        ORDER BY account_number LIMIT 1`, [WS, prefix]);
-    return r.rows[0]?.id ?? null;
+    if (f.rows[0]) return f.rows[0].id as string;
+    return (await pool.query(
+      `INSERT INTO chart_accounts (account_id, account_number, label, account_type, account_class, is_active, allow_direct_posting, workspace_id)
+       VALUES ($1, $2, $3, $4::account_type, $5::account_class, true, true, $6)
+       ON CONFLICT (account_number, workspace_id) DO UPDATE SET label = EXCLUDED.label
+       RETURNING id`,
+      [`ACC-${number}-${WS.slice(0, 8)}`, number, label, type, klass, WS])).rows[0].id as string;
   };
   const ACC: Record<string, string | null> = {
-    clients: await account('411'), ventes: await account('701'), caisse: await account('571'),
-    banque: await account('521'), mp: await account('601'), salaires: await account('66'),
-    loyer: await account('622'), elec: await account('605'), transport: await account('624'),
-    impots: await account('64'), divers: await account('658') || await account('65') || await account('6'),
+    clients: await ensureAccount('411', '411', 'Clients', 'asset', 'class_4'),
+    ventes: await ensureAccount('701', '701', 'Ventes de marchandises', 'revenue', 'class_7'),
+    caisse: await ensureAccount('571', '571', 'Caisse', 'asset', 'class_5'),
+    banque: await ensureAccount('521', '521', 'Banques', 'asset', 'class_5'),
+    mp: await ensureAccount('601', '602', 'Achats de matières premières', 'expense', 'class_6'),
+    salaires: await ensureAccount('66', '661', 'Rémunérations du personnel', 'expense', 'class_6'),
+    loyer: await ensureAccount('622', '622', 'Locations', 'expense', 'class_6'),
+    elec: await ensureAccount('605', '605', 'Eau et électricité', 'expense', 'class_6'),
+    transport: await ensureAccount('61', '612', 'Transports', 'expense', 'class_6'),
+    impots: await ensureAccount('64', '641', 'Impôts et taxes', 'expense', 'class_6'),
+    divers: await ensureAccount('658', '658', 'Charges diverses', 'expense', 'class_6'),
   };
 
   // Utilisateurs : managers + commerciaux + FATOU
@@ -261,14 +276,18 @@ export async function simulatePrepare(): Promise<PrepareResult> {
     }
 
     // Employés (RH) — avant la purge, elle ne les touche pas
+    let empSeq = 0;
     const ensureEmployee = async (userId: string | null, fullName: string, position: string, dept: string, salary: number, hire: string) => {
       const [first, ...rest] = fullName.split(' ');
+      empSeq++;
       const exist = await pool.query(`SELECT id FROM employees WHERE full_name = $1 AND workspace_id = $2 LIMIT 1`, [fullName, ctx.WS]);
       if (exist.rows[0]) return;
       await pool.query(
-        `INSERT INTO employees (employee_id, employee_code, first_name, last_name, full_name, hire_date, department, position, base_salary, currency, user_id, workspace_id)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'XOF', $10, $11)`,
-        [randomUUID(), 'EMP-' + first.toUpperCase().slice(0, 8), rest.join(' ') || first, first, fullName, hire, dept, position, salary, userId, ctx.WS]);
+        `INSERT INTO employees (employee_id, employee_code, first_name, last_name, full_name, phone, hire_date, department, position, contract_type, base_salary, currency, user_id, workspace_id)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'permanent', $10, 'XOF', $11, $12)`,
+        [randomUUID(), 'EMP-' + first.toUpperCase().slice(0, 8), rest.join(' ') || first, first, fullName,
+         `+225 07 00 00 ${String(empSeq).padStart(2, '0')} ${String(empSeq * 11).padStart(2, '0')}`,
+         hire, dept, position, salary, userId, ctx.WS]);
     };
     try {
       await ensureEmployee(ctx.U.romulus, 'IRITIE Romulus', 'Manager Commercial', 'Commercial', 350000, '2019-01-15');
@@ -516,7 +535,8 @@ export async function simulateYearStep(year: number): Promise<YearResult> {
         const expBiz = `DEP-${monthKey.replace('-', '')}-${String(expCount).padStart(3, '0')}`;
         reqRows.push([reqUuid, randomUUID(), `REQ-${expBiz}`, e.label, e.amount, e.cat, U.ange, 'approved', paidIso + 'T09:00:00Z', WS]);
         stepRows.push([randomUUID(), reqUuid, U.maxence, 1, 'approved', paidIso + 'T10:00:00Z']);
-        expRows.push([expUuid, expBiz, expBiz, reqUuid, e.label, e.amount, e.cat, U.ange, 'paid', paidIso + 'T11:00:00Z', 'bank_transfer', WS]);
+        // payment_method_id résolu à l'insertion (colonne enum legacy supprimée en 2c)
+        expRows.push([expUuid, expBiz, expBiz, reqUuid, e.label, e.amount, e.cat, U.ange, 'paid', paidIso + 'T11:00:00Z', null, WS]);
 
         if (bankW) {
           counters.exp++;
@@ -542,7 +562,7 @@ export async function simulateYearStep(year: number): Promise<YearResult> {
         const qty = kg * 2;
         opRows.push([
           randomUUID(), `OP-${monthKey.replace('-', '')}-001`, ctx.recipeId, 'Conditionnement miel', products[0].id, products[0].name,
-          'completed', qty, qty, 'pots', `${monthKey}-10`, `${monthKey}-10`, `${monthKey}-18`, U.gervais, 'Gervais', kg * 2000 + qty * 150, WS,
+          'completed', qty, qty, 'pots', `${monthKey}-10`, `${monthKey}-18`, `${monthKey}-10`, `${monthKey}-18`, U.gervais, 'Gervais', kg * 2000 + qty * 150, WS,
         ]);
       }
     }
@@ -586,16 +606,17 @@ export async function simulateYearStep(year: number): Promise<YearResult> {
     await bulkInsert(pool, 'expense_approval_steps',
       ['approval_step_id', 'expense_request_id', 'approver_id', 'step_order', 'status', 'processed_at'],
       stepRows);
+    const pmBank = await pm('bank_transfer');
     await bulkInsert(pool, 'expenses',
-      ['id', 'expense_id', 'expense_number', 'expense_request_id', 'title', 'amount', 'category_id', 'payer_id', 'status', 'payment_date', 'payment_method', 'workspace_id'],
-      expRows);
+      ['id', 'expense_id', 'expense_number', 'expense_request_id', 'title', 'amount', 'category_id', 'payer_id', 'status', 'payment_date', 'payment_method_id', 'workspace_id'],
+      expRows.map(r => { r[10] = pmBank ?? pmCash; return r; }));
 
     try {
       await bulkInsert(pool, 'ingredient_receptions',
         ['reception_id', 'ingredient_id', 'qty', 'unit', 'unit_price', 'total_cost', 'received_by_id', 'received_at', 'pmp_before', 'pmp_after', 'stock_before', 'stock_after', 'workspace_id'],
         recRows);
       await bulkInsert(pool, 'production_orders',
-        ['production_order_id', 'order_number', 'recipe_id', 'recipe_name', 'product_id', 'product_name', 'status', 'planned_quantity', 'produced_quantity', 'unit', 'planned_start_date', 'actual_start_date', 'actual_end_date', 'assigned_to_id', 'assigned_to_name', 'total_cost', 'workspace_id'],
+        ['production_order_id', 'order_number', 'recipe_id', 'recipe_name', 'product_id', 'product_name', 'status', 'planned_quantity', 'produced_quantity', 'unit', 'planned_start_date', 'planned_end_date', 'actual_start_date', 'actual_end_date', 'assigned_to_id', 'assigned_to_name', 'total_cost', 'workspace_id'],
         opRows);
     } catch { /* production optionnelle */ }
 
