@@ -134,7 +134,8 @@ export class TransactionService {
        LEFT JOIN wallets sw ON sw.id = t.source_wallet_id
        LEFT JOIN wallets dw ON dw.id = t.destination_wallet_id
        WHERE ${conds.join(' AND ')}
-       ORDER BY t.processed_at DESC`,
+       ORDER BY t.processed_at DESC
+       LIMIT 2000`,
       params
     );
     return r.rows as Transaction[];

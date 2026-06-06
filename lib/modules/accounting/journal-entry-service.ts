@@ -194,7 +194,8 @@ export class JournalEntryService {
           FROM journal_entry_lines l WHERE l.entry_id = e.id) AS "Amount"
        FROM journal_entries e
        WHERE ${conds.join(' AND ')}
-       ORDER BY e.entry_date DESC, e.entry_number DESC`,
+       ORDER BY e.entry_date DESC, e.entry_number DESC
+       LIMIT 2000`,
       params
     );
     return r.rows as JournalEntry[];
