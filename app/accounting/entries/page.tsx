@@ -447,6 +447,7 @@ function EntriesContent() {
                   <th className="text-left py-2">Date</th>
                   <th className="text-left py-2">Libellé</th>
                   <th className="text-left py-2">Référence</th>
+                  <th className="text-right py-2">Montant</th>
                   <th className="text-center py-2">Période</th>
                   <th className="text-center py-2">Statut</th>
                   <th className="w-8" />
@@ -466,6 +467,9 @@ function EntriesContent() {
                       <td className="py-2.5 whitespace-nowrap">{fmtDate(e.EntryDate)}</td>
                       <td className="py-2.5 max-w-[280px] truncate" title={e.Description}>{e.Description}</td>
                       <td className="py-2.5 text-gray-500 text-xs">{e.Reference || '—'}</td>
+                      <td className="py-2.5 text-right font-semibold tabular-nums whitespace-nowrap">
+                        {fmt(Number((e as any).Amount || 0))}
+                      </td>
                       <td className="py-2.5 text-center text-xs text-gray-500">
                         {e.FiscalPeriod}/{e.FiscalYear}
                       </td>

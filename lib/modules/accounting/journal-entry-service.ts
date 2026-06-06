@@ -189,7 +189,9 @@ export class JournalEntryService {
          e.fiscal_period AS "FiscalPeriod",
          e.workspace_id  AS "WorkspaceId",
          e.created_at    AS "CreatedAt",
-         e.updated_at    AS "UpdatedAt"
+         e.updated_at    AS "UpdatedAt",
+         (SELECT COALESCE(SUM(l.debit_amount), 0)::float
+          FROM journal_entry_lines l WHERE l.entry_id = e.id) AS "Amount"
        FROM journal_entries e
        WHERE ${conds.join(' AND ')}
        ORDER BY e.entry_date DESC, e.entry_number DESC`,
