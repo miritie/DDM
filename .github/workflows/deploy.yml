@@ -133,4 +133,9 @@ jobs:
             sudo docker compose exec -T app npx tsx scripts/database/sync-all-permissions.ts \
               || echo "⚠️ Sync permissions échouée — relancer : docker compose exec app npx tsx scripts/database/sync-all-permissions.ts"
 
+            # Écritures comptables des ventes passées (idempotent) : génère
+            # VT (D411/C701) + encaissements (D5xx/C411) manquants.
+            sudo docker compose exec -T app npx tsx scripts/database/backfill-sale-entries.ts \
+              || echo "⚠️ Backfill écritures ventes échoué — relancer : docker compose exec app npx tsx scripts/database/backfill-sale-entries.ts"
+
             echo "✅ Déploiement OK"

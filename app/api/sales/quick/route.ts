@@ -29,6 +29,7 @@ import { StockService } from '@/lib/modules/stock/stock-service';
 import { ScanQueueService } from '@/lib/modules/outlets/scan-queue-service';
 import { PaymentMethodService } from '@/lib/modules/treasury/payment-method-service';
 import { TransactionService } from '@/lib/modules/treasury/transaction-service';
+import { JournalGenerationService } from '@/lib/modules/accounting/journal-generation-service';
 import { assertPositiveFinishedProductQuantity } from '@/lib/schemas/quantity';
 import { generateSaleNumber, generatePaymentNumber } from '@/lib/modules/sales/document-numbers';
 import { handleApiError, ConflictError } from '@/lib/http/api-error';
@@ -41,6 +42,7 @@ const stockService = new StockService();
 const scanQueue = new ScanQueueService();
 const paymentMethodService = new PaymentMethodService();
 const transactionService = new TransactionService();
+const journalGen = new JournalGenerationService();
 
 export async function POST(request: NextRequest) {
   try {
@@ -236,18 +238,20 @@ export async function POST(request: NextRequest) {
 
       // Trace le paiement dans sale_payments si quelque chose a été encaissé
       if (paidNow > 0) {
-        await client.query(
+        const payIns = await client.query(
           `INSERT INTO sale_payments
             (payment_id, sale_id, payment_number, amount, payment_method_id, payment_date,
              wallet_id, received_by_id, workspace_id, notes)
            VALUES ($1, $2::uuid, $3, $4, $5::uuid, CURRENT_TIMESTAMP,
-                   $6::uuid, $7::uuid, $8::uuid, $9::text)`,
+                   $6::uuid, $7::uuid, $8::uuid, $9::text)
+           RETURNING id`,
           [
             uuidv4(), createdSale.id, paymentNumber, paidNow, paymentMethodId,
             walletUuid, sellerUuid, workspaceId,
             paymentMethod === 'credit' && paidNow > 0 ? 'Acompte sur vente à crédit' : null,
           ]
         );
+        createdSale._payment_row_id = payIns.rows[0]?.id ?? null;
       }
 
       for (const line of lines) {
@@ -313,6 +317,20 @@ export async function POST(request: NextRequest) {
       } catch (e: any) {
         console.error('[sales/quick] Transaction wallet non créée :', e?.message);
       }
+    }
+
+    // Écritures comptables (best-effort, après commit) :
+    //   VT  : Débit 411 Clients / Crédit 701 Ventes (total de la vente)
+    //   CAI/BAN/MM : Débit 5xx / Crédit 411 (montant encaissé)
+    // Idempotent (référence) — un échec (plan comptable non initialisé…)
+    // ne bloque JAMAIS la vente, il est loggé.
+    try {
+      await journalGen.fromSale(sale.id);
+      if (sale._payment_row_id) {
+        await journalGen.fromSalePayment(sale._payment_row_id);
+      }
+    } catch (e: any) {
+      console.warn(`[compta] écriture vente ${sale.sale_number}: ${e.message}`);
     }
 
     // Alertes stock bas (best-effort, après commit — le décrément lui-même

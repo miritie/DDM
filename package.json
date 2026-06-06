@@ -41,7 +41,8 @@
     "migrate:pos-session-closing": "tsx scripts/database/apply-pos-session-closing.ts",
     "migrate:outlet-daily-observations": "tsx scripts/database/apply-outlet-daily-observations.ts",
     "migrate:doc-counters": "tsx scripts/database/apply-doc-counters.ts",
-    "sync:permissions": "tsx scripts/database/sync-all-permissions.ts"
+    "sync:permissions": "tsx scripts/database/sync-all-permissions.ts",
+    "backfill:sale-entries": "tsx scripts/database/backfill-sale-entries.ts"
   },
   "dependencies": {
     "@radix-ui/react-checkbox": "^1.3.3",

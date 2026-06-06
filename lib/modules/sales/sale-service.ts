@@ -16,6 +16,7 @@ import { PosSessionService } from '@/lib/modules/outlets/pos-session-service';
 import { StockService } from '@/lib/modules/stock/stock-service';
 import { PaymentMethodService } from '@/lib/modules/treasury/payment-method-service';
 import { TransactionService } from '@/lib/modules/treasury/transaction-service';
+import { JournalGenerationService } from '@/lib/modules/accounting/journal-generation-service';
 import { assertPositiveFinishedProductQuantity } from '@/lib/schemas/quantity';
 import { generateSaleNumber, generatePaymentNumber } from '@/lib/modules/sales/document-numbers';
 
@@ -25,6 +26,7 @@ const posSessionService = new PosSessionService();
 const stockService = new StockService();
 const paymentMethodService = new PaymentMethodService();
 const transactionService = new TransactionService();
+const journalGen = new JournalGenerationService();
 
 export interface CreateSaleInput {
   clientId?: string;
@@ -486,6 +488,16 @@ export class SaleService {
         // jour — on log mais on ne fait pas échouer l'opération métier.
         console.error('[recordPayment] Transaction wallet non créée :', e?.message);
       }
+    }
+
+    // Écritures comptables (best-effort) : vente (D411/C701, idempotente)
+    // + encaissement (D5xx/C411). Un échec ne bloque pas le paiement.
+    try {
+      await journalGen.fromSale(sale.id!);
+      const paymentRowId = (createdPayment as any).Id || (createdPayment as any).id;
+      if (paymentRowId) await journalGen.fromSalePayment(paymentRowId);
+    } catch (e: any) {
+      console.warn(`[compta] écriture encaissement ${paymentNumber}: ${e?.message}`);
     }
 
     return createdPayment;
