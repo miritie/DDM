@@ -6,7 +6,7 @@
 import { getPostgresClient } from '@/lib/database/postgres-client';
 import { SalePayment as Payment } from '@/types/modules';
 import { PaymentMethodService } from '@/lib/modules/treasury/payment-method-service';
-import { nextDocSequence } from '@/lib/database/doc-counters';
+import { generatePaymentNumber } from '@/lib/modules/sales/document-numbers';
 import { v4 as uuidv4 } from 'uuid';
 
 const postgresClient = getPostgresClient();
@@ -59,19 +59,9 @@ export class PaymentService {
    * Générer un numéro de paiement (PAY-2025-0001)
    */
   async generatePaymentNumber(workspaceId: string): Promise<string> {
-    const year = new Date().getFullYear();
-    // Séquence atomique (doc_counters), même scope que
-    // SaleService.generatePaymentNumber : une seule séquence PAY-<année>
-    // par workspace, quel que soit le chemin d'encaissement.
-    const sequence = await nextDocSequence(`sale_payments:${workspaceId}:${year}`, async () => {
-      const r = await postgresClient.query<any>(
-        `SELECT COUNT(*)::int AS n FROM sale_payments
-         WHERE workspace_id::text = $1 AND EXTRACT(YEAR FROM payment_date) = $2`,
-        [workspaceId, year]
-      );
-      return r.rows[0]?.n ?? 0;
-    });
-    return `PAY-${year}-${String(sequence).padStart(4, '0')}`;
+    // Délégué au helper partagé — une seule séquence PAY-<année> par
+    // workspace, quel que soit le chemin d'encaissement.
+    return generatePaymentNumber(workspaceId);
   }
 
   /**

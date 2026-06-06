@@ -30,7 +30,7 @@ import { ScanQueueService } from '@/lib/modules/outlets/scan-queue-service';
 import { PaymentMethodService } from '@/lib/modules/treasury/payment-method-service';
 import { TransactionService } from '@/lib/modules/treasury/transaction-service';
 import { assertPositiveFinishedProductQuantity } from '@/lib/schemas/quantity';
-import { nextDocSequence } from '@/lib/database/doc-counters';
+import { generateSaleNumber, generatePaymentNumber } from '@/lib/modules/sales/document-numbers';
 import { handleApiError } from '@/lib/http/api-error';
 import { v4 as uuidv4 } from 'uuid';
 
@@ -139,17 +139,9 @@ export async function POST(request: NextRequest) {
     const totalAmount = Math.max(0, subtotal - loyaltyDiscount);
 
     // ===== Numéro de vente =====
-    // Séquence atomique (doc_counters) partagée avec SaleService : deux
-    // encaissements simultanés ne produisent plus le même numéro.
-    const year = new Date().getFullYear();
-    const sequence = await nextDocSequence(`sales:${workspaceId}:${year}`, async () => {
-      const countRes = await db.query(
-        `SELECT COUNT(*)::int AS n FROM sales WHERE workspace_id::text = $1 AND EXTRACT(YEAR FROM created_at) = $2`,
-        [workspaceId, year]
-      );
-      return countRes.rows[0]?.n ?? 0;
-    });
-    const saleNumber = `VT-${year}-${String(sequence).padStart(4, '0')}`;
+    // Helper partagé : séquence atomique unique par workspace+année pour
+    // SAL- et VT- (seed = max des suffixes existants, anti-collision).
+    const saleNumber = await generateSaleNumber(workspaceId, 'VT');
     const saleUuid = uuidv4();
 
     // ===== Calcul du paiement immédiat =====
@@ -179,13 +171,22 @@ export async function POST(request: NextRequest) {
     let paymentMethodId: string | null = null;
     let paymentNumber: string | null = null;
     if (paidNow > 0) {
-      // Résout walletId : accepte UUID ou slug `wallet_id` VARCHAR
+      // Résout walletId : accepte UUID ou slug `wallet_id` VARCHAR.
+      // Un walletId fourni mais introuvable est une erreur de config à
+      // remonter immédiatement — l'avaler créerait une vente encaissée
+      // sans aucune trace en trésorerie (écart de caisse invisible).
       if (walletId) {
         const wr = await db.query(
           `SELECT id FROM wallets WHERE id::text = $1 OR wallet_id = $1 LIMIT 1`,
           [walletId]
         );
         walletUuid = wr.rows[0]?.id ?? null;
+        if (!walletUuid) {
+          return NextResponse.json(
+            { error: `Caisse introuvable : ${walletId}. Vérifiez la configuration des caisses.` },
+            { status: 400 }
+          );
+        }
       }
 
       // Mode crédit = vente à crédit, pas un moyen de paiement : on ne trace
@@ -200,7 +201,9 @@ export async function POST(request: NextRequest) {
         );
       }
       paymentMethodId = pm.Id;
-      paymentNumber = `PAY-${year}-${Date.now().toString().slice(-6)}`;
+      // Séquence PAY- partagée avec les autres chemins d'encaissement
+      // (l'ancien suffixe Date.now() pouvait collisionner dans la même ms).
+      paymentNumber = await generatePaymentNumber(workspaceId);
     }
 
     // ===== Écritures atomiques : vente + paiement + lignes =====

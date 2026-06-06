@@ -134,14 +134,17 @@ export class TransactionService {
   }
 
   /**
-   * Récupère une transaction par ID (business code `transaction_id` ou UUID PK)
+   * Récupère une transaction par ID (business code `transaction_id` ou UUID PK).
+   * `workspaceId` (si fourni) scope la recherche au tenant : empêche la
+   * lecture cross-workspace par un utilisateur autorisé ailleurs.
    */
-  async getById(transactionId: string): Promise<Transaction | null> {
+  async getById(transactionId: string, workspaceId?: string): Promise<Transaction | null> {
     const r = await postgresClient.query<any>(
       `SELECT ${TX_COLUMNS} FROM transactions
-       WHERE transaction_id = $1 OR id::text = $1
+       WHERE (transaction_id = $1 OR id::text = $1)
+         AND ($2::text IS NULL OR workspace_id::text = $2)
        LIMIT 1`,
-      [transactionId]
+      [transactionId, workspaceId ?? null]
     );
     return (r.rows[0] as Transaction) || null;
   }
@@ -182,7 +185,7 @@ export class TransactionService {
     return await postgresClient.transaction(async (client) => {
       const wallet = await this.lockWallet(client, input.sourceWalletId!, 'Wallet source non trouvé');
       if (wallet.balance < input.amount) {
-        throw new Error('Solde insuffisant');
+        throw new ConflictError('Solde insuffisant');
       }
       const transaction = await this.insertTransaction(client, {
         ...input,
@@ -222,7 +225,7 @@ export class TransactionService {
       const source = locked.get(sourceUuid)!;
 
       if (source.balance < input.amount) {
-        throw new Error('Solde insuffisant dans le wallet source');
+        throw new ConflictError('Solde insuffisant dans le wallet source');
       }
 
       const transaction = await this.insertTransaction(client, {
@@ -243,16 +246,17 @@ export class TransactionService {
    * statut à `cancelled`, le tout atomiquement. La ligne transaction est
    * verrouillée pour empêcher une double annulation concurrente.
    */
-  async cancel(transactionId: string): Promise<Transaction> {
+  async cancel(transactionId: string, workspaceId?: string): Promise<Transaction> {
     return await postgresClient.transaction(async (client) => {
       const r = await client.query(
         `SELECT id, type, status, amount::float AS amount,
                 source_wallet_id, destination_wallet_id
          FROM transactions
-         WHERE transaction_id = $1 OR id::text = $1
+         WHERE (transaction_id = $1 OR id::text = $1)
+           AND ($2::text IS NULL OR workspace_id::text = $2)
          LIMIT 1
          FOR UPDATE`,
-        [transactionId]
+        [transactionId, workspaceId ?? null]
       );
       const tx = r.rows[0];
       if (!tx) {
@@ -262,19 +266,24 @@ export class TransactionService {
         throw new ConflictError('Transaction déjà annulée');
       }
 
-      // Inverse les mouvements selon le type
-      if (tx.type === 'income' && tx.destination_wallet_id) {
-        await this.lockWallet(client, tx.destination_wallet_id, 'Wallet de destination non trouvé');
-        await this.applyBalanceDelta(client, tx.destination_wallet_id, -tx.amount);
-      } else if (tx.type === 'expense' && tx.source_wallet_id) {
-        await this.lockWallet(client, tx.source_wallet_id, 'Wallet source non trouvé');
-        await this.applyBalanceDelta(client, tx.source_wallet_id, tx.amount);
-      } else if (tx.type === 'transfer' && tx.source_wallet_id && tx.destination_wallet_id) {
-        for (const uuid of [tx.source_wallet_id, tx.destination_wallet_id].sort()) {
-          await this.lockWallet(client, uuid, 'Wallet non trouvé');
+      // Inverse les mouvements selon le type — UNIQUEMENT si la transaction
+      // a réellement impacté les soldes : une transaction restée 'pending'
+      // (legacy) n'a jamais mouvementé les wallets, inverser créerait un
+      // écart de caisse permanent.
+      if (tx.status === 'completed') {
+        if (tx.type === 'income' && tx.destination_wallet_id) {
+          await this.lockWallet(client, tx.destination_wallet_id, 'Wallet de destination non trouvé');
+          await this.applyBalanceDelta(client, tx.destination_wallet_id, -tx.amount);
+        } else if (tx.type === 'expense' && tx.source_wallet_id) {
+          await this.lockWallet(client, tx.source_wallet_id, 'Wallet source non trouvé');
+          await this.applyBalanceDelta(client, tx.source_wallet_id, tx.amount);
+        } else if (tx.type === 'transfer' && tx.source_wallet_id && tx.destination_wallet_id) {
+          for (const uuid of [tx.source_wallet_id, tx.destination_wallet_id].sort()) {
+            await this.lockWallet(client, uuid, 'Wallet non trouvé');
+          }
+          await this.applyBalanceDelta(client, tx.source_wallet_id, tx.amount);
+          await this.applyBalanceDelta(client, tx.destination_wallet_id, -tx.amount);
         }
-        await this.applyBalanceDelta(client, tx.source_wallet_id, tx.amount);
-        await this.applyBalanceDelta(client, tx.destination_wallet_id, -tx.amount);
       }
 
       const updated = await client.query(
@@ -446,7 +455,9 @@ export class TransactionService {
     }
     if (Number(r.rows[0].balance) < 0) {
       // Le ROLLBACK de la transaction englobante annule ce UPDATE.
-      throw new Error('Solde insuffisant');
+      // ConflictError → 409 : cas metier (ex. annuler un income dont les
+      // fonds ont deja ete depenses), pas une erreur serveur.
+      throw new ConflictError('Solde insuffisant');
     }
   }
 
@@ -527,11 +538,19 @@ export class TransactionService {
     const sequence = await nextDocSequence(
       `transactions:${workspaceId}:${type}`,
       async () => {
+        // Seed anti-collision : les numéros legacy étaient générés depuis un
+        // COUNT de TOUTE la table (le filtre du parser legacy était abandonné)
+        // — valeur bien plus haute que le COUNT par type. On repart donc du
+        // plus grand suffixe déjà émis pour ce préfixe, jamais d'un count.
         const r = await client.query(
-          `SELECT COUNT(*)::int AS n FROM transactions WHERE workspace_id::text = $1 AND type = $2`,
-          [workspaceId, type]
+          `SELECT COALESCE(MAX(substring(transaction_number from '-(\\d+)$')::int), 0) AS n
+           FROM transactions
+           WHERE workspace_id::text = $1
+             AND transaction_number LIKE $2 || '-%'
+             AND transaction_number ~ '-\\d+$'`,
+          [workspaceId, prefix]
         );
-        return r.rows[0]?.n ?? 0;
+        return Number(r.rows[0]?.n ?? 0);
       },
       client
     );

@@ -20,6 +20,7 @@ import { PaymentMethodService } from '@/lib/modules/treasury/payment-method-serv
 import { TransactionService } from '@/lib/modules/treasury/transaction-service';
 import { v4 as uuidv4 } from 'uuid';
 import { assertPositiveFinishedProductQuantity } from '@/lib/schemas/quantity';
+import { generateSaleNumber } from '@/lib/modules/sales/document-numbers';
 
 const db = getPostgresClient();
 const paymentMethodService = new PaymentMethodService();
@@ -392,12 +393,10 @@ export class CustomerOrderService {
     const sellerUuid = await resolveUuid('users', 'user_id', options.salesPersonId);
     if (!sellerUuid) throw new Error('Vendeur introuvable');
 
-    const year = new Date().getFullYear();
-    const c = await db.query(
-      `SELECT COUNT(*) AS c FROM sales WHERE workspace_id = $1 AND EXTRACT(YEAR FROM created_at) = $2`,
-      [order.workspace_id, year]
-    );
-    const saleNumber = `VT-${year}-${String(parseInt(c.rows[0].c, 10) + 1).padStart(4, '0')}`;
+    // Numéro via la séquence partagée — le COUNT+1 local pouvait émettre le
+    // même VT- qu'un encaissement POS simultané (doublon silencieux,
+    // sale_number n'a pas de contrainte UNIQUE).
+    const saleNumber = await generateSaleNumber(order.workspace_id, 'VT');
     const saleUuid = uuidv4();
 
     const paymentStatus =

@@ -9,6 +9,7 @@ import { z } from 'zod';
 import { SalesReportService } from '@/lib/modules/consignation/sales-report-service';
 import { getCurrentWorkspaceId } from '@/lib/auth/get-session';
 import { requirePermission, PERMISSIONS } from '@/lib/rbac/server';
+import { handleApiError } from '@/lib/http/api-error';
 
 const salesReportService = new SalesReportService();
 
@@ -54,12 +55,8 @@ export async function GET(request: NextRequest) {
       data: reports,
       count: reports.length,
     });
-  } catch (error: any) {
-    console.error('Erreur récupération rapports:', error);
-    return NextResponse.json(
-      { error: error.message || 'Erreur serveur' },
-      { status: 500 }
-    );
+  } catch (error) {
+    return handleApiError(error, 'Erreur serveur');
   }
 }
 

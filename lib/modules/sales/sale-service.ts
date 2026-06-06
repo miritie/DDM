@@ -17,7 +17,7 @@ import { StockService } from '@/lib/modules/stock/stock-service';
 import { PaymentMethodService } from '@/lib/modules/treasury/payment-method-service';
 import { TransactionService } from '@/lib/modules/treasury/transaction-service';
 import { assertPositiveFinishedProductQuantity } from '@/lib/schemas/quantity';
-import { nextDocSequence } from '@/lib/database/doc-counters';
+import { generateSaleNumber, generatePaymentNumber } from '@/lib/modules/sales/document-numbers';
 
 const postgresClient = getPostgresClient();
 const outletService = new OutletService();
@@ -85,37 +85,16 @@ export class SaleService {
    * Génère un numéro de vente unique
    */
   async generateSaleNumber(workspaceId: string): Promise<string> {
-    const year = new Date().getFullYear();
-    // Séquence atomique (doc_counters) : deux encaissements simultanés ne
-    // peuvent plus produire le même numéro. Amorcée depuis le COUNT existant
-    // (l'ancien code chargeait TOUTES les ventes du workspace en mémoire).
-    const sequence = await nextDocSequence(`sales:${workspaceId}:${year}`, async () => {
-      const r = await postgresClient.query<any>(
-        `SELECT COUNT(*)::int AS n FROM sales
-         WHERE workspace_id::text = $1 AND EXTRACT(YEAR FROM sale_date) = $2`,
-        [workspaceId, year]
-      );
-      return r.rows[0]?.n ?? 0;
-    });
-    return `SAL-${year}-${String(sequence).padStart(4, '0')}`;
+    // Délégué au helper partagé (séquence atomique + seed anti-collision) :
+    // une seule source de numérotation pour SAL-/VT-, tous chemins confondus.
+    return generateSaleNumber(workspaceId, 'SAL');
   }
 
   /**
    * Génère un numéro de paiement unique
    */
   async generatePaymentNumber(workspaceId: string): Promise<string> {
-    const year = new Date().getFullYear();
-    // Même scope que PaymentService.generatePaymentNumber : une seule
-    // séquence PAY-<année> par workspace, quel que soit le chemin.
-    const sequence = await nextDocSequence(`sale_payments:${workspaceId}:${year}`, async () => {
-      const r = await postgresClient.query<any>(
-        `SELECT COUNT(*)::int AS n FROM sale_payments
-         WHERE workspace_id::text = $1 AND EXTRACT(YEAR FROM payment_date) = $2`,
-        [workspaceId, year]
-      );
-      return r.rows[0]?.n ?? 0;
-    });
-    return `PAY-${year}-${String(sequence).padStart(4, '0')}`;
+    return generatePaymentNumber(workspaceId);
   }
 
   /**

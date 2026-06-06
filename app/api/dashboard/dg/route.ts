@@ -6,13 +6,14 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { DashboardService } from '@/lib/modules/reports/dashboard-service';
 import { requirePermission, PERMISSIONS } from '@/lib/rbac/server';
+import { getCurrentWorkspaceId } from '@/lib/auth/get-session';
 
 const dashboardService = new DashboardService();
 
 export async function GET(request: NextRequest) {
   try {
     await requirePermission(PERMISSIONS.REPORTS_VIEW);
-    const workspaceId = 'default'; // TODO: Récupérer depuis session
+    const workspaceId = await getCurrentWorkspaceId();
 
     const searchParams = request.nextUrl.searchParams;
     const startDate = searchParams.get('startDate') || new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];

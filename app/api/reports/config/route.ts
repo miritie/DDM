@@ -7,13 +7,14 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getPostgresClient } from '@/lib/database/postgres-client';
 import { requirePermission, PERMISSIONS } from '@/lib/rbac/server';
+import { getCurrentWorkspaceId } from '@/lib/auth/get-session';
 
 const postgresClient = getPostgresClient();
 
 export async function GET(request: NextRequest) {
   try {
     await requirePermission(PERMISSIONS.REPORTS_VIEW);
-    const workspaceId = 'default'; // TODO: Recuperer depuis session
+    const workspaceId = await getCurrentWorkspaceId();
 
     // Recuperer la config depuis PostgreSQL
     const configs = await postgresClient.query(
@@ -112,8 +113,8 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
-    await requirePermission(PERMISSIONS.REPORTS_VIEW);
-    const workspaceId = 'default'; // TODO: Recuperer depuis session
+    await requirePermission(PERMISSIONS.ADMIN_SETTINGS_EDIT);
+    const workspaceId = await getCurrentWorkspaceId();
     const config = await request.json();
 
     // Valider la config

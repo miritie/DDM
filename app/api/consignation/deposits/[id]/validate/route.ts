@@ -7,6 +7,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { DepositService } from '@/lib/modules/consignation/deposit-service';
 import { getCurrentWorkspaceId } from '@/lib/auth/get-session';
 import { requirePermission, PERMISSIONS } from '@/lib/rbac/server';
+import { handleApiError } from '@/lib/http/api-error';
 
 const depositService = new DepositService();
 
@@ -39,11 +40,7 @@ export async function POST(
       data: deposit,
       message: 'Dépôt validé avec succès. Sortie de stock effectuée.',
     });
-  } catch (error: any) {
-    console.error('Erreur validation dépôt:', error);
-    return NextResponse.json(
-      { error: error.message || 'Erreur serveur' },
-      { status: 500 }
-    );
+  } catch (error) {
+    return handleApiError(error, 'Erreur serveur');
   }
 }

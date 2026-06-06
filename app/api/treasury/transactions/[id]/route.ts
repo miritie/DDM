@@ -4,6 +4,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { TransactionService } from '@/lib/modules/treasury/transaction-service';
+import { getCurrentWorkspaceId } from '@/lib/auth/get-session';
 import { requirePermission, PERMISSIONS } from '@/lib/rbac/server';
 import { handleApiError } from '@/lib/http/api-error';
 
@@ -19,8 +20,10 @@ export async function GET(
   try {
     await requirePermission(PERMISSIONS.TREASURY_VIEW);
     const { id } = await params;
+    const workspaceId = await getCurrentWorkspaceId();
 
-    const transaction = await service.getById(id);
+    // Scope au workspace de session : pas de lecture cross-tenant.
+    const transaction = await service.getById(id, workspaceId);
 
     if (!transaction) {
       return NextResponse.json(
@@ -45,8 +48,11 @@ export async function DELETE(
   try {
     await requirePermission(PERMISSIONS.TREASURY_DELETE);
     const { id } = await params;
+    const workspaceId = await getCurrentWorkspaceId();
 
-    await service.cancel(id);
+    // Scope au workspace de session : impossible d'annuler (et donc de
+    // mouvementer les soldes) d'une transaction d'un autre workspace.
+    await service.cancel(id, workspaceId);
 
     return NextResponse.json({ success: true });
   } catch (error) {

@@ -5,11 +5,12 @@ import * as path from 'path';
 import * as dotenv from 'dotenv';
 
 dotenv.config({ path: path.join(__dirname, '../../.env.local') });
-const DATABASE_URL = process.env.DATABASE_URL;
+const DATABASE_URL = process.env.DATABASE_URL ?? '';
 if (!DATABASE_URL) { console.error('DATABASE_URL manquant'); process.exit(1); }
 
 async function main() {
-  const pool = new Pool({ connectionString: DATABASE_URL, ssl: { rejectUnauthorized: false } });
+  const useSsl = DATABASE_URL.includes('sslmode=require') || DATABASE_URL.includes('neon.tech');
+  const pool = new Pool({ connectionString: DATABASE_URL, ssl: useSsl ? { rejectUnauthorized: false } : undefined });
   const sql = fs.readFileSync(path.join(__dirname, 'migration-doc-counters.sql'), 'utf8');
   console.log('Création table doc_counters…');
   await pool.query(sql);

@@ -31,7 +31,7 @@ import * as dotenv from 'dotenv';
 import { PERMISSIONS } from '../../lib/rbac/permissions';
 
 dotenv.config({ path: path.join(__dirname, '../../.env.local') });
-const DATABASE_URL = process.env.DATABASE_URL;
+const DATABASE_URL = process.env.DATABASE_URL ?? '';
 if (!DATABASE_URL) { console.error('❌ DATABASE_URL non trouvée'); process.exit(1); }
 
 /** Devine un nom lisible et un module à partir du code 'foo:bar_baz'. */
@@ -50,7 +50,9 @@ async function main() {
   const codes = Object.values(PERMISSIONS) as string[];
   console.log(`🚀 Sync de ${codes.length} permissions déclarées en code…`);
 
-  const pool = new Pool({ connectionString: DATABASE_URL, ssl: { rejectUnauthorized: false } });
+  // SSL conditionnel, comme l'app (un pg local sans SSL refuserait la connexion)
+  const useSsl = DATABASE_URL.includes('sslmode=require') || DATABASE_URL.includes('neon.tech');
+  const pool = new Pool({ connectionString: DATABASE_URL, ssl: useSsl ? { rejectUnauthorized: false } : undefined });
   try {
     // Snapshot avant
     const before = await pool.query(`SELECT code, is_active FROM permissions`);
@@ -117,7 +119,7 @@ async function main() {
       const r = await pool.query(
         `INSERT INTO role_permissions (role_id, permission_id)
          SELECT $1, p.id FROM permissions p WHERE p.is_active = true
-         ON CONFLICT DO NOTHING`,
+         ON CONFLICT (role_id, permission_id) DO NOTHING`,
         [role.id]
       );
       console.log(`🔑 Rôle « ${role.name} » (${role.role_id}) : ${r.rowCount} permission(s) attachée(s).`);

@@ -6,13 +6,14 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { RuleEngineService } from '@/lib/modules/rules/rule-engine-service';
 import { requirePermission, PERMISSIONS } from '@/lib/rbac/server';
+import { getCurrentWorkspaceId } from '@/lib/auth/get-session';
 
 const ruleEngineService = new RuleEngineService();
 
 export async function POST(request: NextRequest) {
   try {
     await requirePermission(PERMISSIONS.AI_DECISION_APPLY);
-    const workspaceId = 'default'; // TODO: Récupérer depuis session
+    const workspaceId = await getCurrentWorkspaceId();
 
     const body = await request.json();
 

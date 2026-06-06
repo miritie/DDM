@@ -8,6 +8,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { DepositService } from '@/lib/modules/consignation/deposit-service';
 import { getCurrentWorkspaceId } from '@/lib/auth/get-session';
 import { requirePermission, PERMISSIONS } from '@/lib/rbac/server';
+import { handleApiError } from '@/lib/http/api-error';
 
 const depositService = new DepositService();
 
@@ -37,12 +38,8 @@ export async function GET(
       success: true,
       data: deposit,
     });
-  } catch (error: any) {
-    console.error('Erreur récupération dépôt:', error);
-    return NextResponse.json(
-      { error: error.message || 'Erreur serveur' },
-      { status: 500 }
-    );
+  } catch (error) {
+    return handleApiError(error, 'Erreur serveur');
   }
 }
 
@@ -75,11 +72,7 @@ export async function PATCH(
       data: updated,
       message: 'Dépôt mis à jour avec succès',
     });
-  } catch (error: any) {
-    console.error('Erreur mise à jour dépôt:', error);
-    return NextResponse.json(
-      { error: error.message || 'Erreur serveur' },
-      { status: 500 }
-    );
+  } catch (error) {
+    return handleApiError(error, 'Erreur serveur');
   }
 }

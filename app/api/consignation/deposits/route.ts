@@ -9,6 +9,7 @@ import { z } from 'zod';
 import { DepositService } from '@/lib/modules/consignation/deposit-service';
 import { getCurrentWorkspaceId } from '@/lib/auth/get-session';
 import { requirePermission, PERMISSIONS } from '@/lib/rbac/server';
+import { handleApiError } from '@/lib/http/api-error';
 
 const depositService = new DepositService();
 
@@ -62,12 +63,8 @@ export async function GET(request: NextRequest) {
       data: deposits,
       count: deposits.length,
     });
-  } catch (error: any) {
-    console.error('Erreur récupération dépôts:', error);
-    return NextResponse.json(
-      { error: error.message || 'Erreur serveur' },
-      { status: 500 }
-    );
+  } catch (error) {
+    return handleApiError(error, 'Erreur serveur');
   }
 }
 

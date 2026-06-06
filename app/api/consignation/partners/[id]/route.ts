@@ -9,6 +9,7 @@ import { z } from 'zod';
 import { PartnerService } from '@/lib/modules/consignation/partner-service';
 import { getCurrentWorkspaceId } from '@/lib/auth/get-session';
 import { requirePermission, PERMISSIONS } from '@/lib/rbac/server';
+import { handleApiError } from '@/lib/http/api-error';
 
 const partnerService = new PartnerService();
 
@@ -64,12 +65,8 @@ export async function GET(
       success: true,
       data: partner,
     });
-  } catch (error: any) {
-    console.error('Erreur récupération partenaire:', error);
-    return NextResponse.json(
-      { error: error.message || 'Erreur serveur' },
-      { status: 500 }
-    );
+  } catch (error) {
+    return handleApiError(error, 'Erreur serveur');
   }
 }
 

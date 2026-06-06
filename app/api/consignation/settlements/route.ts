@@ -9,6 +9,7 @@ import { z } from 'zod';
 import { SettlementService } from '@/lib/modules/consignation/settlement-service';
 import { getCurrentWorkspaceId } from '@/lib/auth/get-session';
 import { requirePermission, PERMISSIONS } from '@/lib/rbac/server';
+import { handleApiError } from '@/lib/http/api-error';
 
 const settlementService = new SettlementService();
 
@@ -46,12 +47,8 @@ export async function GET(request: NextRequest) {
       data: settlements,
       count: settlements.length,
     });
-  } catch (error: any) {
-    console.error('Erreur récupération règlements:', error);
-    return NextResponse.json(
-      { error: error.message || 'Erreur serveur' },
-      { status: 500 }
-    );
+  } catch (error) {
+    return handleApiError(error, 'Erreur serveur');
   }
 }
 

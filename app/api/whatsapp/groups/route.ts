@@ -7,13 +7,14 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getPostgresClient } from '@/lib/database/postgres-client';
 import { requirePermission, PERMISSIONS } from '@/lib/rbac/server';
+import { getCurrentWorkspaceId } from '@/lib/auth/get-session';
 
 const postgresClient = getPostgresClient();
 
 export async function GET(request: NextRequest) {
   try {
     await requirePermission(PERMISSIONS.NOTIFICATION_SEND);
-    const workspaceId = 'default'; // TODO: Recuperer depuis session
+    const workspaceId = await getCurrentWorkspaceId();
 
     // Recuperer les groupes depuis PostgreSQL
     const groups = await postgresClient.query(
@@ -52,7 +53,7 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   try {
     await requirePermission(PERMISSIONS.NOTIFICATION_SEND);
-    const workspaceId = 'default'; // TODO: Recuperer depuis session
+    const workspaceId = await getCurrentWorkspaceId();
     const { groups } = await request.json();
 
     if (!Array.isArray(groups)) {

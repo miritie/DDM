@@ -197,6 +197,21 @@ describe('TransactionService.cancel', () => {
     expect(h.db.state.committed).toBe(true);
   });
 
+  it("n'inverse PAS les soldes pour une transaction restée 'pending' (jamais appliquée)", async () => {
+    h.db = makeFakeDb({
+      walletBalance: 200,
+      txRow: {
+        id: 'tx-1', type: 'income', status: 'pending', amount: 50,
+        source_wallet_id: null, destination_wallet_id: 'w1',
+      },
+    });
+    const service = new TransactionService();
+    const result = await service.cancel('tx-1');
+    expect((result as any).Status).toBe('cancelled');
+    expect(h.db.state.balance).toBe(200); // aucun mouvement
+    expect(h.db.calls.some((c: any) => c.sql.includes('UPDATE wallets'))).toBe(false);
+  });
+
   it('échoue proprement (rollback) si la transaction est introuvable', async () => {
     h.db = makeFakeDb({ txRow: undefined });
     const service = new TransactionService();
