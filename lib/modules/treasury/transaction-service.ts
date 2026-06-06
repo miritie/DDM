@@ -1,15 +1,56 @@
 /**
  * Service - Gestion des Transactions
  * Module 7.3 - Trésorerie Multi-wallet
+ *
+ * Réécrit en SQL direct paramétré : l'ancien chemin via
+ * postgresClient.list(filterByFormula) passait des conditions sans accolades
+ * que le parser legacy ne reconnaissait pas → le WHERE était silencieusement
+ * abandonné. Conséquences réelles : list() renvoyait TOUTES les transactions
+ * (tous workspaces, tous statuts), getById() renvoyait la première ligne
+ * arbitraire de la table, et cancel() inversait donc les soldes wallet d'une
+ * transaction au hasard avant d'échouer sur update().
+ *
+ * Toutes les opérations qui touchent un solde wallet sont désormais
+ * transactionnelles (BEGIN/COMMIT) avec verrou de ligne (FOR UPDATE) :
+ * plus d'incohérence « transaction créée mais solde non mis à jour », plus
+ * de race condition entre la vérification du solde et son débit.
  */
 
 import { getPostgresClient } from '@/lib/database/postgres-client';
 import { Transaction, TransactionType, TransactionCategory, TransactionStatus, TreasuryStatistics } from '@/types/modules';
 import { WalletService } from './wallet-service';
+import { nextDocSequence, Queryable } from '@/lib/database/doc-counters';
 import { v4 as uuidv4 } from 'uuid';
 
 const postgresClient = getPostgresClient();
 const walletService = new WalletService();
+
+/**
+ * Colonnes exposées en PascalCase — même forme que l'ancien mapper
+ * (mapRowToPascalCase) pour ne rien casser côté frontend. `Amount` est
+ * casté en float : pg renvoie NUMERIC en string, ce qui cassait les
+ * additions côté client ("100" + 50 → "10050").
+ */
+const TX_COLUMNS = `
+  id,
+  id                    AS "Id",
+  transaction_id        AS "TransactionId",
+  transaction_number    AS "TransactionNumber",
+  type                  AS "Type",
+  category              AS "Category",
+  amount::float         AS "Amount",
+  source_wallet_id      AS "SourceWalletId",
+  destination_wallet_id AS "DestinationWalletId",
+  description           AS "Description",
+  reference             AS "Reference",
+  attachment_url        AS "AttachmentUrl",
+  status                AS "Status",
+  processed_by_id       AS "ProcessedById",
+  processed_at          AS "ProcessedAt",
+  workspace_id          AS "WorkspaceId",
+  created_at            AS "CreatedAt",
+  updated_at            AS "UpdatedAt"
+`;
 
 export interface CreateTransactionInput {
   type: TransactionType;
@@ -25,12 +66,18 @@ export interface CreateTransactionInput {
   expenseId?: string;  // FK optionnelle : lie la transaction à une dépense (paiement multi-wallet)
 }
 
+interface LockedWallet {
+  id: string;
+  name: string;
+  balance: number;
+}
+
 /**
  * Service de gestion des transactions
  */
 export class TransactionService {
   /**
-   * Liste toutes les transactions
+   * Liste toutes les transactions du workspace (filtres paramétrés)
    */
   async list(
     workspaceId: string,
@@ -43,183 +90,227 @@ export class TransactionService {
       endDate?: string;
     }
   ): Promise<Transaction[]> {
-    const conditions: string[] = [`workspace_id = '${workspaceId}'`];
+    const conds: string[] = ['workspace_id::text = $1'];
+    const params: any[] = [workspaceId];
 
     if (filters?.type) {
-      conditions.push(`type = '${filters.type}'`);
+      params.push(filters.type);
+      conds.push(`type = $${params.length}`);
     }
     if (filters?.category) {
-      conditions.push(`category = '${filters.category}'`);
+      params.push(filters.category);
+      conds.push(`category = $${params.length}`);
     }
     if (filters?.status) {
-      conditions.push(`status = '${filters.status}'`);
+      params.push(filters.status);
+      conds.push(`status = $${params.length}`);
     }
     if (filters?.walletId) {
-      conditions.push(`(source_wallet_id = '${filters.walletId}' OR destination_wallet_id = '${filters.walletId}')`);
+      // Accepte l'UUID PK (wallets.id) ou le business code (wallets.wallet_id)
+      params.push(filters.walletId);
+      const n = params.length;
+      conds.push(
+        `(source_wallet_id IN (SELECT id FROM wallets WHERE id::text = $${n} OR wallet_id = $${n})
+          OR destination_wallet_id IN (SELECT id FROM wallets WHERE id::text = $${n} OR wallet_id = $${n}))`
+      );
+    }
+    if (filters?.startDate) {
+      params.push(filters.startDate);
+      conds.push(`processed_at >= $${params.length}::timestamp`);
+    }
+    if (filters?.endDate) {
+      params.push(filters.endDate);
+      conds.push(`processed_at < $${params.length}::date + INTERVAL '1 day'`);
     }
 
-    return await postgresClient.list<Transaction>('transactions', {
-      filterByFormula: conditions.join(' AND '),
-      orderBy: { field: 'processed_at', direction: 'desc' },
-    });
+    const r = await postgresClient.query<any>(
+      `SELECT ${TX_COLUMNS} FROM transactions
+       WHERE ${conds.join(' AND ')}
+       ORDER BY processed_at DESC`,
+      params
+    );
+    return r.rows as Transaction[];
   }
 
   /**
-   * Récupère une transaction par ID
+   * Récupère une transaction par ID (business code `transaction_id` ou UUID PK)
    */
   async getById(transactionId: string): Promise<Transaction | null> {
-    const results = await postgresClient.list<Transaction>('transactions', {
-      filterByFormula: `transaction_id = '${transactionId}'`,
-    });
-    return results[0] || null;
+    const r = await postgresClient.query<any>(
+      `SELECT ${TX_COLUMNS} FROM transactions
+       WHERE transaction_id = $1 OR id::text = $1
+       LIMIT 1`,
+      [transactionId]
+    );
+    return (r.rows[0] as Transaction) || null;
   }
 
   /**
-   * Crée une transaction de revenus (income)
+   * Crée une transaction de revenus (income).
+   * Atomique : l'insertion et le crédit du wallet réussissent ou échouent ensemble.
    */
   async createIncome(input: CreateTransactionInput): Promise<Transaction> {
     if (!input.destinationWalletId) {
       throw new Error('Le wallet de destination est requis pour un revenu');
     }
+    this.assertValidAmount(input.amount);
 
-    // Créer la transaction
-    const transaction = await this.createTransaction({
-      ...input,
-      type: 'income',
+    return await postgresClient.transaction(async (client) => {
+      const wallet = await this.lockWallet(client, input.destinationWalletId!, 'Wallet de destination non trouvé');
+      const transaction = await this.insertTransaction(client, {
+        ...input,
+        type: 'income',
+        destinationWalletId: wallet.id,
+      });
+      await this.applyBalanceDelta(client, wallet.id, input.amount);
+      return transaction;
     });
-
-    // Mettre à jour le solde du wallet
-    await walletService.updateBalance(input.destinationWalletId, input.amount, 'add');
-
-    return transaction;
   }
 
   /**
-   * Crée une transaction de dépense (expense)
+   * Crée une transaction de dépense (expense).
+   * Atomique, avec verrou : la vérification du solde et le débit ne peuvent
+   * plus être intercalés avec un autre débit concurrent.
    */
   async createExpense(input: CreateTransactionInput): Promise<Transaction> {
     if (!input.sourceWalletId) {
       throw new Error('Le wallet source est requis pour une dépense');
     }
+    this.assertValidAmount(input.amount);
 
-    // Vérifier le solde
-    const wallet = await walletService.getById(input.sourceWalletId);
-    if (!wallet) {
-      throw new Error('Wallet source non trouvé');
-    }
-
-    if (wallet.Balance < input.amount) {
-      throw new Error('Solde insuffisant');
-    }
-
-    // Créer la transaction
-    const transaction = await this.createTransaction({
-      ...input,
-      type: 'expense',
+    return await postgresClient.transaction(async (client) => {
+      const wallet = await this.lockWallet(client, input.sourceWalletId!, 'Wallet source non trouvé');
+      if (wallet.balance < input.amount) {
+        throw new Error('Solde insuffisant');
+      }
+      const transaction = await this.insertTransaction(client, {
+        ...input,
+        type: 'expense',
+        sourceWalletId: wallet.id,
+      });
+      await this.applyBalanceDelta(client, wallet.id, -input.amount);
+      return transaction;
     });
-
-    // Mettre à jour le solde du wallet
-    await walletService.updateBalance(input.sourceWalletId, input.amount, 'subtract');
-
-    return transaction;
   }
 
   /**
-   * Crée une transaction de transfert
+   * Crée une transaction de transfert (atomique, deux wallets verrouillés
+   * dans un ordre déterministe pour éviter les deadlocks croisés).
    */
   async createTransfer(input: CreateTransactionInput): Promise<Transaction> {
     if (!input.sourceWalletId || !input.destinationWalletId) {
       throw new Error('Les wallets source et destination sont requis pour un transfert');
     }
+    this.assertValidAmount(input.amount);
 
-    if (input.sourceWalletId === input.destinationWalletId) {
-      throw new Error('Les wallets source et destination doivent être différents');
-    }
+    return await postgresClient.transaction(async (client) => {
+      const sourceUuid = await this.resolveWalletUuid(client, input.sourceWalletId!);
+      const destUuid = await this.resolveWalletUuid(client, input.destinationWalletId!);
+      if (!sourceUuid) throw new Error('Wallet source non trouvé');
+      if (!destUuid) throw new Error('Wallet de destination non trouvé');
+      if (sourceUuid === destUuid) {
+        throw new Error('Les wallets source et destination doivent être différents');
+      }
 
-    // Vérifier le solde du wallet source
-    const sourceWallet = await walletService.getById(input.sourceWalletId);
-    if (!sourceWallet) {
-      throw new Error('Wallet source non trouvé');
-    }
+      // Ordre de verrouillage déterministe (tri UUID) → pas de deadlock
+      // si deux transferts croisés A→B et B→A arrivent en même temps.
+      const locked = new Map<string, LockedWallet>();
+      for (const uuid of [sourceUuid, destUuid].sort()) {
+        locked.set(uuid, await this.lockWallet(client, uuid, 'Wallet non trouvé'));
+      }
+      const source = locked.get(sourceUuid)!;
 
-    if (sourceWallet.Balance < input.amount) {
-      throw new Error('Solde insuffisant dans le wallet source');
-    }
+      if (source.balance < input.amount) {
+        throw new Error('Solde insuffisant dans le wallet source');
+      }
 
-    // Créer la transaction
-    const transaction = await this.createTransaction({
-      ...input,
-      type: 'transfer',
-      category: 'transfer',
+      const transaction = await this.insertTransaction(client, {
+        ...input,
+        type: 'transfer',
+        category: 'transfer',
+        sourceWalletId: sourceUuid,
+        destinationWalletId: destUuid,
+      });
+      await this.applyBalanceDelta(client, sourceUuid, -input.amount);
+      await this.applyBalanceDelta(client, destUuid, input.amount);
+      return transaction;
     });
-
-    // Mettre à jour les soldes
-    await walletService.updateBalance(input.sourceWalletId, input.amount, 'subtract');
-    await walletService.updateBalance(input.destinationWalletId, input.amount, 'add');
-
-    return transaction;
   }
 
   /**
-   * Annule une transaction
+   * Annule une transaction : inverse les mouvements de solde et passe le
+   * statut à `cancelled`, le tout atomiquement. La ligne transaction est
+   * verrouillée pour empêcher une double annulation concurrente.
    */
   async cancel(transactionId: string): Promise<Transaction> {
-    const transaction = await this.getById(transactionId);
-    if (!transaction) {
-      throw new Error('Transaction non trouvée');
-    }
-
-    if (transaction.Status === 'cancelled') {
-      throw new Error('Transaction déjà annulée');
-    }
-
-    // Annuler les mouvements selon le type
-    if (transaction.Type === 'income' && transaction.DestinationWalletId) {
-      await walletService.updateBalance(transaction.DestinationWalletId, transaction.Amount, 'subtract');
-    } else if (transaction.Type === 'expense' && transaction.SourceWalletId) {
-      await walletService.updateBalance(transaction.SourceWalletId, transaction.Amount, 'add');
-    } else if (transaction.Type === 'transfer') {
-      if (transaction.SourceWalletId && transaction.DestinationWalletId) {
-        await walletService.updateBalance(transaction.SourceWalletId, transaction.Amount, 'add');
-        await walletService.updateBalance(transaction.DestinationWalletId, transaction.Amount, 'subtract');
+    return await postgresClient.transaction(async (client) => {
+      const r = await client.query(
+        `SELECT id, type, status, amount::float AS amount,
+                source_wallet_id, destination_wallet_id
+         FROM transactions
+         WHERE transaction_id = $1 OR id::text = $1
+         LIMIT 1
+         FOR UPDATE`,
+        [transactionId]
+      );
+      const tx = r.rows[0];
+      if (!tx) {
+        throw new Error('Transaction non trouvée');
       }
-    }
+      if (tx.status === 'cancelled') {
+        throw new Error('Transaction déjà annulée');
+      }
 
-    // Mettre à jour le statut
-    return await this.update(transactionId, {
-      Status: 'cancelled',
+      // Inverse les mouvements selon le type
+      if (tx.type === 'income' && tx.destination_wallet_id) {
+        await this.lockWallet(client, tx.destination_wallet_id, 'Wallet de destination non trouvé');
+        await this.applyBalanceDelta(client, tx.destination_wallet_id, -tx.amount);
+      } else if (tx.type === 'expense' && tx.source_wallet_id) {
+        await this.lockWallet(client, tx.source_wallet_id, 'Wallet source non trouvé');
+        await this.applyBalanceDelta(client, tx.source_wallet_id, tx.amount);
+      } else if (tx.type === 'transfer' && tx.source_wallet_id && tx.destination_wallet_id) {
+        for (const uuid of [tx.source_wallet_id, tx.destination_wallet_id].sort()) {
+          await this.lockWallet(client, uuid, 'Wallet non trouvé');
+        }
+        await this.applyBalanceDelta(client, tx.source_wallet_id, tx.amount);
+        await this.applyBalanceDelta(client, tx.destination_wallet_id, -tx.amount);
+      }
+
+      const updated = await client.query(
+        `UPDATE transactions
+         SET status = 'cancelled', updated_at = CURRENT_TIMESTAMP
+         WHERE id = $1
+         RETURNING ${TX_COLUMNS}`,
+        [tx.id]
+      );
+      return updated.rows[0] as Transaction;
     });
   }
 
   /**
-   * Met à jour une transaction
+   * Met à jour une transaction (statut, description, référence)
    */
   async update(transactionId: string, updates: Partial<Transaction>): Promise<Transaction> {
-    const records = await postgresClient.list<Transaction>('transactions', {
-      filterByFormula: `transaction_id = '${transactionId}'`,
-    });
+    const sets: string[] = ['updated_at = CURRENT_TIMESTAMP'];
+    const params: any[] = [];
+    const push = (col: string, v: any) => { params.push(v); sets.push(`${col} = $${params.length}`); };
 
-    if (records.length === 0) {
+    if (updates.Status !== undefined) push('status', updates.Status);
+    if (updates.Description !== undefined) push('description', updates.Description);
+    if (updates.Reference !== undefined) push('reference', updates.Reference);
+
+    params.push(transactionId);
+    const r = await postgresClient.query<any>(
+      `UPDATE transactions
+       SET ${sets.join(', ')}
+       WHERE transaction_id = $${params.length} OR id::text = $${params.length}
+       RETURNING ${TX_COLUMNS}`,
+      params
+    );
+    if (r.rows.length === 0) {
       throw new Error('Transaction non trouvée');
     }
-
-    const recordId = records[0].id;
-    if (!recordId) {
-      throw new Error('Transaction ID non trouvé');
-    }
-
-    const updateData: Record<string, any> = {
-      UpdatedAt: new Date().toISOString(),
-    };
-
-    // Map updates to PascalCase
-    if (updates.Status !== undefined) updateData.Status = updates.Status;
-    if (updates.Description !== undefined) updateData.Description = updates.Description;
-    if (updates.Reference !== undefined) updateData.Reference = updates.Reference;
-
-    const updated = await postgresClient.update<Transaction>('transactions', recordId, updateData);
-
-    return updated;
+    return r.rows[0] as Transaction;
   }
 
   /**
@@ -228,6 +319,7 @@ export class TransactionService {
   async getStatistics(workspaceId: string, period?: { startDate: string; endDate: string }): Promise<TreasuryStatistics> {
     const transactions = await this.list(workspaceId, {
       status: 'completed',
+      ...(period ? { startDate: period.startDate, endDate: period.endDate } : {}),
     });
 
     const wallets = await walletService.list(workspaceId, { isActive: true });
@@ -300,46 +392,113 @@ export class TransactionService {
     };
   }
 
+  // ---------------------------------------------------------------------
+  // Privé
+  // ---------------------------------------------------------------------
+
+  private assertValidAmount(amount: number): void {
+    const n = Number(amount);
+    if (!Number.isFinite(n) || n <= 0) {
+      throw new Error('Montant invalide : doit être un nombre strictement positif');
+    }
+  }
+
+  /** Résout un wallet (UUID PK ou business code wallet_id) en UUID PK. */
+  private async resolveWalletUuid(client: Queryable, idOrSlug: string): Promise<string | null> {
+    const r = await client.query(
+      `SELECT id FROM wallets WHERE id::text = $1 OR wallet_id = $1 LIMIT 1`,
+      [idOrSlug]
+    );
+    return r.rows[0]?.id ?? null;
+  }
+
   /**
-   * Crée une transaction (méthode privée)
+   * Verrouille la ligne wallet (FOR UPDATE) et retourne son état courant.
+   * Le verrou tient jusqu'au COMMIT/ROLLBACK de la transaction englobante.
+   */
+  private async lockWallet(client: Queryable, idOrSlug: string, notFoundMessage: string): Promise<LockedWallet> {
+    const r = await client.query(
+      `SELECT id, name, balance::float AS balance
+       FROM wallets
+       WHERE id::text = $1 OR wallet_id = $1
+       LIMIT 1
+       FOR UPDATE`,
+      [idOrSlug]
+    );
+    if (r.rows.length === 0) {
+      throw new Error(notFoundMessage);
+    }
+    return r.rows[0] as LockedWallet;
+  }
+
+  /** Applique un delta au solde (le wallet doit déjà être verrouillé). */
+  private async applyBalanceDelta(client: Queryable, walletUuid: string, delta: number): Promise<void> {
+    const r = await client.query(
+      `UPDATE wallets
+       SET balance = balance + $2, updated_at = CURRENT_TIMESTAMP
+       WHERE id = $1
+       RETURNING balance::float AS balance`,
+      [walletUuid, delta]
+    );
+    if (r.rows.length === 0) {
+      throw new Error('Wallet non trouvé');
+    }
+    if (Number(r.rows[0].balance) < 0) {
+      // Le ROLLBACK de la transaction englobante annule ce UPDATE.
+      throw new Error('Solde insuffisant');
+    }
+  }
+
+  /**
+   * Insère la transaction dans la transaction SQL en cours.
    *
    * processedById peut être soit l'UUID PK (users.id), soit le business code
    * (users.user_id = "USR-…"). Convention de l'app : la session véhicule le
    * business code via getCurrentUserId(). On résout ici pour éviter
    * "invalid input syntax for type uuid" sur transactions.processed_by_id.
    */
-  private async createTransaction(input: CreateTransactionInput): Promise<Transaction> {
-    const transactionNumber = await this.generateTransactionNumber(input.workspaceId, input.type);
+  private async insertTransaction(client: Queryable, input: CreateTransactionInput): Promise<Transaction> {
+    const transactionNumber = await this.generateTransactionNumber(client, input.workspaceId, input.type);
+    const processedByUuid = await this.resolveUserUuid(client, input.processedById);
 
-    const processedByUuid = await this.resolveUserUuid(input.processedById);
+    // expense_id n'est référencé que s'il est fourni : la colonne vient
+    // d'une migration optionnelle (migration-transactions-expense-link.sql).
+    const cols = [
+      'transaction_id', 'transaction_number', 'type', 'category', 'amount',
+      'source_wallet_id', 'destination_wallet_id', 'description', 'reference',
+      'attachment_url', 'status', 'processed_by_id', 'processed_at', 'workspace_id',
+      'created_at', 'updated_at',
+    ];
+    const values = [
+      '$1', '$2', '$3', '$4', '$5',
+      '$6::uuid', '$7::uuid', '$8', '$9::varchar',
+      '$10::text', `'completed'`, '$11::uuid', 'CURRENT_TIMESTAMP', '$12::uuid',
+      'CURRENT_TIMESTAMP', 'CURRENT_TIMESTAMP',
+    ];
+    const params: any[] = [
+      uuidv4(), transactionNumber, input.type, input.category, input.amount,
+      input.sourceWalletId ?? null, input.destinationWalletId ?? null,
+      input.description, input.reference ?? null,
+      input.attachmentUrl ?? null, processedByUuid, input.workspaceId,
+    ];
+    if (input.expenseId) {
+      params.push(input.expenseId);
+      cols.push('expense_id');
+      values.push(`$${params.length}::uuid`);
+    }
 
-    const transaction: Partial<Transaction> & { ExpenseId?: string } = {
-      TransactionId: uuidv4(),
-      TransactionNumber: transactionNumber,
-      Type: input.type,
-      Category: input.category,
-      Amount: input.amount,
-      SourceWalletId: input.sourceWalletId,
-      DestinationWalletId: input.destinationWalletId,
-      Description: input.description,
-      Reference: input.reference,
-      AttachmentUrl: input.attachmentUrl,
-      Status: 'completed',
-      ProcessedById: processedByUuid,
-      ProcessedAt: new Date().toISOString(),
-      WorkspaceId: input.workspaceId,
-      CreatedAt: new Date().toISOString(),
-      UpdatedAt: new Date().toISOString(),
-      ...(input.expenseId ? { ExpenseId: input.expenseId } : {}),
-    };
-
-    const created = await postgresClient.create<Transaction>('transactions', transaction);
-    return created;
+    const r = await client.query(
+      `INSERT INTO transactions (${cols.join(', ')})
+       VALUES (${values.join(', ')})
+       RETURNING ${TX_COLUMNS}`,
+      params
+    );
+    return r.rows[0] as Transaction;
   }
 
   /** Accepte UUID PK ou business code user_id et retourne l'UUID PK. */
-  private async resolveUserUuid(idOrSlug: string): Promise<string> {
-    const r = await postgresClient.query<any>(
+  private async resolveUserUuid(client: Queryable, idOrSlug: string): Promise<string> {
+    const r = await client.query(
       `SELECT id FROM users WHERE id::text = $1 OR user_id = $1 LIMIT 1`,
       [idOrSlug]
     );
@@ -348,9 +507,11 @@ export class TransactionService {
   }
 
   /**
-   * Génère un numéro de transaction unique
+   * Génère un numéro de transaction unique — séquence atomique par
+   * (workspace, type), amorcée depuis le COUNT existant pour assurer la
+   * continuité de la numérotation historique.
    */
-  private async generateTransactionNumber(workspaceId: string, type: TransactionType): Promise<string> {
+  private async generateTransactionNumber(client: Queryable, workspaceId: string, type: TransactionType): Promise<string> {
     const typePrefix: Record<TransactionType, string> = {
       income: 'INC',
       expense: 'EXP',
@@ -362,11 +523,18 @@ export class TransactionService {
     const year = date.getFullYear();
     const month = String(date.getMonth() + 1).padStart(2, '0');
 
-    const existingTransactions = await postgresClient.list<Transaction>('transactions', {
-      filterByFormula: `workspace_id = '${workspaceId}' AND type = '${type}'`,
-    });
+    const sequence = await nextDocSequence(
+      `transactions:${workspaceId}:${type}`,
+      async () => {
+        const r = await client.query(
+          `SELECT COUNT(*)::int AS n FROM transactions WHERE workspace_id::text = $1 AND type = $2`,
+          [workspaceId, type]
+        );
+        return r.rows[0]?.n ?? 0;
+      },
+      client
+    );
 
-    const sequence = String(existingTransactions.length + 1).padStart(4, '0');
-    return `${prefix}-${year}${month}-${sequence}`;
+    return `${prefix}-${year}${month}-${String(sequence).padStart(4, '0')}`;
   }
 }
