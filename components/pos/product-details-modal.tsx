@@ -67,22 +67,22 @@ export function ProductDetailsModal({
     ? [details.ImageUrl, ...details.AdditionalImages.map(i => i.url)].filter((u): u is string => !!u)
     : [];
 
-  // Stock visual.
-  let stockBadge = 'bg-gray-100 text-gray-600';
-  let stockLabel = 'Stock non suivi';
+  // Stock visual. Règle métier : tout stock est suivi — une info absente
+  // (null) vaut ZÉRO → rupture, vente impossible.
+  const effectiveQty = stockQty ?? 0;
+  let stockBadge: string;
+  let stockLabel: string;
   let disabled = false;
-  if (stockQty !== null) {
-    if (stockQty <= 0) {
-      stockBadge = 'bg-red-100 text-red-700';
-      stockLabel = 'Rupture';
-      disabled = true;
-    } else if (stockQty <= stockMin) {
-      stockBadge = 'bg-amber-100 text-amber-800';
-      stockLabel = 'Stock bas : ' + new Intl.NumberFormat('fr-FR').format(stockQty);
-    } else {
-      stockBadge = 'bg-emerald-100 text-emerald-800';
-      stockLabel = new Intl.NumberFormat('fr-FR').format(stockQty) + ' en stock';
-    }
+  if (effectiveQty <= 0) {
+    stockBadge = 'bg-red-100 text-red-700';
+    stockLabel = 'Rupture';
+    disabled = true;
+  } else if (effectiveQty <= stockMin) {
+    stockBadge = 'bg-amber-100 text-amber-800';
+    stockLabel = 'Stock bas : ' + new Intl.NumberFormat('fr-FR').format(effectiveQty);
+  } else {
+    stockBadge = 'bg-emerald-100 text-emerald-800';
+    stockLabel = new Intl.NumberFormat('fr-FR').format(effectiveQty) + ' en stock';
   }
 
   return (

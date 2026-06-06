@@ -20,32 +20,31 @@ export interface StockMeta {
 
 /**
  * Calcule la présentation visuelle du stock à partir des données brutes.
- * Quatre états : non suivi (gris), rupture (rouge, désactivé), bas
- * (ambre), normal (vert, libellé masqué pour économiser une ligne).
+ * Règle métier : TOUT stock est suivi — une information de stock absente
+ * ou non définie vaut ZÉRO (rupture, vente impossible). Trois états :
+ * rupture (rouge, désactivé), bas (ambre), normal (vert, libellé masqué).
  * Partagé entre la vue compacte (grille) et la vue liste.
  */
 export function getStockMeta(stock: StockInfo | undefined): StockMeta {
-  const qty = stock?.qty ?? null;
+  const qty = stock?.qty ?? 0;
   const min = stock?.min ?? 0;
-  let dotClass = 'bg-gray-300';
-  let stockText = 'Stock non suivi';
-  let stockTextClass = 'text-gray-500';
+  let dotClass: string;
+  let stockText: string;
+  let stockTextClass: string;
   let showStockText = true;
-  if (qty !== null) {
-    if (qty <= 0) {
-      dotClass = 'bg-red-500';
-      stockText = 'Rupture';
-      stockTextClass = 'text-red-700 font-semibold';
-    } else if (qty <= min) {
-      dotClass = 'bg-amber-500';
-      stockText = 'Bas : ' + new Intl.NumberFormat('fr-FR').format(qty);
-      stockTextClass = 'text-amber-700 font-semibold';
-    } else {
-      dotClass = 'bg-emerald-500';
-      stockText = new Intl.NumberFormat('fr-FR').format(qty) + ' en stock';
-      stockTextClass = 'text-emerald-700';
-      showStockText = false;
-    }
+  if (qty <= 0) {
+    dotClass = 'bg-red-500';
+    stockText = 'Rupture';
+    stockTextClass = 'text-red-700 font-semibold';
+  } else if (qty <= min) {
+    dotClass = 'bg-amber-500';
+    stockText = 'Bas : ' + new Intl.NumberFormat('fr-FR').format(qty);
+    stockTextClass = 'text-amber-700 font-semibold';
+  } else {
+    dotClass = 'bg-emerald-500';
+    stockText = new Intl.NumberFormat('fr-FR').format(qty) + ' en stock';
+    stockTextClass = 'text-emerald-700';
+    showStockText = false;
   }
   return {
     qty,
@@ -53,8 +52,8 @@ export function getStockMeta(stock: StockInfo | undefined): StockMeta {
     stockText,
     stockTextClass,
     showStockText,
-    disabled: qty !== null && qty <= 0,
-    titleAttr: qty !== null ? stockText : 'Stock non suivi',
+    disabled: qty <= 0,
+    titleAttr: stockText,
   };
 }
 

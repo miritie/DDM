@@ -262,13 +262,12 @@ export async function POST(request: NextRequest) {
         );
 
         // ===== Décrément stock BLOQUANT (dans la transaction) =====
-        // Politique : si le produit est suivi en stock sur ce stand et que
-        // la quantité est insuffisante, la vente ENTIÈRE est refusée
-        // (rollback : ni vente, ni paiement, ni lignes). L'UPDATE
-        // conditionnel est atomique : deux caisses simultanées ne peuvent
-        // pas vendre la même dernière unité.
-        // Un produit SANS ligne de stock (« stock non suivi ») reste
-        // vendable — certains stands ne tiennent pas d'inventaire.
+        // Règle métier : TOUT stock est suivi. Une information de stock
+        // absente ou non définie vaut ZÉRO → vente refusée. Si la quantité
+        // est insuffisante, la vente ENTIÈRE est refusée (rollback : ni
+        // vente, ni paiement, ni lignes). L'UPDATE conditionnel est
+        // atomique : deux caisses simultanées ne peuvent pas vendre la
+        // même dernière unité.
         const st = await client.query(
           `UPDATE stock_items
            SET quantity = quantity - $3,
@@ -284,13 +283,11 @@ export async function POST(request: NextRequest) {
              WHERE product_id = $1 AND outlet_id = $2 LIMIT 1`,
             [line.productId, outletId]
           );
-          if (existing.rows.length > 0) {
-            const dispo = Number(existing.rows[0].quantity);
-            throw new ConflictError(
-              `Stock insuffisant pour ${line.productName} : ${dispo} disponible(s), ${line.quantity} demandé(s). Vente annulée.`
-            );
-          }
-          // Pas de ligne stock → produit non suivi sur ce stand : on laisse passer.
+          // Pas de ligne stock = 0 disponible (tout stock est suivi).
+          const dispo = existing.rows.length > 0 ? Number(existing.rows[0].quantity) : 0;
+          throw new ConflictError(
+            `Stock insuffisant pour ${line.productName} : ${dispo} disponible(s), ${line.quantity} demandé(s). Vente annulée.`
+          );
         }
       }
 

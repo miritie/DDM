@@ -115,12 +115,11 @@ export default function QuickSalePage() {
       });
   }, [products, prices, search, popularityByProduct]);
 
-  // Stock cap : on ne laisse pas dépasser la quantité disponible sur l'outlet
-  // pour ne pas se faire rejeter au checkout (CHECK SQL côté base + service).
-  // Si on n'a pas l'info de stock (Map vide), on laisse passer — la base
-  // rattrapera en dernier recours.
+  // Stock cap : on ne laisse pas dépasser la quantité disponible sur l'outlet.
+  // Règle métier : TOUT stock est suivi — pas d'info de stock = ZÉRO,
+  // donc invendable. Le serveur applique la même règle (refus 409).
   function addToCart(p: SellableProduct) {
-    const maxQty = stockByProduct.get(p._id)?.qty ?? Infinity;
+    const maxQty = stockByProduct.get(p._id)?.qty ?? 0;
     const inCartQty = cart.find(c => c.productId === p._id)?.quantity ?? 0;
     if (inCartQty + 1 > maxQty) {
       setFeedback({ type: 'error', message: `Stock épuisé pour ${p.Name} (${maxQty} disponible${maxQty > 1 ? 's' : ''})` });
@@ -135,7 +134,7 @@ export default function QuickSalePage() {
 
   function changeQty(id: string, delta: number) {
     if (delta > 0) {
-      const maxQty = stockByProduct.get(id)?.qty ?? Infinity;
+      const maxQty = stockByProduct.get(id)?.qty ?? 0;
       const current = cart.find(c => c.productId === id)?.quantity ?? 0;
       if (current + delta > maxQty) {
         setFeedback({ type: 'error', message: `Stock max atteint (${maxQty})` });
@@ -484,7 +483,7 @@ export default function QuickSalePage() {
             <ProductDetailsModal
               productId={p._id}
               outletPrice={p.outletPrice}
-              stockQty={stock?.qty ?? null}
+              stockQty={stock?.qty ?? 0}
               stockMin={stock?.min ?? 0}
               cartQty={inCart?.quantity ?? 0}
               onClose={() => setDetailsProductId(null)}
