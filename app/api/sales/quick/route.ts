@@ -173,22 +173,26 @@ export async function POST(request: NextRequest) {
     let paymentMethodId: string | null = null;
     let paymentNumber: string | null = null;
     if (paidNow > 0) {
-      // Résout walletId : accepte UUID ou slug `wallet_id` VARCHAR.
-      // Un walletId fourni mais introuvable est une erreur de config à
-      // remonter immédiatement — l'avaler créerait une vente encaissée
-      // sans aucune trace en trésorerie (écart de caisse invisible).
-      if (walletId) {
-        const wr = await db.query(
-          `SELECT id FROM wallets WHERE id::text = $1 OR wallet_id = $1 LIMIT 1`,
-          [walletId]
+      // Règle métier : AUCUN encaissement sans caisse. Tout argent qui
+      // rentre doit être rattaché à un wallet (trésorerie + écritures
+      // comptables) — sinon écart de caisse invisible.
+      if (!walletId) {
+        return NextResponse.json(
+          { error: 'Aucune caisse sélectionnée pour cet encaissement. Configurez une caisse (wallet) pour ce point de vente avant de vendre.' },
+          { status: 400 }
         );
-        walletUuid = wr.rows[0]?.id ?? null;
-        if (!walletUuid) {
-          return NextResponse.json(
-            { error: `Caisse introuvable : ${walletId}. Vérifiez la configuration des caisses.` },
-            { status: 400 }
-          );
-        }
+      }
+      // Résout walletId : accepte UUID ou slug `wallet_id` VARCHAR.
+      const wr = await db.query(
+        `SELECT id FROM wallets WHERE id::text = $1 OR wallet_id = $1 LIMIT 1`,
+        [walletId]
+      );
+      walletUuid = wr.rows[0]?.id ?? null;
+      if (!walletUuid) {
+        return NextResponse.json(
+          { error: `Caisse introuvable : ${walletId}. Vérifiez la configuration des caisses.` },
+          { status: 400 }
+        );
       }
 
       // Mode crédit = vente à crédit, pas un moyen de paiement : on ne trace
