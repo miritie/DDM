@@ -133,6 +133,12 @@ jobs:
             sudo docker compose exec -T app npx tsx scripts/database/sync-all-permissions.ts \
               || echo "⚠️ Sync permissions échouée — relancer : docker compose exec app npx tsx scripts/database/sync-all-permissions.ts"
 
+            # Caisse par stand (idempotent) : colonne wallets.outlet_id +
+            # adoption/création de la caisse cash de chaque stand actif
+            # + mapping comptable 571. Sans caisse, un stand ne vend pas.
+            sudo docker compose exec -T app npx tsx scripts/database/ensure-outlet-cash-wallets.ts \
+              || echo "⚠️ Config caisses stands échouée — relancer : docker compose exec app npx tsx scripts/database/ensure-outlet-cash-wallets.ts"
+
             # Écritures comptables des ventes passées (idempotent) : génère
             # VT (D411/C701) + encaissements (D5xx/C411) manquants.
             sudo docker compose exec -T app npx tsx scripts/database/backfill-sale-entries.ts \

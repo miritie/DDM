@@ -80,6 +80,10 @@ export function CheckoutModal({ total, outletId, allowsCredit = false, onClose, 
 }) {
   const [method, setMethod] = useState<PosPaymentMethod>('cash');
   const [wallets, setWallets] = useState<Wallet[]>([]);
+  // Caisse cash LIÉE à ce stand (wallets.outlet_id, via /cash-balance) :
+  // prioritaire sur « premier wallet cash du workspace » qui pouvait
+  // encaisser dans le tiroir d'un AUTRE stand.
+  const [standCashWalletId, setStandCashWalletId] = useState<string | null>(null);
   const [paymentMethods, setPaymentMethods] = useState<ApiPaymentMethod[]>([]);
   const [acceptedIds, setAcceptedIds] = useState<Set<string> | null>(null);
   const [walletId, setWalletId] = useState<string>('');
@@ -105,8 +109,14 @@ export function CheckoutModal({ total, outletId, allowsCredit = false, onClose, 
         .then(r => r.ok ? r.json() : { data: { acceptedIds: [] } })
         .then(d => setAcceptedIds(new Set(d.data?.acceptedIds ?? [])))
         .catch(() => setAcceptedIds(null));
+      // Caisse du stand (id du wallet cash lié)
+      fetch('/api/outlets/' + encodeURIComponent(outletId) + '/cash-balance')
+        .then(r => r.ok ? r.json() : { data: { wallet: null } })
+        .then(d => setStandCashWalletId(d.data?.wallet?.id ?? null))
+        .catch(() => setStandCashWalletId(null));
     } else {
       setAcceptedIds(null);
+      setStandCashWalletId(null);
     }
   }, [outletId]);
 
@@ -137,18 +147,23 @@ export function CheckoutModal({ total, outletId, allowsCredit = false, onClose, 
     }
   }, [displayedMethods, method]);
 
-  // Quand on change de méthode, on resélectionne le 1er wallet disponible
+  // Quand on change de méthode, on sélectionne le wallet adapté :
+  // pour le cash, PRIORITÉ à la caisse du stand ; sinon 1er wallet du type.
   useEffect(() => {
     const current = displayedMethods.find(m => m.id === method);
     const required = current?.walletType ?? null;
     if (!required) { setWalletId(''); }
     else {
       const candidates = wallets.filter(w => (w.Type || w.type) === required);
-      setWalletId(candidates[0] ? (candidates[0].Id || candidates[0].id || '') : '');
+      const standWallet = required === 'cash' && standCashWalletId
+        ? candidates.find(w => (w.Id || w.id) === standCashWalletId)
+        : undefined;
+      const picked = standWallet ?? candidates[0];
+      setWalletId(picked ? (picked.Id || picked.id || '') : '');
     }
     if (method === 'credit') setAmountPaid('0');
     else setAmountPaid(String(total));
-  }, [method, wallets, total, displayedMethods]);
+  }, [method, wallets, total, displayedMethods, standCashWalletId]);
 
   const requiredType = displayedMethods.find(m => m.id === method)?.walletType ?? null;
   const filteredWallets = useMemo(

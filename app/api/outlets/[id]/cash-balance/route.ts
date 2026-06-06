@@ -3,11 +3,12 @@
  *
  * Renvoie le wallet caisse associé au stand + son solde courant.
  *
- * Convention V1 (sans colonne outlets.cash_wallet_id) :
- *   - 1) Cherche un wallet actif type=cash dont le nom contient le nom
- *        de l'outlet (ex. « Caisse Playce Marcory »).
- *   - 2) Sinon, prend le premier wallet actif type=cash du workspace.
- *   - 3) Sinon, renvoie null (à configurer côté admin).
+ * Résolution de la caisse du stand :
+ *   - 0) Wallet actif type=cash LIÉ au stand (wallets.outlet_id) — posé par
+ *        le script ensure-outlet-cash-wallets (auto au déploiement)
+ *   - 1) Sinon, wallet cash dont le nom contient le nom de l'outlet (V1)
+ *   - 2) Sinon, null — PLUS de repli « premier wallet du workspace » :
+ *        il renvoyait la caisse d'un AUTRE stand (tiroir-caisse erroné).
  *
  * Réponse :
  *   { data: { wallet: { id, name, balance } | null } }
@@ -41,25 +42,35 @@ export async function GET(
     }
     const outlet = outletRes.rows[0];
 
-    // 1) Wallet cash dont le nom contient le nom de l'outlet
-    const matchRes = await db.query<any>(
-      `SELECT id, name, balance, type FROM wallets
-       WHERE workspace_id = $1 AND type = 'cash' AND is_active = true
-         AND name ILIKE $2
-       ORDER BY name LIMIT 1`,
-      [workspaceId, '%' + outlet.name + '%']
-    );
-
-    let wallet = matchRes.rows[0];
-    if (!wallet) {
-      // 2) Fallback : premier wallet cash actif du workspace
-      const fallbackRes = await db.query<any>(
+    // 0) Wallet explicitement lié au stand (colonne posée par migration —
+    //    to_regclass-style guard inutile : ADD COLUMN IF NOT EXISTS est
+    //    exécuté au déploiement avant que ce code ne tourne ; en attendant,
+    //    une colonne absente ferait tomber sur le catch → on protège quand
+    //    même via une détection souple).
+    let wallet: any = null;
+    try {
+      const linkedRes = await db.query<any>(
         `SELECT id, name, balance, type FROM wallets
          WHERE workspace_id = $1 AND type = 'cash' AND is_active = true
+           AND outlet_id = $2
          ORDER BY name LIMIT 1`,
-        [workspaceId]
+        [workspaceId, outlet.id]
       );
-      wallet = fallbackRes.rows[0];
+      wallet = linkedRes.rows[0] ?? null;
+    } catch {
+      // colonne outlet_id pas encore migrée — on retombe sur la convention nom
+    }
+
+    if (!wallet) {
+      // 1) Wallet cash dont le nom contient le nom de l'outlet (convention V1)
+      const matchRes = await db.query<any>(
+        `SELECT id, name, balance, type FROM wallets
+         WHERE workspace_id = $1 AND type = 'cash' AND is_active = true
+           AND name ILIKE $2
+         ORDER BY name LIMIT 1`,
+        [workspaceId, '%' + outlet.name + '%']
+      );
+      wallet = matchRes.rows[0] ?? null;
     }
 
     return NextResponse.json({
