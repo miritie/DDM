@@ -146,6 +146,13 @@ export default function AdminDashboardPage() {
                 >
                   💰 Vente rapide
                 </Button>
+                <Button
+                  variant="outline"
+                  onClick={() => router.push('/admin/simulate')}
+                  className="bg-white text-purple-600 hover:bg-gray-100 border-white"
+                >
+                  🎬 Simulation de données
+                </Button>
               </div>
             </div>
           </CardContent>
