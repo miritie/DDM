@@ -20,6 +20,7 @@ import { ProtectedPage } from '@/components/rbac/protected-page';
 import { PERMISSIONS } from '@/lib/rbac';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { downloadFinancialStatementsPdf } from '@/lib/pdf/financial-statements-pdf';
+import { downloadFinancialStatementsDocx } from '@/lib/word/financial-statements-docx';
 import { loadReceiptLogo } from '@/lib/pdf/sale-receipt-pdf';
 import type { FinancialStatements } from '@/lib/modules/accounting/financial-statements-service';
 
@@ -31,7 +32,7 @@ export default function FinancialStatementsPage() {
   const [data, setData] = useState<FinancialStatements | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [generating, setGenerating] = useState(false);
+  const [generating, setGenerating] = useState<'pdf' | 'docx' | null>(null);
   const [message, setMessage] = useState<string | null>(null);
 
   const load = useCallback(async (year: number) => {
@@ -50,18 +51,22 @@ export default function FinancialStatementsPage() {
 
   useEffect(() => { void load(fiscalYear); }, [fiscalYear, load]);
 
-  async function handlePdf() {
+  async function handleExport(format: 'pdf' | 'docx') {
     if (!data) return;
-    setGenerating(true);
+    setGenerating(format);
     setMessage(null);
     try {
       const logo = await loadReceiptLogo(data.company.logoUrl);
-      downloadFinancialStatementsPdf(data, logo);
-      setMessage(`Dossier états-financiers-${fiscalYear}.pdf téléchargé ✓`);
+      if (format === 'pdf') {
+        downloadFinancialStatementsPdf(data, logo);
+      } else {
+        await downloadFinancialStatementsDocx(data, logo);
+      }
+      setMessage(`Dossier états-financiers-${fiscalYear}.${format} téléchargé ✓`);
     } catch (e: any) {
       setMessage('Erreur : ' + e.message);
     } finally {
-      setGenerating(false);
+      setGenerating(null);
     }
   }
 
@@ -164,15 +169,31 @@ export default function FinancialStatementsPage() {
               </div>
             )}
 
-            <button
-              onClick={handlePdf}
-              disabled={generating || !hasEntries}
-              className="w-full py-3.5 rounded-xl bg-amber-700 text-white font-bold text-base hover:bg-amber-800 active:scale-[0.99] transition disabled:opacity-50 inline-flex items-center justify-center gap-2"
-            >
-              {generating
-                ? <><Loader2 className="w-5 h-5 animate-spin" /> Génération…</>
-                : <><FileDown className="w-5 h-5" /> Télécharger le dossier PDF {fiscalYear}</>}
-            </button>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+              <button
+                onClick={() => handleExport('pdf')}
+                disabled={!!generating || !hasEntries}
+                className="py-3.5 rounded-xl bg-amber-700 text-white font-bold text-base hover:bg-amber-800 active:scale-[0.99] transition disabled:opacity-50 inline-flex items-center justify-center gap-2"
+              >
+                {generating === 'pdf'
+                  ? <><Loader2 className="w-5 h-5 animate-spin" /> Génération…</>
+                  : <><FileDown className="w-5 h-5" /> PDF {fiscalYear}</>}
+              </button>
+              <button
+                onClick={() => handleExport('docx')}
+                disabled={!!generating || !hasEntries}
+                className="py-3.5 rounded-xl bg-blue-700 text-white font-bold text-base hover:bg-blue-800 active:scale-[0.99] transition disabled:opacity-50 inline-flex items-center justify-center gap-2"
+                title="Document Word éditable — pour retravailler les tableaux et compléter les notes annexes"
+              >
+                {generating === 'docx'
+                  ? <><Loader2 className="w-5 h-5 animate-spin" /> Génération…</>
+                  : <><FileDown className="w-5 h-5" /> Word (.docx) {fiscalYear}</>}
+              </button>
+            </div>
+            <p className="text-xs text-gray-500 text-center -mt-1">
+              Le format Word est entièrement éditable — idéal pour que l'expert-comptable
+              retravaille les tableaux et complète les notes annexes.
+            </p>
           </>
         )}
       </div>
