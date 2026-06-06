@@ -110,11 +110,37 @@ export class JournalEntryService {
     return entries.length > 0 ? entries[0] : null;
   }
 
-  async getLines(entryId: string): Promise<JournalEntryLine[]> {
-    return await postgresClient.list<JournalEntryLine>('journal_entry_lines', {
-      filterByFormula: `{EntryId} = '${entryId}'`,
-      sort: [{ field: 'LineNumber', direction: 'asc' }],
-    });
+  /**
+   * Lignes d'une écriture. Accepte l'ID métier (JE-…) ou l'UUID PK :
+   * `journal_entry_lines.entry_id` est un UUID FK — l'ancien filtre
+   * `entry_id = 'JE-…'` levait « invalid input syntax for type uuid »
+   * (balance/bilan/compte de résultat en erreur). Le compte est joint
+   * pour exposer son numéro et son libellé.
+   */
+  async getLines(entryId: string): Promise<(JournalEntryLine & { AccountNumber?: string; AccountLabel?: string })[]> {
+    const r = await postgresClient.query<any>(
+      `SELECT
+         l.line_id        AS "LineId",
+         l.entry_id       AS "EntryId",
+         l.line_number    AS "LineNumber",
+         l.account_id     AS "AccountId",
+         l.label          AS "Label",
+         l.debit_amount::float  AS "DebitAmount",
+         l.credit_amount::float AS "CreditAmount",
+         l.analytical_code AS "AnalyticalCode",
+         l.cost_center    AS "CostCenter",
+         l.reference      AS "Reference",
+         l.created_at     AS "CreatedAt",
+         ca.account_number AS "AccountNumber",
+         ca.label          AS "AccountLabel"
+       FROM journal_entry_lines l
+       JOIN journal_entries e ON e.id = l.entry_id
+       LEFT JOIN chart_accounts ca ON ca.id = l.account_id
+       WHERE e.entry_id = $1 OR e.id::text = $1
+       ORDER BY l.line_number ASC`,
+      [entryId]
+    );
+    return r.rows;
   }
 
   async list(workspaceId: string, filters: { journalId?: string; status?: string; startDate?: string; endDate?: string } = {}): Promise<JournalEntry[]> {
@@ -206,55 +232,51 @@ export class JournalEntryService {
     });
   }
 
+  /**
+   * Balance générale : agrégat débit/crédit par compte, en UNE requête SQL.
+   *
+   * L'ancienne implémentation bouclait (N entrées × M lignes × 1 lookup
+   * compte) et surtout passait l'ID métier JE-… à getLines dont la colonne
+   * est un UUID → « invalid input syntax for type uuid » : balance, bilan
+   * et compte de résultat étaient en erreur permanente.
+   *
+   * Statuts retenus : posted ET validated (une écriture validée reste
+   * comptabilisée — l'exclure fausserait la balance).
+   */
   async getTrialBalance(workspaceId: string, fiscalYear: number, fiscalPeriod?: number): Promise<TrialBalance[]> {
-    // Get all posted/validated entries for the period
-    const filters: any = { status: 'posted' };
-    const entries = await this.list(workspaceId, filters);
-
-    const periodEntries = entries.filter(
-      (e) => e.FiscalYear === fiscalYear && (!fiscalPeriod || e.FiscalPeriod <= fiscalPeriod)
-    );
-
-    // Get all lines for these entries
-    const accountBalances: Record<string, { debit: number; credit: number; label: string; number: string }> = {};
-
-    for (const entry of periodEntries) {
-      const lines = await this.getLines(entry.EntryId);
-
-      for (const line of lines) {
-        const account = await postgresClient.list<ChartAccount>('chart_accounts', {
-          filterByFormula: `{AccountId} = '${line.AccountId}'`,
-        });
-
-        const accountNumber = account[0]?.AccountNumber || 'Unknown';
-        const accountLabel = account[0]?.Label || 'Unknown';
-
-        if (!accountBalances[accountNumber]) {
-          accountBalances[accountNumber] = {
-            debit: 0,
-            credit: 0,
-            label: accountLabel,
-            number: accountNumber,
-          };
-        }
-
-        accountBalances[accountNumber].debit += line.DebitAmount;
-        accountBalances[accountNumber].credit += line.CreditAmount;
-      }
+    const params: any[] = [workspaceId, fiscalYear];
+    let periodCond = '';
+    if (fiscalPeriod) {
+      params.push(fiscalPeriod);
+      periodCond = ` AND e.fiscal_period <= $${params.length}`;
     }
 
-    // Convert to TrialBalance format
-    const trialBalance: TrialBalance[] = Object.entries(accountBalances).map(([number, data]) => ({
-      AccountNumber: number,
-      AccountLabel: data.label,
+    const r = await postgresClient.query<any>(
+      `SELECT
+         ca.account_number AS number,
+         ca.label          AS label,
+         SUM(l.debit_amount)::float  AS debit,
+         SUM(l.credit_amount)::float AS credit
+       FROM journal_entry_lines l
+       JOIN journal_entries e ON e.id = l.entry_id
+       LEFT JOIN chart_accounts ca ON ca.id = l.account_id
+       WHERE e.workspace_id::text = $1
+         AND e.status IN ('posted', 'validated')
+         AND e.fiscal_year = $2${periodCond}
+       GROUP BY ca.account_number, ca.label
+       ORDER BY ca.account_number ASC`,
+      params
+    );
+
+    return r.rows.map((row: any): TrialBalance => ({
+      AccountNumber: row.number || 'Inconnu',
+      AccountLabel: row.label || 'Compte inconnu',
       OpeningDebit: 0, // TODO: Calculate from previous period
       OpeningCredit: 0,
-      PeriodDebit: data.debit,
-      PeriodCredit: data.credit,
-      ClosingDebit: data.debit,
-      ClosingCredit: data.credit,
+      PeriodDebit: Number(row.debit || 0),
+      PeriodCredit: Number(row.credit || 0),
+      ClosingDebit: Number(row.debit || 0),
+      ClosingCredit: Number(row.credit || 0),
     }));
-
-    return trialBalance.sort((a, b) => a.AccountNumber.localeCompare(b.AccountNumber));
   }
 }
