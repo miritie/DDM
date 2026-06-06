@@ -29,6 +29,8 @@ import { StockService } from '@/lib/modules/stock/stock-service';
 import { ScanQueueService } from '@/lib/modules/outlets/scan-queue-service';
 import { PaymentMethodService } from '@/lib/modules/treasury/payment-method-service';
 import { TransactionService } from '@/lib/modules/treasury/transaction-service';
+import { assertPositiveFinishedProductQuantity } from '@/lib/schemas/quantity';
+import { nextDocSequence } from '@/lib/database/doc-counters';
 import { v4 as uuidv4 } from 'uuid';
 
 const db = getPostgresClient();
@@ -96,6 +98,10 @@ export async function POST(request: NextRequest) {
     let subtotal = 0;
 
     for (const item of items) {
+      // Quantité : entier strictement positif (sinon une quantité négative
+      // réduirait le total ET augmenterait le stock au décrément).
+      assertPositiveFinishedProductQuantity(item.quantity, `Quantité pour ${item.productId}`);
+
       // id::text pour éviter que pg infère $1 comme uuid (à cause du
       // id = $1) puis échoue sur product_id = $1::uuid (product_id est
       // varchar) : « operator does not exist: character varying = uuid ».
@@ -132,13 +138,17 @@ export async function POST(request: NextRequest) {
     const totalAmount = Math.max(0, subtotal - loyaltyDiscount);
 
     // ===== Numéro de vente =====
+    // Séquence atomique (doc_counters) partagée avec SaleService : deux
+    // encaissements simultanés ne produisent plus le même numéro.
     const year = new Date().getFullYear();
-    const countRes = await db.query(
-      `SELECT COUNT(*) as count FROM sales WHERE workspace_id = $1 AND EXTRACT(YEAR FROM created_at) = $2`,
-      [workspaceId, year]
-    );
-    const saleCount = parseInt(countRes.rows[0]?.count || '0', 10);
-    const saleNumber = `VT-${year}-${String(saleCount + 1).padStart(4, '0')}`;
+    const sequence = await nextDocSequence(`sales:${workspaceId}:${year}`, async () => {
+      const countRes = await db.query(
+        `SELECT COUNT(*)::int AS n FROM sales WHERE workspace_id::text = $1 AND EXTRACT(YEAR FROM created_at) = $2`,
+        [workspaceId, year]
+      );
+      return countRes.rows[0]?.n ?? 0;
+    });
+    const saleNumber = `VT-${year}-${String(sequence).padStart(4, '0')}`;
     const saleUuid = uuidv4();
 
     // ===== Calcul du paiement immédiat =====
@@ -149,7 +159,11 @@ export async function POST(request: NextRequest) {
     if (amountPaid === null || amountPaid === undefined) {
       paidNow = paymentMethod === 'credit' ? 0 : totalAmount;
     } else {
-      paidNow = Math.max(0, Math.min(Number(amountPaid), totalAmount));
+      const requested = Number(amountPaid);
+      if (!Number.isFinite(requested)) {
+        return NextResponse.json({ error: 'Montant encaissé invalide' }, { status: 400 });
+      }
+      paidNow = Math.max(0, Math.min(requested, totalAmount));
     }
     const balance = totalAmount - paidNow;
     const paymentStatus =
@@ -157,36 +171,14 @@ export async function POST(request: NextRequest) {
       paidNow > 0   ? 'partially_paid' :
                       'unpaid';
 
-    // ===== Insert vente =====
-    // Casts explicites : pg ne peut pas inférer le type des paramètres
-    // null (client_id, notes, loyalty_rule_id) sans cast, ce qui faisait
-    // remonter « could not determine data type of parameter $5 » en
-    // vente anonyme.
-    const saleRes = await db.query(
-      `INSERT INTO sales
-        (sale_id, sale_number, client_id, total_amount, amount_paid, balance,
-         currency, status, payment_status, sale_date, notes,
-         sales_person_id, outlet_id, pos_session_id, workspace_id,
-         loyalty_rule_id, discount_amount)
-       VALUES ($1, $2, $3::uuid, $4, $5, $6,
-               $7, $8, $9, CURRENT_DATE, $10::text,
-               $11::uuid, $12::uuid, $13::uuid, $14::uuid,
-               $15::uuid, $16)
-       RETURNING *`,
-      [
-        saleUuid, saleNumber, clientId, totalAmount,
-        paidNow, balance,
-        'XOF', 'confirmed', paymentStatus,
-        notes ?? null, sellerUuid, outletId, session.id, workspaceId,
-        loyaltyRuleId, loyaltyDiscount,
-      ]
-    );
-    const sale = saleRes.rows[0];
-
-    // ===== Trace le paiement dans sale_payments si quelque chose a été encaissé =====
+    // ===== Résolutions AVANT toute écriture =====
+    // (l'ancien code insérait la vente PUIS validait le moyen de paiement :
+    // un moyen invalide laissait une vente orpheline sans lignes ni paiement)
+    let walletUuid: string | null = null;
+    let paymentMethodId: string | null = null;
+    let paymentNumber: string | null = null;
     if (paidNow > 0) {
       // Résout walletId : accepte UUID ou slug `wallet_id` VARCHAR
-      let walletUuid: string | null = null;
       if (walletId) {
         const wr = await db.query(
           `SELECT id FROM wallets WHERE id::text = $1 OR wallet_id = $1 LIMIT 1`,
@@ -206,54 +198,92 @@ export async function POST(request: NextRequest) {
           { status: 400 }
         );
       }
+      paymentMethodId = pm.Id;
+      paymentNumber = `PAY-${year}-${Date.now().toString().slice(-6)}`;
+    }
 
-      const paymentNumber = `PAY-${new Date().getFullYear()}-${Date.now().toString().slice(-6)}`;
-      await db.query(
-        `INSERT INTO sale_payments
-          (payment_id, sale_id, payment_number, amount, payment_method_id, payment_date,
-           wallet_id, received_by_id, workspace_id, notes)
-         VALUES ($1, $2::uuid, $3, $4, $5::uuid, CURRENT_TIMESTAMP,
-                 $6::uuid, $7::uuid, $8::uuid, $9::text)`,
+    // ===== Écritures atomiques : vente + paiement + lignes =====
+    // Tout réussit ou rien n'est écrit — plus de vente partielle en DB.
+    // Casts explicites : pg ne peut pas inférer le type des paramètres
+    // null (client_id, notes, loyalty_rule_id) sans cast, ce qui faisait
+    // remonter « could not determine data type of parameter $5 » en
+    // vente anonyme.
+    const sale = await db.transaction(async (client) => {
+      const saleRes = await client.query(
+        `INSERT INTO sales
+          (sale_id, sale_number, client_id, total_amount, amount_paid, balance,
+           currency, status, payment_status, sale_date, notes,
+           sales_person_id, outlet_id, pos_session_id, workspace_id,
+           loyalty_rule_id, discount_amount)
+         VALUES ($1, $2, $3::uuid, $4, $5, $6,
+                 $7, $8, $9, CURRENT_DATE, $10::text,
+                 $11::uuid, $12::uuid, $13::uuid, $14::uuid,
+                 $15::uuid, $16)
+         RETURNING *`,
         [
-          uuidv4(), sale.id, paymentNumber, paidNow, pm.Id,
-          walletUuid, sellerUuid, workspaceId,
-          paymentMethod === 'credit' && paidNow > 0 ? 'Acompte sur vente à crédit' : null,
+          saleUuid, saleNumber, clientId, totalAmount,
+          paidNow, balance,
+          'XOF', 'confirmed', paymentStatus,
+          notes ?? null, sellerUuid, outletId, session.id, workspaceId,
+          loyaltyRuleId, loyaltyDiscount,
         ]
       );
+      const createdSale = saleRes.rows[0];
 
-      // Crédite le wallet pour que l'encaissement apparaisse dans la
-      // trésorerie comptable (KPI Revenus). Skip si pas de wallet.
-      if (walletUuid) {
-        try {
-          await transactionService.createIncome({
-            type: 'income',
-            category: 'sale',
-            amount: paidNow,
-            destinationWalletId: walletUuid,
-            description: `Encaissement vente ${sale.sale_number || sale.sale_id} — ${paymentNumber}`,
-            reference: sale.sale_number || sale.sale_id,
-            processedById: sellerUuid,
-            workspaceId,
-          });
-        } catch (e: any) {
-          console.error('[sales/quick] Transaction wallet non créée :', e?.message);
-        }
+      // Trace le paiement dans sale_payments si quelque chose a été encaissé
+      if (paidNow > 0) {
+        await client.query(
+          `INSERT INTO sale_payments
+            (payment_id, sale_id, payment_number, amount, payment_method_id, payment_date,
+             wallet_id, received_by_id, workspace_id, notes)
+           VALUES ($1, $2::uuid, $3, $4, $5::uuid, CURRENT_TIMESTAMP,
+                   $6::uuid, $7::uuid, $8::uuid, $9::text)`,
+          [
+            uuidv4(), createdSale.id, paymentNumber, paidNow, paymentMethodId,
+            walletUuid, sellerUuid, workspaceId,
+            paymentMethod === 'credit' && paidNow > 0 ? 'Acompte sur vente à crédit' : null,
+          ]
+        );
+      }
+
+      for (const line of lines) {
+        await client.query(
+          `INSERT INTO sale_items
+            (sale_item_id, sale_id, product_id, product_name,
+             quantity, unit_price, total_price, currency)
+           VALUES ($1, $2::uuid, $3::uuid, $4,
+                   $5, $6, $7, 'XOF')`,
+          [uuidv4(), createdSale.id, line.productId, line.productName,
+           line.quantity, line.unitPrice, line.totalPrice]
+        );
+      }
+
+      return createdSale;
+    });
+
+    // ===== Effets best-effort APRÈS commit de la vente =====
+
+    // Crédite le wallet pour que l'encaissement apparaisse dans la
+    // trésorerie comptable (KPI Revenus). Skip si pas de wallet.
+    if (paidNow > 0 && walletUuid) {
+      try {
+        await transactionService.createIncome({
+          type: 'income',
+          category: 'sale',
+          amount: paidNow,
+          destinationWalletId: walletUuid,
+          description: `Encaissement vente ${sale.sale_number || sale.sale_id} — ${paymentNumber}`,
+          reference: sale.sale_number || sale.sale_id,
+          processedById: sellerUuid,
+          workspaceId,
+        });
+      } catch (e: any) {
+        console.error('[sales/quick] Transaction wallet non créée :', e?.message);
       }
     }
 
-    // ===== Lignes + décrément stock =====
+    // Décrément stock outlet (si stock défini ; sinon, on laisse passer pour ne pas bloquer)
     for (const line of lines) {
-      await db.query(
-        `INSERT INTO sale_items
-          (sale_item_id, sale_id, product_id, product_name,
-           quantity, unit_price, total_price, currency)
-         VALUES ($1, $2::uuid, $3::uuid, $4,
-                 $5, $6, $7, 'XOF')`,
-        [uuidv4(), sale.id, line.productId, line.productName,
-         line.quantity, line.unitPrice, line.totalPrice]
-      );
-
-      // Décrément stock outlet (si stock défini ; sinon, on laisse passer pour ne pas bloquer)
       try {
         await stockService.decreaseStockOutlet(line.productId, outletId, line.quantity);
       } catch (e: any) {

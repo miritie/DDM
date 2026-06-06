@@ -19,6 +19,7 @@
 import { getPostgresClient } from '@/lib/database/postgres-client';
 import { v4 as uuidv4 } from 'uuid';
 import { assertPositiveFinishedProductQuantity } from '@/lib/schemas/quantity';
+import { nextDocSequence } from '@/lib/database/doc-counters';
 
 const db = getPostgresClient();
 
@@ -62,12 +63,16 @@ async function resolveUserUuid(idOrSlug: string): Promise<string | null> {
 
 async function generateReplenishmentNumber(workspaceId: string): Promise<string> {
   const year = new Date().getFullYear();
-  const r = await db.query(
-    `SELECT COUNT(*)::int AS n FROM stand_replenishment_orders
-     WHERE workspace_id = $1 AND EXTRACT(YEAR FROM created_at) = $2`,
-    [workspaceId, year]
-  );
-  return `APR-${year}-${String(r.rows[0].n + 1).padStart(4, '0')}`;
+  // Séquence atomique (doc_counters), amorcée depuis le COUNT existant.
+  const sequence = await nextDocSequence(`stand_replenishment_orders:${workspaceId}:${year}`, async () => {
+    const r = await db.query(
+      `SELECT COUNT(*)::int AS n FROM stand_replenishment_orders
+       WHERE workspace_id = $1 AND EXTRACT(YEAR FROM created_at) = $2`,
+      [workspaceId, year]
+    );
+    return r.rows[0]?.n ?? 0;
+  });
+  return `APR-${year}-${String(sequence).padStart(4, '0')}`;
 }
 
 export class ReplenishmentService {

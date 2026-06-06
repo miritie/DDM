@@ -204,24 +204,53 @@ export class StockService {
     });
   }
 
-  /** Décrément stock outlet (vente). Throw si insuffisant. */
+  /**
+   * Décrément stock outlet (vente). Throw si insuffisant.
+   * Atomique : le contrôle `quantity >= demandé` et le décrément se font
+   * dans le même UPDATE conditionnel — deux ventes simultanées ne peuvent
+   * plus toutes les deux passer un contrôle lu avant écriture (race).
+   */
   async decreaseStockOutlet(productId: string, outletId: string, quantity: number): Promise<StockItem> {
-    const existing = await this.getByProductAndOutlet(productId, outletId);
-    if (!existing) throw new Error(`Aucun stock pour ce produit sur ce point de vente`);
-    if (existing.Quantity < quantity) {
+    if (!(Number(quantity) > 0)) throw new Error('Quantité à décrémenter invalide');
+    const r = await db.query(
+      `UPDATE stock_items
+       SET quantity = quantity - $3,
+           total_value = (quantity - $3) * unit_cost,
+           updated_at = CURRENT_TIMESTAMP
+       WHERE product_id = $1 AND outlet_id = $2 AND quantity >= $3
+       RETURNING *`,
+      [productId, outletId, quantity]
+    );
+    if (r.rows.length === 0) {
+      const existing = await this.getByProductAndOutlet(productId, outletId);
+      if (!existing) throw new Error(`Aucun stock pour ce produit sur ce point de vente`);
       throw new Error(`Stock insuffisant : ${existing.Quantity} disponible(s), ${quantity} demandé(s)`);
     }
-    return this.update(existing.id!, { quantity: existing.Quantity - quantity });
+    const updated = mapStockRow(r.rows[0]);
+    await this.checkAndCreateAlert(updated);
+    return updated;
   }
 
-  /** Décrément stock entrepôt. */
+  /** Décrément stock entrepôt (même garantie atomique que côté outlet). */
   async decreaseStockWarehouse(productId: string, warehouseId: string, quantity: number): Promise<StockItem> {
-    const existing = await this.getByProductAndWarehouse(productId, warehouseId);
-    if (!existing) throw new Error(`Aucun stock pour ce produit dans cet entrepôt`);
-    if (existing.Quantity < quantity) {
+    if (!(Number(quantity) > 0)) throw new Error('Quantité à décrémenter invalide');
+    const r = await db.query(
+      `UPDATE stock_items
+       SET quantity = quantity - $3,
+           total_value = (quantity - $3) * unit_cost,
+           updated_at = CURRENT_TIMESTAMP
+       WHERE product_id = $1 AND warehouse_id = $2 AND quantity >= $3
+       RETURNING *`,
+      [productId, warehouseId, quantity]
+    );
+    if (r.rows.length === 0) {
+      const existing = await this.getByProductAndWarehouse(productId, warehouseId);
+      if (!existing) throw new Error(`Aucun stock pour ce produit dans cet entrepôt`);
       throw new Error(`Stock insuffisant : ${existing.Quantity} disponible(s), ${quantity} demandé(s)`);
     }
-    return this.update(existing.id!, { quantity: existing.Quantity - quantity });
+    const updated = mapStockRow(r.rows[0]);
+    await this.checkAndCreateAlert(updated);
+    return updated;
   }
 
   /** @deprecated alias rétro-compat — utilise increaseStockWarehouse explicitement. */

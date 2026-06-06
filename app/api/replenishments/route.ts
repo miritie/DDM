@@ -55,24 +55,53 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Au moins une ligne est requise' }, { status: 400 });
     }
 
-    // Résolution UUID des produits et outlets
+    // Résolution UUID des produits et outlets.
+    // On valide TOUTES les lignes avant de créer quoi que ce soit, et on
+    // renvoie la liste complète des problèmes (au lieu de s'arrêter à la
+    // première ligne invalide, ce qui forçait l'utilisateur à corriger
+    // erreur par erreur sans visibilité sur le reste).
     const resolvedLines = [];
-    for (const l of body.lines) {
+    const validationErrors: Array<{ line: number; error: string }> = [];
+    for (let i = 0; i < body.lines.length; i++) {
+      const l = body.lines[i];
       const productUuid = await resolveProductUuid(l.productId);
-      if (!productUuid) return NextResponse.json({ error: `Produit introuvable : ${l.productId}` }, { status: 400 });
+      if (!productUuid) {
+        validationErrors.push({ line: i + 1, error: `Produit introuvable : ${l.productId}` });
+        continue;
+      }
+      const quantityRequested = Number(l.quantityRequested);
+      if (!Number.isFinite(quantityRequested) || quantityRequested <= 0) {
+        validationErrors.push({ line: i + 1, error: `Quantité demandée invalide : ${l.quantityRequested}` });
+        continue;
+      }
       const targets = [];
+      let lineValid = true;
       for (const t of (l.targets || [])) {
         const outletUuid = await resolveOutletUuid(t.outletId, workspaceId);
-        if (!outletUuid) return NextResponse.json({ error: `Stand introuvable : ${t.outletId}` }, { status: 400 });
+        if (!outletUuid) {
+          validationErrors.push({ line: i + 1, error: `Stand introuvable : ${t.outletId}` });
+          lineValid = false;
+          continue;
+        }
         targets.push({ outletId: outletUuid, quantityTarget: Number(t.quantityTarget) });
       }
+      if (!lineValid) continue;
       resolvedLines.push({
         productId: productUuid,
-        quantityRequested: Number(l.quantityRequested),
+        quantityRequested,
         unitCost: l.unitCost !== undefined ? Number(l.unitCost) : undefined,
         notes: l.notes,
         targets,
       });
+    }
+
+    if (validationErrors.length > 0) {
+      return NextResponse.json({
+        error: validationErrors.length === 1
+          ? validationErrors[0].error
+          : `${validationErrors.length} lignes invalides — rien n'a été créé`,
+        details: validationErrors,
+      }, { status: 400 });
     }
 
     const data = await service.create({

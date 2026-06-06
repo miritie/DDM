@@ -6,6 +6,7 @@
 import { getPostgresClient } from '@/lib/database/postgres-client';
 import { SalePayment as Payment } from '@/types/modules';
 import { PaymentMethodService } from '@/lib/modules/treasury/payment-method-service';
+import { nextDocSequence } from '@/lib/database/doc-counters';
 import { v4 as uuidv4 } from 'uuid';
 
 const postgresClient = getPostgresClient();
@@ -59,17 +60,18 @@ export class PaymentService {
    */
   async generatePaymentNumber(workspaceId: string): Promise<string> {
     const year = new Date().getFullYear();
-    const payments = await postgresClient.list<Payment>('sale_payments', {
-      where: { workspace_id: workspaceId },
+    // Séquence atomique (doc_counters), même scope que
+    // SaleService.generatePaymentNumber : une seule séquence PAY-<année>
+    // par workspace, quel que soit le chemin d'encaissement.
+    const sequence = await nextDocSequence(`sale_payments:${workspaceId}:${year}`, async () => {
+      const r = await postgresClient.query<any>(
+        `SELECT COUNT(*)::int AS n FROM sale_payments
+         WHERE workspace_id::text = $1 AND EXTRACT(YEAR FROM payment_date) = $2`,
+        [workspaceId, year]
+      );
+      return r.rows[0]?.n ?? 0;
     });
-
-    // Filter by year in application code
-    const yearPayments = payments.filter(p => {
-      const paymentYear = new Date(p.PaymentDate).getFullYear();
-      return paymentYear === year;
-    });
-
-    return `PAY-${year}-${String(yearPayments.length + 1).padStart(4, '0')}`;
+    return `PAY-${year}-${String(sequence).padStart(4, '0')}`;
   }
 
   /**

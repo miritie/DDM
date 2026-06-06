@@ -17,6 +17,7 @@ import { StockService } from '@/lib/modules/stock/stock-service';
 import { PaymentMethodService } from '@/lib/modules/treasury/payment-method-service';
 import { TransactionService } from '@/lib/modules/treasury/transaction-service';
 import { assertPositiveFinishedProductQuantity } from '@/lib/schemas/quantity';
+import { nextDocSequence } from '@/lib/database/doc-counters';
 
 const postgresClient = getPostgresClient();
 const outletService = new OutletService();
@@ -85,18 +86,18 @@ export class SaleService {
    */
   async generateSaleNumber(workspaceId: string): Promise<string> {
     const year = new Date().getFullYear();
-    const sales = await postgresClient.list<Sale>('sales', {
-      where: { workspace_id: workspaceId },
+    // Séquence atomique (doc_counters) : deux encaissements simultanés ne
+    // peuvent plus produire le même numéro. Amorcée depuis le COUNT existant
+    // (l'ancien code chargeait TOUTES les ventes du workspace en mémoire).
+    const sequence = await nextDocSequence(`sales:${workspaceId}:${year}`, async () => {
+      const r = await postgresClient.query<any>(
+        `SELECT COUNT(*)::int AS n FROM sales
+         WHERE workspace_id::text = $1 AND EXTRACT(YEAR FROM sale_date) = $2`,
+        [workspaceId, year]
+      );
+      return r.rows[0]?.n ?? 0;
     });
-
-    // Filter by year in application code
-    const yearSales = sales.filter(s => {
-      const saleYear = new Date(s.SaleDate).getFullYear();
-      return saleYear === year;
-    });
-
-    const count = yearSales.length + 1;
-    return `SAL-${year}-${String(count).padStart(4, '0')}`;
+    return `SAL-${year}-${String(sequence).padStart(4, '0')}`;
   }
 
   /**
@@ -104,18 +105,17 @@ export class SaleService {
    */
   async generatePaymentNumber(workspaceId: string): Promise<string> {
     const year = new Date().getFullYear();
-    const payments = await postgresClient.list<SalePayment>('sale_payments', {
-      where: { workspace_id: workspaceId },
+    // Même scope que PaymentService.generatePaymentNumber : une seule
+    // séquence PAY-<année> par workspace, quel que soit le chemin.
+    const sequence = await nextDocSequence(`sale_payments:${workspaceId}:${year}`, async () => {
+      const r = await postgresClient.query<any>(
+        `SELECT COUNT(*)::int AS n FROM sale_payments
+         WHERE workspace_id::text = $1 AND EXTRACT(YEAR FROM payment_date) = $2`,
+        [workspaceId, year]
+      );
+      return r.rows[0]?.n ?? 0;
     });
-
-    // Filter by year in application code
-    const yearPayments = payments.filter(p => {
-      const paymentYear = new Date(p.PaymentDate).getFullYear();
-      return paymentYear === year;
-    });
-
-    const count = yearPayments.length + 1;
-    return `PAY-${year}-${String(count).padStart(4, '0')}`;
+    return `PAY-${year}-${String(sequence).padStart(4, '0')}`;
   }
 
   /**
