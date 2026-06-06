@@ -149,6 +149,28 @@ export default function AccountingPage() {
             </p>
           </CardContent>
         </Card>
+
+        <Card className="cursor-pointer hover:bg-accent" onClick={() => router.push('/accounting/reports/general-ledger')}>
+          <CardHeader>
+            <CardTitle>Grand Livre</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <p className="text-muted-foreground">
+              Mouvements détaillés par compte
+            </p>
+          </CardContent>
+        </Card>
+
+        <Card className="cursor-pointer hover:bg-accent border-2 border-emerald-200" onClick={() => router.push('/accounting/reports/financial-statements')}>
+          <CardHeader>
+            <CardTitle className="text-emerald-700">📄 États Financiers (PDF)</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <p className="text-muted-foreground">
+              Dossier annuel SYSCOHADA complet — pour l'expert-comptable et la DSF
+            </p>
+          </CardContent>
+        </Card>
       </div>
 
       <div className="grid gap-4 md:grid-cols-2">

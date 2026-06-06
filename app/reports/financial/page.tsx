@@ -173,6 +173,18 @@ export default function FinancialReportsPage() {
       title: 'Balance Générale',
       detail: 'Soldes débit/crédit par compte — support de la liasse.',
     },
+    {
+      href: '/accounting/reports/general-ledger',
+      icon: <FileSpreadsheet className="w-6 h-6 text-purple-700" />,
+      title: 'Grand Livre',
+      detail: 'Mouvements détaillés par compte (livre légal).',
+    },
+    {
+      href: '/accounting/reports/financial-statements',
+      icon: <FileSpreadsheet className="w-6 h-6 text-emerald-700" />,
+      title: 'Dossier États Financiers (PDF)',
+      detail: 'Le dossier annuel complet à remettre à l\'expert-comptable.',
+    },
   ];
 
   return (
