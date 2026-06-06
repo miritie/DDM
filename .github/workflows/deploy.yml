@@ -41,6 +41,11 @@ jobs:
       - name: Tests
         run: npm test
 
+      # Le build Next tourne sans DATABASE_URL (pool pg paresseux) —
+      # attrape les erreurs « Failed to collect page data » avant le deploy.
+      - name: Build
+        run: npm run build
+
   # ---------------------------------------------------------------------------
   build:
     name: Build & push image
