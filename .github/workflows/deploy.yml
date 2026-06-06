@@ -1,8 +1,11 @@
 name: Build & Deploy
 
 # Déclenché à chaque push sur main, ou manuellement.
+# Les pull requests passent uniquement le job qualité (pas de build/deploy).
 on:
   push:
+    branches: [main]
+  pull_request:
     branches: [main]
   workflow_dispatch:
 
@@ -12,8 +15,37 @@ env:
 
 jobs:
   # ---------------------------------------------------------------------------
+  # Gate qualité : lint + typecheck + tests. Rien ne se déploie si ça échoue.
+  quality:
+    name: Lint, typecheck & tests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Typecheck
+        run: npx tsc --noEmit
+
+      - name: Tests
+        run: npm test
+
+  # ---------------------------------------------------------------------------
   build:
     name: Build & push image
+    needs: quality
+    if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     permissions:
       contents: read
