@@ -32,26 +32,28 @@ const walletService = new WalletService();
  * casté en float : pg renvoie NUMERIC en string, ce qui cassait les
  * additions côté client ("100" + 50 → "10050").
  */
-const TX_COLUMNS = `
-  id,
-  id                    AS "Id",
-  transaction_id        AS "TransactionId",
-  transaction_number    AS "TransactionNumber",
-  type                  AS "Type",
-  category              AS "Category",
-  amount::float         AS "Amount",
-  source_wallet_id      AS "SourceWalletId",
-  destination_wallet_id AS "DestinationWalletId",
-  description           AS "Description",
-  reference             AS "Reference",
-  attachment_url        AS "AttachmentUrl",
-  status                AS "Status",
-  processed_by_id       AS "ProcessedById",
-  processed_at          AS "ProcessedAt",
-  workspace_id          AS "WorkspaceId",
-  created_at            AS "CreatedAt",
-  updated_at            AS "UpdatedAt"
+/** Colonnes préfixables par un alias de table (jointures → ambiguïté). */
+const txColumns = (p = '') => `
+  ${p}id,
+  ${p}id                    AS "Id",
+  ${p}transaction_id        AS "TransactionId",
+  ${p}transaction_number    AS "TransactionNumber",
+  ${p}type                  AS "Type",
+  ${p}category              AS "Category",
+  ${p}amount::float         AS "Amount",
+  ${p}source_wallet_id      AS "SourceWalletId",
+  ${p}destination_wallet_id AS "DestinationWalletId",
+  ${p}description           AS "Description",
+  ${p}reference             AS "Reference",
+  ${p}attachment_url        AS "AttachmentUrl",
+  ${p}status                AS "Status",
+  ${p}processed_by_id       AS "ProcessedById",
+  ${p}processed_at          AS "ProcessedAt",
+  ${p}workspace_id          AS "WorkspaceId",
+  ${p}created_at            AS "CreatedAt",
+  ${p}updated_at            AS "UpdatedAt"
 `;
+const TX_COLUMNS = txColumns();
 
 export interface CreateTransactionInput {
   type: TransactionType;
@@ -91,43 +93,48 @@ export class TransactionService {
       endDate?: string;
     }
   ): Promise<Transaction[]> {
-    const conds: string[] = ['workspace_id::text = $1'];
+    const conds: string[] = ['t.workspace_id::text = $1'];
     const params: any[] = [workspaceId];
 
     if (filters?.type) {
       params.push(filters.type);
-      conds.push(`type = $${params.length}`);
+      conds.push(`t.type = $${params.length}`);
     }
     if (filters?.category) {
       params.push(filters.category);
-      conds.push(`category = $${params.length}`);
+      conds.push(`t.category = $${params.length}`);
     }
     if (filters?.status) {
       params.push(filters.status);
-      conds.push(`status = $${params.length}`);
+      conds.push(`t.status = $${params.length}`);
     }
     if (filters?.walletId) {
       // Accepte l'UUID PK (wallets.id) ou le business code (wallets.wallet_id)
       params.push(filters.walletId);
       const n = params.length;
       conds.push(
-        `(source_wallet_id IN (SELECT id FROM wallets WHERE id::text = $${n} OR wallet_id = $${n})
-          OR destination_wallet_id IN (SELECT id FROM wallets WHERE id::text = $${n} OR wallet_id = $${n}))`
+        `(t.source_wallet_id IN (SELECT w.id FROM wallets w WHERE w.id::text = $${n} OR w.wallet_id = $${n})
+          OR t.destination_wallet_id IN (SELECT w.id FROM wallets w WHERE w.id::text = $${n} OR w.wallet_id = $${n}))`
       );
     }
     if (filters?.startDate) {
       params.push(filters.startDate);
-      conds.push(`processed_at >= $${params.length}::timestamp`);
+      conds.push(`t.processed_at >= $${params.length}::timestamp`);
     }
     if (filters?.endDate) {
       params.push(filters.endDate);
-      conds.push(`processed_at < $${params.length}::date + INTERVAL '1 day'`);
+      conds.push(`t.processed_at < $${params.length}::date + INTERVAL '1 day'`);
     }
 
     const r = await postgresClient.query<any>(
-      `SELECT ${TX_COLUMNS} FROM transactions
+      `SELECT ${txColumns('t.')},
+              sw.name AS "SourceWalletName",
+              dw.name AS "DestinationWalletName"
+       FROM transactions t
+       LEFT JOIN wallets sw ON sw.id = t.source_wallet_id
+       LEFT JOIN wallets dw ON dw.id = t.destination_wallet_id
        WHERE ${conds.join(' AND ')}
-       ORDER BY processed_at DESC`,
+       ORDER BY t.processed_at DESC`,
       params
     );
     return r.rows as Transaction[];
@@ -140,9 +147,14 @@ export class TransactionService {
    */
   async getById(transactionId: string, workspaceId?: string): Promise<Transaction | null> {
     const r = await postgresClient.query<any>(
-      `SELECT ${TX_COLUMNS} FROM transactions
-       WHERE (transaction_id = $1 OR id::text = $1)
-         AND ($2::text IS NULL OR workspace_id::text = $2)
+      `SELECT ${txColumns('t.')},
+              sw.name AS "SourceWalletName",
+              dw.name AS "DestinationWalletName"
+       FROM transactions t
+       LEFT JOIN wallets sw ON sw.id = t.source_wallet_id
+       LEFT JOIN wallets dw ON dw.id = t.destination_wallet_id
+       WHERE (t.transaction_id = $1 OR t.id::text = $1)
+         AND ($2::text IS NULL OR t.workspace_id::text = $2)
        LIMIT 1`,
       [transactionId, workspaceId ?? null]
     );

@@ -50,9 +50,15 @@ export default function TransactionsPage() {
     }
   }
 
-  function getWalletName(walletId?: string): string {
+  function getWalletName(walletId?: string, joinedName?: string | null): string {
+    // L'API joint désormais le nom du wallet (Source/DestinationWalletName).
+    if (joinedName) return joinedName;
     if (!walletId) return '-';
-    const wallet = wallets.find((w) => w.WalletId === walletId);
+    // Repli : transaction.*WalletId est l'UUID PK — comparer aussi Id/id,
+    // pas seulement le code métier WalletId (cause du « Inconnu »).
+    const wallet = wallets.find(
+      (w) => (w as any).Id === walletId || (w as any).id === walletId || w.WalletId === walletId
+    );
     return wallet?.Name || 'Inconnu';
   }
 
@@ -295,14 +301,14 @@ export default function TransactionsPage() {
                         <td className="px-4 py-3 text-sm">{getCategoryLabel(transaction.Category)}</td>
                         <td className="px-4 py-3 text-sm">
                           {transaction.Type === 'income' && (
-                            <span>→ {getWalletName(transaction.DestinationWalletId)}</span>
+                            <span>→ {getWalletName(transaction.DestinationWalletId, (transaction as any).DestinationWalletName)}</span>
                           )}
                           {transaction.Type === 'expense' && (
-                            <span>{getWalletName(transaction.SourceWalletId)} →</span>
+                            <span>{getWalletName(transaction.SourceWalletId, (transaction as any).SourceWalletName)} →</span>
                           )}
                           {transaction.Type === 'transfer' && (
                             <span>
-                              {getWalletName(transaction.SourceWalletId)} → {getWalletName(transaction.DestinationWalletId)}
+                              {getWalletName(transaction.SourceWalletId, (transaction as any).SourceWalletName)} → {getWalletName(transaction.DestinationWalletId, (transaction as any).DestinationWalletName)}
                             </span>
                           )}
                         </td>

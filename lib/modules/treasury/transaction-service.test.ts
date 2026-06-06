@@ -226,7 +226,7 @@ describe('TransactionService.list — SQL paramétré', () => {
     const service = new TransactionService();
     const malicious = `income'; DROP TABLE transactions; --`;
     await service.list('ws-uuid', { type: malicious as any, walletId: malicious });
-    const listCall = h.db.calls.find((c: any) => c.sql.includes('ORDER BY processed_at'));
+    const listCall = h.db.calls.find((c: any) => c.sql.includes('ORDER BY t.processed_at'));
     expect(listCall).toBeDefined();
     expect(listCall!.sql).not.toContain('DROP TABLE');
     expect(listCall!.params).toContain(malicious);
@@ -238,6 +238,6 @@ describe('TransactionService.list — SQL paramétré', () => {
     const service = new TransactionService();
     await service.list('ws-uuid');
     const listCall = h.db.calls.find((c: any) => c.sql.includes('FROM transactions'));
-    expect(listCall!.sql).toContain('workspace_id::text = $1');
+    expect(listCall!.sql).toContain('t.workspace_id::text = $1');
   });
 });
