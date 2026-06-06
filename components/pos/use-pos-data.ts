@@ -187,6 +187,30 @@ export function useIncomingTransfersCount(activeOutletId: string | null) {
   return { incomingCount, loadIncomingCount };
 }
 
+/** Identité visuelle du workspace (logo, slogan, contacts) — pour les reçus. */
+export interface WorkspaceBranding {
+  name: string;
+  slogan: string | null;
+  address: string | null;
+  phone: string | null;
+  email: string | null;
+  logoUrl: string | null;
+  currency: string;
+}
+
+export function useWorkspaceBranding() {
+  const [branding, setBranding] = useState<WorkspaceBranding | null>(null);
+
+  useEffect(() => {
+    fetch('/api/workspace/branding')
+      .then(r => r.ok ? r.json() : null)
+      .then(d => { if (d?.data) setBranding(d.data); })
+      .catch(() => { /* le reçu se génère avec les valeurs par défaut */ });
+  }, []);
+
+  return branding;
+}
+
 /**
  * Vue catalogue : compact (grille avec images, ~9 par écran) ou list
  * (1 ligne par produit, ~15-20 par écran). Persisté en localStorage.

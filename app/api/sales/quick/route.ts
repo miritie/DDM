@@ -31,7 +31,7 @@ import { PaymentMethodService } from '@/lib/modules/treasury/payment-method-serv
 import { TransactionService } from '@/lib/modules/treasury/transaction-service';
 import { assertPositiveFinishedProductQuantity } from '@/lib/schemas/quantity';
 import { generateSaleNumber, generatePaymentNumber } from '@/lib/modules/sales/document-numbers';
-import { handleApiError } from '@/lib/http/api-error';
+import { handleApiError, ConflictError } from '@/lib/http/api-error';
 import { v4 as uuidv4 } from 'uuid';
 
 const db = getPostgresClient();
@@ -260,6 +260,38 @@ export async function POST(request: NextRequest) {
           [uuidv4(), createdSale.id, line.productId, line.productName,
            line.quantity, line.unitPrice, line.totalPrice]
         );
+
+        // ===== Décrément stock BLOQUANT (dans la transaction) =====
+        // Politique : si le produit est suivi en stock sur ce stand et que
+        // la quantité est insuffisante, la vente ENTIÈRE est refusée
+        // (rollback : ni vente, ni paiement, ni lignes). L'UPDATE
+        // conditionnel est atomique : deux caisses simultanées ne peuvent
+        // pas vendre la même dernière unité.
+        // Un produit SANS ligne de stock (« stock non suivi ») reste
+        // vendable — certains stands ne tiennent pas d'inventaire.
+        const st = await client.query(
+          `UPDATE stock_items
+           SET quantity = quantity - $3,
+               total_value = (quantity - $3) * unit_cost,
+               updated_at = CURRENT_TIMESTAMP
+           WHERE product_id = $1 AND outlet_id = $2 AND quantity >= $3
+           RETURNING quantity::float AS quantity`,
+          [line.productId, outletId, line.quantity]
+        );
+        if (st.rows.length === 0) {
+          const existing = await client.query(
+            `SELECT quantity::float AS quantity FROM stock_items
+             WHERE product_id = $1 AND outlet_id = $2 LIMIT 1`,
+            [line.productId, outletId]
+          );
+          if (existing.rows.length > 0) {
+            const dispo = Number(existing.rows[0].quantity);
+            throw new ConflictError(
+              `Stock insuffisant pour ${line.productName} : ${dispo} disponible(s), ${line.quantity} demandé(s). Vente annulée.`
+            );
+          }
+          // Pas de ligne stock → produit non suivi sur ce stand : on laisse passer.
+        }
       }
 
       return createdSale;
@@ -286,14 +318,14 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // Décrément stock outlet (si stock défini ; sinon, on laisse passer pour ne pas bloquer)
+    // Alertes stock bas (best-effort, après commit — le décrément lui-même
+    // est désormais fait DANS la transaction de vente, en bloquant).
     for (const line of lines) {
       try {
-        await stockService.decreaseStockOutlet(line.productId, outletId, line.quantity);
+        const item = await stockService.getByProductAndOutlet(line.productId, outletId);
+        if (item) await stockService.checkAndCreateAlert(item);
       } catch (e: any) {
-        // Stock insuffisant ou pas de ligne stock — on log mais on ne casse pas la vente
-        // (à durcir plus tard avec un flag de policy)
-        console.warn(`[stock] ${line.productName}: ${e.message}`);
+        console.warn(`[stock-alerte] ${line.productName}: ${e.message}`);
       }
     }
 

@@ -17,6 +17,7 @@
 
 import { useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
+import { useSession } from 'next-auth/react';
 import { ProtectedPage } from '@/components/rbac/protected-page';
 import { PERMISSIONS } from '@/lib/rbac';
 import { Search, ShoppingCart, X, Check, ChevronUp } from 'lucide-react';
@@ -39,13 +40,14 @@ import { CartPanel } from '@/components/pos/cart-panel';
 import { ScansListModal } from '@/components/pos/scans-list-modal';
 import {
   usePosOutlets, usePosSession, usePosCatalog, useScanQueue,
-  useIncomingTransfersCount, usePosViewMode,
+  useIncomingTransfersCount, usePosViewMode, useWorkspaceBranding,
 } from '@/components/pos/use-pos-data';
 import { formatPrice } from '@/components/pos/pos-utils';
 import type { CartItem, PendingScan, ManualClient, SellableProduct } from '@/components/pos/pos-types';
 
 export default function QuickSalePage() {
   const router = useRouter();
+  const { data: session } = useSession();
 
   // ===== Données (hooks extraits) =====
   const { outlets, activeOutletId, setActiveOutletId } = usePosOutlets();
@@ -54,6 +56,7 @@ export default function QuickSalePage() {
   const { scans, loadScans } = useScanQueue(activeOutletId);
   const { incomingCount, loadIncomingCount } = useIncomingTransfersCount(activeOutletId);
   const { viewMode, toggleViewMode } = usePosViewMode();
+  const branding = useWorkspaceBranding();
 
   // ===== État local d'orchestration =====
   const [search, setSearch] = useState('');
@@ -174,9 +177,15 @@ export default function QuickSalePage() {
       // Construit le reçu plein écran qui remplace l'ancien bandeau success.
       setReceipt({
         saleNumber: data.SaleNumber,
-        date: data.SaleDate ?? new Date().toISOString(),
+        // CreatedAt porte l'heure réelle ; SaleDate est une DATE (minuit).
+        date: data.CreatedAt ?? new Date().toISOString(),
         outletName: currentOutlet?.Name ?? '',
-        sellerName: 'Vendeur', // session.user.name si récupérable plus tard
+        sellerName: session?.user?.name || 'Vendeur',
+        companyName: branding?.name || undefined,
+        companyTagline: branding?.slogan || undefined,
+        companyAddress: branding?.address || undefined,
+        companyPhone: branding?.phone || undefined,
+        logoUrl: branding?.logoUrl || undefined,
         clientLabel: snapshotClient,
         items: snapshotItems,
         totalAmount: Number(data.TotalAmount),

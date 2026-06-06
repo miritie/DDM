@@ -17,7 +17,9 @@ import {
   generateSaleReceiptPdf,
   shareSaleReceiptPdf,
   downloadSaleReceiptPdf,
+  loadReceiptLogo,
   type SaleReceiptPdfData,
+  type ReceiptLogo,
 } from '@/lib/pdf/sale-receipt-pdf';
 
 export interface SaleReceiptData {
@@ -31,6 +33,13 @@ export interface SaleReceiptData {
   amountPaid: number;
   balance: number;
   paymentMethodLabel: string;    // « Espèces », « Carte / TPE », « Mobile Money », « Crédit »
+  // Identité visuelle (depuis /api/workspace/branding) — optionnelle,
+  // le PDF retombe sur « DUNE DE MIEL » sans elle.
+  companyName?: string;
+  companyTagline?: string;
+  companyAddress?: string | null;
+  companyPhone?: string | null;
+  logoUrl?: string | null;
 }
 
 interface SaleReceiptModalProps {
@@ -44,6 +53,15 @@ const fmt = (n: number) => new Intl.NumberFormat('fr-FR').format(Math.round(n)) 
 export function SaleReceiptModal({ data, onClose, onNewSale }: SaleReceiptModalProps) {
   const [pdfBusy, setPdfBusy] = useState<'share' | 'download' | null>(null);
   const [pdfMessage, setPdfMessage] = useState<string | null>(null);
+  const [logo, setLogo] = useState<ReceiptLogo | null>(null);
+
+  // Pré-charge le logo dès l'ouverture pour qu'il soit prêt au moment où
+  // le vendeur tape « Partager » (échec silencieux = PDF sans logo).
+  useEffect(() => {
+    let cancelled = false;
+    void loadReceiptLogo(data.logoUrl).then(l => { if (!cancelled && l) setLogo(l); });
+    return () => { cancelled = true; };
+  }, [data.logoUrl]);
 
   useEffect(() => {
     // Vibration tactile mobile pour confirmer le succès (silencieux si
@@ -60,6 +78,11 @@ export function SaleReceiptModal({ data, onClose, onNewSale }: SaleReceiptModalP
     date: data.date,
     outletName: data.outletName,
     sellerName: data.sellerName,
+    companyName: data.companyName,
+    companyTagline: data.companyTagline,
+    companyAddress: data.companyAddress,
+    companyPhone: data.companyPhone,
+    logo,
     clientLabel: data.clientLabel,
     items: data.items,
     totalAmount: data.totalAmount,
