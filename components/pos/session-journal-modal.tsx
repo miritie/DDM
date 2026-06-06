@@ -327,49 +327,33 @@ export function SessionJournalModal({ outletId, outletName, onClose }: SessionJo
           )}
         </div>
 
-        {/* Stock du jour par produit — matin, mouvements, vendu, soir.
-            Même source que le PDF (/daily-report) : le vendeur et la
-            direction voient le même inventaire. */}
-        {byProduct.length > 0 && (
+        {/* Stock avant/après pour les produits VENDUS aujourd'hui — compact.
+            (le détail complet matin/reçus/envoyés/soir de TOUS les produits
+            reste dans le PDF journal, inutile de surcharger la modal) */}
+        {byProduct.some(p => p.qty > 0) && (
           <div className="border-t">
             <div className="px-5 pt-3 pb-1.5 flex items-center gap-1.5">
               <Package className="w-4 h-4 text-purple-600" />
               <h3 className="text-xs uppercase font-semibold text-gray-600 tracking-wide">
-                Stock du jour par produit
+                Stock des produits vendus
               </h3>
             </div>
-            <div className="max-h-56 overflow-auto px-2 pb-2">
+            <div className="px-2 pb-2">
               <table className="w-full text-sm">
-                <thead className="text-[11px] uppercase text-gray-500 sticky top-0 bg-white">
+                <thead className="text-[11px] uppercase text-gray-500">
                   <tr className="border-b">
                     <th className="text-left px-3 py-1.5">Produit</th>
-                    <th className="text-right px-2 py-1.5" title="Stock au matin">Matin</th>
-                    <th className="text-right px-2 py-1.5" title="Reçus dans la journée">Reçus</th>
-                    <th className="text-right px-2 py-1.5" title="Envoyés vers d'autres stands">Envoyés</th>
-                    <th className="text-right px-2 py-1.5" title="Vendus aujourd'hui">Vendus</th>
-                    <th className="text-right px-3 py-1.5" title="Stock actuel">Soir</th>
+                    <th className="text-right px-2 py-1.5" title="Stock avant les ventes du jour">Avant</th>
+                    <th className="text-right px-2 py-1.5" title="Quantité vendue aujourd'hui">Vendu</th>
+                    <th className="text-right px-3 py-1.5" title="Stock après les ventes">Après</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {byProduct.map((p) => (
+                  {byProduct.filter(p => p.qty > 0).map((p) => (
                     <tr key={p.code || p.name} className="border-b last:border-b-0 hover:bg-gray-50">
-                      <td className="px-3 py-1.5 truncate max-w-[160px]" title={p.name}>{p.name}</td>
+                      <td className="px-3 py-1.5 truncate max-w-[200px]" title={p.name}>{p.name}</td>
                       <td className="px-2 py-1.5 text-right text-gray-700">{fmt(p.openingInventory)}</td>
-                      <td className="px-2 py-1.5 text-right">
-                        {p.transfersIn > 0
-                          ? <span className="text-purple-700 font-medium">+{fmt(p.transfersIn)}</span>
-                          : <span className="text-gray-300">—</span>}
-                      </td>
-                      <td className="px-2 py-1.5 text-right">
-                        {p.transfersOut > 0
-                          ? <span className="text-blue-700 font-medium">−{fmt(p.transfersOut)}</span>
-                          : <span className="text-gray-300">—</span>}
-                      </td>
-                      <td className="px-2 py-1.5 text-right">
-                        {p.qty > 0
-                          ? <span className="text-emerald-700 font-semibold">−{fmt(p.qty)}</span>
-                          : <span className="text-gray-300">—</span>}
-                      </td>
+                      <td className="px-2 py-1.5 text-right text-emerald-700 font-semibold">−{fmt(p.qty)}</td>
                       <td className={'px-3 py-1.5 text-right font-bold ' + (p.closingInventory <= 0 ? 'text-red-600' : 'text-gray-900')}>
                         {fmt(p.closingInventory)}
                       </td>
