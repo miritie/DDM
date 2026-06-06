@@ -5,11 +5,13 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { DashboardService } from '@/lib/modules/reports/dashboard-service';
+import { requirePermission, PERMISSIONS } from '@/lib/rbac/server';
 
 const dashboardService = new DashboardService();
 
 export async function GET(request: NextRequest) {
   try {
+    await requirePermission(PERMISSIONS.REPORTS_VIEW);
     const workspaceId = 'default'; // TODO: Récupérer depuis session
 
     const searchParams = request.nextUrl.searchParams;

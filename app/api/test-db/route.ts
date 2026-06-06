@@ -1,8 +1,10 @@
 import { NextResponse } from 'next/server';
 import { getPostgresClient } from '@/lib/database/postgres-client';
+import { requirePermission, PERMISSIONS } from '@/lib/rbac/server';
 
 export async function GET() {
   try {
+    await requirePermission(PERMISSIONS.ADMIN_SETTINGS_VIEW);
     const dbClient = getPostgresClient();
 
     const result = await dbClient.query('SELECT NOW() as time, COUNT(*) as user_count FROM users');

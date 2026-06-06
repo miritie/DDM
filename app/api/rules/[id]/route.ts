@@ -7,6 +7,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { RuleEngineService } from '@/lib/modules/rules/rule-engine-service';
+import { requirePermission, PERMISSIONS } from '@/lib/rbac/server';
 
 const ruleEngineService = new RuleEngineService();
 
@@ -15,6 +16,7 @@ export async function GET(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    await requirePermission(PERMISSIONS.AI_RULE_VIEW);
     const { id } = await params;
     const ruleId = id;
 
@@ -93,6 +95,7 @@ export async function PATCH(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    await requirePermission(PERMISSIONS.AI_RULE_EDIT);
     const { id } = await params;
     const ruleId = id;
     const userId = 'current-user'; // TODO: Récupérer depuis session
@@ -198,6 +201,7 @@ export async function DELETE(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    await requirePermission(PERMISSIONS.AI_RULE_DELETE);
     const { id } = await params;
     const ruleId = id;
 

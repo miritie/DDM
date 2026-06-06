@@ -5,6 +5,8 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { ValidationWorkflowService } from '@/lib/modules/governance/validation-workflow-service';
+import { requirePermission, PERMISSIONS } from '@/lib/rbac/server';
+import { getCurrentUserId } from '@/lib/auth/get-session';
 
 const validationService = new ValidationWorkflowService();
 
@@ -13,11 +15,11 @@ export async function POST(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    await requirePermission(PERMISSIONS.EXPENSE_APPROVE);
     const { id } = await params;
     const body = await request.json();
 
     const {
-      validatedBy,
       status,
       comment,
       geolocation,
@@ -26,12 +28,16 @@ export async function POST(
       signatureData,
     } = body;
 
+    // Identité du validateur depuis la session — jamais depuis le body
+    // (sinon n'importe qui pouvait valider en se faisant passer pour autrui).
+    const validatedBy = await getCurrentUserId();
+
     // Validation des champs requis
-    if (!validatedBy || !status) {
+    if (!status) {
       return NextResponse.json(
         {
           success: false,
-          error: 'Champs requis manquants (validatedBy, status)',
+          error: 'Champ requis manquant (status)',
         },
         { status: 400 }
       );

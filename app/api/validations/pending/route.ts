@@ -5,22 +5,27 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { ValidationWorkflowService, ValidationLevel } from '@/lib/modules/governance/validation-workflow-service';
+import { requirePermission, PERMISSIONS } from '@/lib/rbac/server';
+import { getCurrentWorkspaceId, getCurrentUserId } from '@/lib/auth/get-session';
 
 const validationService = new ValidationWorkflowService();
 
 export async function GET(request: NextRequest) {
   try {
+    await requirePermission(PERMISSIONS.EXPENSE_APPROVE);
     const { searchParams } = new URL(request.url);
-    const workspaceId = searchParams.get('workspaceId');
-    const validatorId = searchParams.get('validatorId');
+    // Identité et workspace depuis la session — jamais depuis la query
+    // (sinon n'importe quel utilisateur pouvait lire les validations d'autrui).
+    const workspaceId = await getCurrentWorkspaceId();
+    const validatorId = await getCurrentUserId();
     const validatorLevel = searchParams.get('validatorLevel') as ValidationLevel;
 
     // Validation des paramètres
-    if (!workspaceId || !validatorId || !validatorLevel) {
+    if (!validatorLevel) {
       return NextResponse.json(
         {
           success: false,
-          error: 'Paramètres requis manquants (workspaceId, validatorId, validatorLevel)',
+          error: 'Paramètre requis manquant (validatorLevel)',
         },
         { status: 400 }
       );

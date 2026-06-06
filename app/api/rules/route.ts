@@ -6,12 +6,15 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { RuleEngineService } from '@/lib/modules/rules/rule-engine-service';
+import { requirePermission, PERMISSIONS } from '@/lib/rbac/server';
+import { getCurrentWorkspaceId, getCurrentUserId } from '@/lib/auth/get-session';
 
 const ruleEngineService = new RuleEngineService();
 
 export async function GET(request: NextRequest) {
   try {
-    const workspaceId = 'default'; // TODO: Récupérer depuis session
+    await requirePermission(PERMISSIONS.AI_RULE_VIEW);
+    const workspaceId = await getCurrentWorkspaceId();
 
     // Récupérer les paramètres de filtre
     const searchParams = request.nextUrl.searchParams;
@@ -97,8 +100,9 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
-    const workspaceId = 'default'; // TODO: Récupérer depuis session
-    const userId = 'current-user'; // TODO: Récupérer depuis session
+    await requirePermission(PERMISSIONS.AI_RULE_CREATE);
+    const workspaceId = await getCurrentWorkspaceId();
+    const userId = await getCurrentUserId();
 
     const body = await request.json();
 

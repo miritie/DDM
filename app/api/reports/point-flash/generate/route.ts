@@ -5,11 +5,13 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { PointFlashService } from '@/lib/modules/reports/point-flash-service';
+import { requirePermission, PERMISSIONS } from '@/lib/rbac/server';
 
 const pointFlashService = new PointFlashService();
 
 export async function POST(request: NextRequest) {
   try {
+    await requirePermission(PERMISSIONS.REPORTS_VIEW);
     const workspaceId = 'default'; // TODO: Récupérer depuis session
 
     // Récupérer la configuration (TODO: depuis Airtable)

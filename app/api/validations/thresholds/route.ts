@@ -7,11 +7,13 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { ValidationThresholdService } from '@/lib/modules/governance/validation-threshold-service';
 import { ValidatableEntityType } from '@/lib/modules/governance/validation-workflow-service';
+import { requirePermission, PERMISSIONS } from '@/lib/rbac/server';
 
 const thresholdService = new ValidationThresholdService();
 
 export async function GET(request: NextRequest) {
   try {
+    await requirePermission(PERMISSIONS.ADMIN_SETTINGS_VIEW);
     const { searchParams } = new URL(request.url);
     const workspaceId = searchParams.get('workspaceId');
     const entityType = searchParams.get('entityType') as ValidatableEntityType | null;
@@ -65,6 +67,7 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
+    await requirePermission(PERMISSIONS.ADMIN_SETTINGS_EDIT);
     const body = await request.json();
 
     const {

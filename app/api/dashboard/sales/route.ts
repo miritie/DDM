@@ -6,9 +6,11 @@
 import { NextResponse } from 'next/server';
 import { getPostgresClient } from '@/lib/database/postgres-client';
 import { getCurrentWorkspaceId, getCurrentUserId } from '@/lib/auth/get-session';
+import { requirePermission, PERMISSIONS } from '@/lib/rbac/server';
 
 export async function GET() {
   try {
+    await requirePermission(PERMISSIONS.SALES_VIEW);
     const workspaceId = await getCurrentWorkspaceId();
     const userId = await getCurrentUserId();
     const db = getPostgresClient();

@@ -6,6 +6,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { getPostgresClient } from '@/lib/database/postgres-client';
+import { requirePermission, PERMISSIONS } from '@/lib/rbac/server';
 
 const postgresClient = getPostgresClient();
 
@@ -30,6 +31,7 @@ const createMarkdownSchema = z.object({
  */
 export async function GET(request: NextRequest) {
   try {
+    await requirePermission(PERMISSIONS.STOCK_VIEW);
     const { searchParams } = new URL(request.url);
     const warehouseId = searchParams.get('warehouseId');
     const reason = searchParams.get('reason');
@@ -103,6 +105,7 @@ export async function GET(request: NextRequest) {
  */
 export async function POST(request: NextRequest) {
   try {
+    await requirePermission(PERMISSIONS.STOCK_EDIT);
     const body = await request.json();
     const validatedData = createMarkdownSchema.parse(body);
 

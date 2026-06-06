@@ -19,6 +19,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getPostgresClient } from '@/lib/database/postgres-client';
 import { getCurrentWorkspaceId } from '@/lib/auth/get-session';
+import { requirePermission, PERMISSIONS } from '@/lib/rbac/server';
 
 // Exécute une requête, log l'erreur, et renvoie une valeur par défaut.
 // Évite que UNE requête plantée ne ramène TOUT le dashboard à 0.
@@ -37,6 +38,7 @@ async function safeQuery<T>(
 
 export async function GET(request: NextRequest) {
   try {
+    await requirePermission(PERMISSIONS.TREASURY_VIEW);
     const workspaceId = await getCurrentWorkspaceId();
     const db = getPostgresClient();
 

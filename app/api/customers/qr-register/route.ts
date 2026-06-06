@@ -22,8 +22,12 @@ export async function POST(request: NextRequest) {
       standId,
       agentId,
       source = 'qr_self_registration',
-      workspaceId = 'default', // TODO: Récupérer depuis session
     } = body;
+
+    // Flux PUBLIC (QR scanné par le client final, pas de session) :
+    // le workspace vient de la config serveur, jamais du body — sinon
+    // n'importe qui pourrait écrire dans le workspace de son choix.
+    const workspaceId = process.env.DEFAULT_WORKSPACE_ID || 'default';
 
     // Validation
     if (!phone) {

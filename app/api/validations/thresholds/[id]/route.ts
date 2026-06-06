@@ -6,6 +6,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { ValidationThresholdService } from '@/lib/modules/governance/validation-threshold-service';
+import { requirePermission, PERMISSIONS } from '@/lib/rbac/server';
 
 const thresholdService = new ValidationThresholdService();
 
@@ -14,6 +15,7 @@ export async function PUT(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    await requirePermission(PERMISSIONS.ADMIN_SETTINGS_EDIT);
     const { id } = await params;
     const body = await request.json();
 
@@ -77,6 +79,7 @@ export async function DELETE(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    await requirePermission(PERMISSIONS.ADMIN_SETTINGS_EDIT);
     const { id } = await params;
     await thresholdService.deleteThreshold(id);
 

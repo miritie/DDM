@@ -9,6 +9,7 @@
 import { NextResponse } from 'next/server';
 import { getPostgresClient } from '@/lib/database/postgres-client';
 import { getCurrentWorkspaceId } from '@/lib/auth/get-session';
+import { requirePermission, PERMISSIONS } from '@/lib/rbac/server';
 
 async function safeNumber(promise: Promise<any>, key = 'total'): Promise<number> {
   try {
@@ -22,6 +23,7 @@ async function safeNumber(promise: Promise<any>, key = 'total'): Promise<number>
 
 export async function GET() {
   try {
+    await requirePermission(PERMISSIONS.SALES_VIEW);
     const workspaceId = await getCurrentWorkspaceId();
     const db = getPostgresClient();
 

@@ -8,6 +8,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { SettlementService } from '@/lib/modules/consignation/settlement-service';
 import { getCurrentWorkspaceId } from '@/lib/auth/get-session';
+import { requirePermission, PERMISSIONS } from '@/lib/rbac/server';
 
 const settlementService = new SettlementService();
 
@@ -24,6 +25,7 @@ const createSettlementSchema = z.object({
 
 export async function GET(request: NextRequest) {
   try {
+    await requirePermission(PERMISSIONS.CONSIGNMENT_VIEW);
     const workspaceId = await getCurrentWorkspaceId();
     if (!workspaceId) {
       return NextResponse.json({ error: 'Non autorisé' }, { status: 401 });
@@ -55,6 +57,7 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
+    await requirePermission(PERMISSIONS.CONSIGNMENT_SETTLE);
     const workspaceId = await getCurrentWorkspaceId();
     if (!workspaceId) {
       return NextResponse.json({ error: 'Non autorisé' }, { status: 401 });

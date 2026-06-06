@@ -5,11 +5,13 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { WhatsAppReportService } from '@/lib/modules/reports/whatsapp-report-service';
+import { requirePermission, PERMISSIONS } from '@/lib/rbac/server';
 
 const whatsappService = new WhatsAppReportService();
 
 export async function POST(request: NextRequest) {
   try {
+    await requirePermission(PERMISSIONS.NOTIFICATION_SEND);
     const { groupId } = await request.json();
 
     if (!groupId) {

@@ -5,11 +5,13 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { ValidationWorkflowService, ValidatableEntityType } from '@/lib/modules/governance/validation-workflow-service';
+import { requirePermission, PERMISSIONS } from '@/lib/rbac/server';
 
 const validationService = new ValidationWorkflowService();
 
 export async function GET(request: NextRequest) {
   try {
+    await requirePermission(PERMISSIONS.EXPENSE_APPROVE);
     const { searchParams } = new URL(request.url);
     const entityType = searchParams.get('entityType') as ValidatableEntityType;
     const entityId = searchParams.get('entityId');

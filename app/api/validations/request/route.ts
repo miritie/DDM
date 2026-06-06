@@ -5,6 +5,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { ValidationWorkflowService } from '@/lib/modules/governance/validation-workflow-service';
+import { getCurrentWorkspaceId, getCurrentUserId } from '@/lib/auth/get-session';
 
 const validationService = new ValidationWorkflowService();
 
@@ -13,23 +14,25 @@ export async function POST(request: NextRequest) {
     const body = await request.json();
 
     const {
-      workspaceId,
       entityType,
       entityId,
       entityData,
-      requestedBy,
       amount,
       requestReason,
       priority,
       tags,
     } = body;
 
+    // Workspace et demandeur depuis la session — jamais depuis le body.
+    const workspaceId = await getCurrentWorkspaceId();
+    const requestedBy = await getCurrentUserId();
+
     // Validation des champs requis
-    if (!workspaceId || !entityType || !entityId || !entityData || !requestedBy) {
+    if (!entityType || !entityId || !entityData) {
       return NextResponse.json(
         {
           success: false,
-          error: 'Champs requis manquants',
+          error: 'Champs requis manquants (entityType, entityId, entityData)',
         },
         { status: 400 }
       );

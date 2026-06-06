@@ -6,9 +6,12 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { whatsappService } from '@/lib/whatsapp/whatsapp-service';
 import { customerService } from '@/lib/modules/customers/customer-service';
+import { requireAnyPermission, PERMISSIONS } from '@/lib/rbac/server';
+import { getCurrentWorkspaceId } from '@/lib/auth/get-session';
 
 export async function POST(request: NextRequest) {
   try {
+    await requireAnyPermission([PERMISSIONS.CUSTOMER_CREATE, PERMISSIONS.SALES_CREATE]);
     const body = await request.json();
 
     const {
@@ -16,8 +19,10 @@ export async function POST(request: NextRequest) {
       customerName,
       customerId,
       bonusPoints = 500,
-      workspaceId = 'default',
     } = body;
+
+    // Workspace de l'utilisateur connecté — jamais fourni par le client
+    const workspaceId = await getCurrentWorkspaceId();
 
     // Validation
     if (!phone) {

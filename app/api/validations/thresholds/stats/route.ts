@@ -5,11 +5,13 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { ValidationThresholdService } from '@/lib/modules/governance/validation-threshold-service';
+import { requirePermission, PERMISSIONS } from '@/lib/rbac/server';
 
 const thresholdService = new ValidationThresholdService();
 
 export async function GET(request: NextRequest) {
   try {
+    await requirePermission(PERMISSIONS.ADMIN_SETTINGS_VIEW);
     const { searchParams } = new URL(request.url);
     const workspaceId = searchParams.get('workspaceId');
     const startDate = searchParams.get('startDate');

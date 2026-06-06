@@ -7,6 +7,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { DepositService } from '@/lib/modules/consignation/deposit-service';
 import { getCurrentWorkspaceId } from '@/lib/auth/get-session';
+import { requirePermission, PERMISSIONS } from '@/lib/rbac/server';
 
 const depositService = new DepositService();
 
@@ -15,6 +16,7 @@ export async function GET(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    await requirePermission(PERMISSIONS.CONSIGNMENT_VIEW);
     const { id } = await params;
     const workspaceId = await getCurrentWorkspaceId();
     if (!workspaceId) {
@@ -49,6 +51,7 @@ export async function PATCH(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    await requirePermission(PERMISSIONS.CONSIGNMENT_EDIT);
     const { id } = await params;
     const workspaceId = await getCurrentWorkspaceId();
     if (!workspaceId) {

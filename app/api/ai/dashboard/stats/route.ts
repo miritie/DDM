@@ -4,10 +4,13 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
+import { requirePermission, PERMISSIONS } from '@/lib/rbac/server';
+import { getCurrentWorkspaceId } from '@/lib/auth/get-session';
 
 export async function GET(request: NextRequest) {
   try {
-    const workspaceId = 'default'; // TODO: Récupérer depuis session
+    await requirePermission(PERMISSIONS.AI_DECISION_VIEW);
+    const workspaceId = await getCurrentWorkspaceId();
 
     // TODO: Récupérer vraies stats depuis Airtable
     // Pour l'instant, données simulées
