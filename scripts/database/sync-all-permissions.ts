@@ -29,13 +29,13 @@ if (!DATABASE_URL) { console.error('❌ DATABASE_URL non trouvée'); process.exi
 /** Devine un nom lisible et un module à partir du code 'foo:bar_baz'. */
 function describe(code: string): { name: string; module: string } {
   const [moduleRaw, actionRaw] = code.split(':');
-  const module = moduleRaw || 'general';
+  const moduleName = moduleRaw || 'general';
   const action = (actionRaw || '').replace(/_/g, ' ');
   // Capitalise pour donner un libellé lisible : "ingredient inventory" → "Inventory ingredient"
   const name = action
-    ? `${action.charAt(0).toUpperCase()}${action.slice(1)} (${module})`
+    ? `${action.charAt(0).toUpperCase()}${action.slice(1)} (${moduleName})`
     : code;
-  return { name, module };
+  return { name, module: moduleName };
 }
 
 async function main() {

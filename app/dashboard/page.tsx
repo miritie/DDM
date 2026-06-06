@@ -4,6 +4,7 @@
  */
 
 import { redirect } from 'next/navigation';
+import Link from 'next/link';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { getCurrentUser } from '@/lib/auth/get-session';
 import { getPostgresClient } from '@/lib/database/postgres-client';
@@ -138,7 +139,7 @@ export default async function DashboardPage() {
           <span className="px-3 py-1 rounded-full bg-primary-100 text-primary-700 text-sm font-semibold">6 modules</span>
         </div>
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          <a href="/depenses" className="group block">
+          <Link href="/depenses" className="group block">
             <Card className="h-full border-2 border-primary-200 hover:border-primary-400 cursor-pointer transform hover:-translate-y-1 transition-all duration-200">
               <CardHeader className="pb-4">
                 <div className="w-14 h-14 rounded-xl gradient-primary flex items-center justify-center text-3xl mb-3 shadow-medium group-hover:scale-110 transition-transform duration-200">
@@ -156,7 +157,7 @@ export default async function DashboardPage() {
                 </div>
               </CardContent>
             </Card>
-          </a>
+          </Link>
 
           <Card className="opacity-60 relative overflow-hidden">
             <div className="absolute top-3 right-3">
@@ -192,7 +193,7 @@ export default async function DashboardPage() {
             </CardContent>
           </Card>
 
-          <a href="/sales/quick" className="block">
+          <Link href="/sales/quick" className="block">
             <Card className="relative overflow-hidden hover:shadow-strong transition-all duration-300 cursor-pointer group">
               <CardHeader className="pb-4">
                 <div className="w-14 h-14 rounded-xl bg-gradient-to-br from-emerald-500 to-emerald-600 flex items-center justify-center text-3xl mb-3 shadow-medium">
@@ -210,7 +211,7 @@ export default async function DashboardPage() {
                 </div>
               </CardContent>
             </Card>
-          </a>
+          </Link>
 
           <Card className="opacity-60 relative overflow-hidden">
             <div className="absolute top-3 right-3">

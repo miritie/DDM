@@ -30,11 +30,11 @@ export function PermissionsSelector({
     // Grouper les permissions par module
     const grouped: Record<string, Permission[]> = {};
     permissions.forEach((perm) => {
-      const module = perm.Module || 'Autre';
-      if (!grouped[module]) {
-        grouped[module] = [];
+      const moduleName = perm.Module || 'Autre';
+      if (!grouped[moduleName]) {
+        grouped[moduleName] = [];
       }
-      grouped[module].push(perm);
+      grouped[moduleName].push(perm);
     });
     setGroupedPermissions(grouped);
   }, [permissions]);

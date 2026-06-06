@@ -391,7 +391,7 @@ function PayButton({ orderId, balance, onPaid }: { orderId: string; balance: num
                       {filtered.map((w: any) => <option key={w.Id || w.id} value={w.Id || w.id}>{w.Name || w.name}</option>)}
                     </select>
                   ) : (
-                    <p className="text-sm text-amber-700">Aucun portefeuille de type <strong>{reqType}</strong>. <a href="/treasury/wallets/new" className="underline">En créer un</a></p>
+                    <p className="text-sm text-amber-700">Aucun portefeuille de type <strong>{reqType}</strong>. <Link href="/treasury/wallets/new" className="underline">En créer un</Link></p>
                   )}
                 </div>
               )}

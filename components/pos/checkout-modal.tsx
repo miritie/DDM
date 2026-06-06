@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState, useMemo } from 'react';
+import Link from 'next/link';
 import { Button } from '@/components/ui/button';
 import { X, Loader2, Banknote, Smartphone, CreditCard, Clock, Check, Wallet, FileText, Building2 } from 'lucide-react';
 
@@ -222,7 +223,7 @@ export function CheckoutModal({ total, outletId, allowsCredit = false, onClose, 
         {requiredType && filteredWallets.length === 0 && (
           <div className="mb-4 px-3 py-2 bg-amber-50 border border-amber-200 rounded text-sm text-amber-800">
             Aucune caisse de type <strong>{requiredType}</strong> n'est configurée pour ce moyen de paiement.
-            <a href="/treasury/wallets/new" className="underline ml-1">En créer une</a>
+            <Link href="/treasury/wallets/new" className="underline ml-1">En créer une</Link>
           </div>
         )}
 
