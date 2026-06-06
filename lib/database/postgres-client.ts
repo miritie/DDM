@@ -108,11 +108,15 @@ export class PostgresClient {
       query += filterByFormula ? ` AND ${whereStr}` : ` WHERE ${whereStr}`;
     }
 
-    // ORDER BY clause (orderBy takes precedence over sort)
+    // ORDER BY clause (orderBy takes precedence over sort).
+    // Les champs sont convertis en snake_case : les services passent des
+    // noms PascalCase (EntryDate, Priority…) qui, envoyés bruts, donnent
+    // « column "entrydate" does not exist » — toutes les listes triées en
+    // PascalCase étaient en erreur 500 silencieuse.
     if (orderBy) {
-      query += ` ORDER BY ${orderBy.field} ${orderBy.direction?.toUpperCase() || 'ASC'}`;
+      query += ` ORDER BY ${this.toSnakeCase(orderBy.field)} ${orderBy.direction?.toUpperCase() || 'ASC'}`;
     } else if (sort.length > 0) {
-      const orderClauses = sort.map(s => `${s.field} ${s.direction?.toUpperCase() || 'ASC'}`);
+      const orderClauses = sort.map(s => `${this.toSnakeCase(s.field)} ${s.direction?.toUpperCase() || 'ASC'}`);
       query += ` ORDER BY ${orderClauses.join(', ')}`;
     }
 
