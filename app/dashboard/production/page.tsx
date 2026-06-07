@@ -26,7 +26,7 @@ import {
 } from 'lucide-react';
 import { ProtectedPage } from '@/components/rbac/protected-page';
 import { PERMISSIONS } from '@/lib/rbac';
-import { useHasPermission } from '@/lib/rbac/use-permissions';
+import { usePermissions } from '@/lib/rbac/use-permissions';
 
 const fmtF = (n: number) => {
   if (Math.abs(n) >= 1_000_000) {
@@ -44,7 +44,11 @@ export default function ProductionDashboardPage() {
 }
 
 function Router() {
-  const { hasPermission: isManager, loading } = useHasPermission(PERMISSIONS.PRODUCTION_APPROVE);
+  const { permissions, roleCodes, loading } = usePermissions();
+  // Le RÔLE prime : un opérateur de production est TOUJOURS en vue agent,
+  // même si son jeu de permissions déborde (constaté en base de prod).
+  const isOperator = roleCodes.includes('operateur_production');
+  const isManager = !isOperator && permissions.includes(PERMISSIONS.PRODUCTION_APPROVE);
   // Aperçu : un manager/admin peut voir l'écran agent sans se déconnecter
   const [previewAgent, setPreviewAgent] = useState(false);
   if (loading) {
@@ -157,7 +161,8 @@ function ManagerView({ onPreviewAgent }: { onPreviewAgent?: () => void }) {
             <div className="grid grid-cols-3 gap-1.5 sm:gap-2">
               <Stat label="Sollicitations" value={String(solicitations)} tone={solicitations > 0 ? 'amber' : undefined} />
               <Stat label="OP à valider" value={String(d.toValidate.length)} tone={d.toValidate.length > 0 ? 'red' : 'green'} />
-              <Stat label="En cours" value={String(d.inProgress)} tone={d.inProgress > 0 ? 'amber' : undefined} />
+              <Stat label="En cours" value={String(d.inProgress)} tone={d.inProgress > 0 ? 'amber' : undefined}
+                href="/production/orders?status=in_progress" />
               <Stat label="MP faibles" value={String(d.lowIngredients.length)} tone={d.lowIngredients.length > 0 ? 'red' : 'green'} />
               <Stat label="Stock MP valorisé" value={fmtF(d.mpValue)} />
               <Stat label="Achats MP en cours" value={String(d.purchasesOpen)} />
@@ -245,8 +250,8 @@ function ManagerView({ onPreviewAgent }: { onPreviewAgent?: () => void }) {
 
         {/* ===== ACCÈS DÉTAILS ===== */}
         <section className="grid grid-cols-2 gap-2.5">
-          <NavCard href="/production/orders?status=in_progress" icon={<Hammer className="w-5 h-5" />}
-            title="Travaux en cours" tone="purple" />
+          <NavCard href="/production/orders?status=completed" icon={<CheckCircle2 className="w-5 h-5" />}
+            title="Terminés" tone="purple" />
           <NavCard href="/production/ingredients" icon={<Beaker className="w-5 h-5" />}
             title="Matières premières" tone="blue" />
           <NavCard href="/production/recipes" icon={<FileText className="w-5 h-5" />}
@@ -278,26 +283,20 @@ function AgentView() {
   const [loading, setLoading] = useState(true);
   const [acting, setActing] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
+  const [tab, setTab] = useState<'planned' | 'in_progress'>('planned');
 
+  // STRICT : uniquement les ordres QUI LUI SONT AFFECTÉS (assigned=me,
+  // résolu côté serveur). Terminé = sorti de son écran.
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const [sessR, plannedR, inProgR] = await Promise.allSettled([
-        fetch('/api/auth/session'),
-        fetch('/api/production/orders?status=planned'),
-        fetch('/api/production/orders?status=in_progress'),
+      const [plannedR, inProgR] = await Promise.allSettled([
+        fetch('/api/production/orders?status=planned&assigned=me'),
+        fetch('/api/production/orders?status=in_progress&assigned=me'),
       ]);
-      let myId: string | null = null;
-      if (sessR.status === 'fulfilled' && sessR.value.ok) {
-        myId = ((await sessR.value.json())?.user?.id as string) || null;
-      }
       const arr = async (r: PromiseSettledResult<Response>) =>
         r.status === 'fulfilled' && r.value.ok ? ((await r.value.json()).data || []) : [];
-      const all = [...(await arr(inProgR)), ...(await arr(plannedR))];
-      // Ses commandes d'abord ; si aucune affectation explicite ne matche,
-      // montrer tout (petit atelier — ne jamais laisser l'écran vide)
-      const mine = myId ? all.filter((o: any) => o.AssignedToId === myId) : [];
-      setOrders(mine.length > 0 ? mine : all);
+      setOrders([...(await arr(inProgR)), ...(await arr(plannedR))]);
     } finally {
       setLoading(false);
     }
@@ -312,6 +311,7 @@ function AgentView() {
       const r = await fetch(`/api/production/orders/${order.ProductionOrderId}/${action}`, { method: 'POST' });
       if (!r.ok) throw new Error((await r.json()).error || 'Erreur');
       setMessage(action === 'start' ? '✅ Travail commencé !' : '🎉 Travail terminé, bravo !');
+      setTab(action === 'start' ? 'in_progress' : 'planned');
       await load();
     } catch (e: any) {
       setMessage(`❌ ${e.message}`);
@@ -331,23 +331,36 @@ function AgentView() {
           </div>
         )}
 
-        {/* ===== MES TRAVAUX ===== */}
+        {/* ===== MES TRAVAUX : PLANIFIÉ / EN COURS cliquables ===== */}
         <section>
-          <h2 className="text-lg font-bold text-purple-900 mb-2 flex items-center gap-2">
-            <Hammer className="w-5 h-5" /> Mes travaux
-          </h2>
+          <div className="grid grid-cols-2 gap-2 mb-3">
+            <button onClick={() => setTab('planned')}
+              className={'rounded-2xl py-3 text-center border-2 transition-all active:scale-[0.98] ' +
+                (tab === 'planned' ? 'bg-purple-700 border-purple-700 text-white' : 'bg-white border-purple-200 text-purple-900')}>
+              <p className="text-2xl font-bold tabular-nums">{orders.filter(o => o.Status === 'planned').length}</p>
+              <p className="text-xs font-bold uppercase">Planifié</p>
+            </button>
+            <button onClick={() => setTab('in_progress')}
+              className={'rounded-2xl py-3 text-center border-2 transition-all active:scale-[0.98] ' +
+                (tab === 'in_progress' ? 'bg-amber-600 border-amber-600 text-white' : 'bg-white border-amber-200 text-amber-900')}>
+              <p className="text-2xl font-bold tabular-nums">{orders.filter(o => o.Status === 'in_progress').length}</p>
+              <p className="text-xs font-bold uppercase">En cours</p>
+            </button>
+          </div>
           {loading ? (
             <div className="space-y-2">
               {[0, 1].map(i => <div key={i} className="h-28 bg-gray-100 rounded-2xl animate-pulse" />)}
             </div>
-          ) : orders.length === 0 ? (
+          ) : orders.filter(o => o.Status === tab).length === 0 ? (
             <div className="bg-white border-2 border-gray-200 rounded-2xl p-6 text-center">
               <p className="text-4xl mb-2">😌</p>
-              <p className="font-bold text-gray-700">Pas de travail en attente</p>
+              <p className="font-bold text-gray-700">
+                {tab === 'planned' ? 'Rien de planifié pour vous' : 'Aucun travail en cours'}
+              </p>
             </div>
           ) : (
             <div className="space-y-3">
-              {orders.map((o: any) => {
+              {orders.filter(o => o.Status === tab).map((o: any) => {
                 const inProgress = o.Status === 'in_progress';
                 return (
                   <div key={o.ProductionOrderId}
@@ -439,18 +452,23 @@ function Header({ subtitle, onRefresh }: { subtitle: string; onRefresh: () => vo
   );
 }
 
-function Stat({ label, value, tone }: { label: string; value: string; tone?: 'amber' | 'red' | 'green' }) {
+function Stat({ label, value, tone, href }: {
+  label: string; value: string; tone?: 'amber' | 'red' | 'green'; href?: string;
+}) {
   const tones: Record<string, string> = {
     amber: 'bg-amber-50 text-amber-900',
     red: 'bg-red-50 text-red-700',
     green: 'bg-emerald-50 text-emerald-700',
   };
-  return (
-    <div className={`rounded-lg px-2 py-2 text-center ${tone ? tones[tone] : 'bg-gray-50 text-gray-900'}`}>
+  const cls = `block rounded-lg px-2 py-2 text-center ${tone ? tones[tone] : 'bg-gray-50 text-gray-900'}` +
+    (href ? ' active:scale-95 hover:ring-2 hover:ring-purple-300' : '');
+  const inner = (
+    <>
       <p className="text-base sm:text-xl font-bold tabular-nums leading-tight">{value}</p>
       <p className="text-[10px] sm:text-xs font-medium opacity-70 leading-tight mt-0.5">{label}</p>
-    </div>
+    </>
   );
+  return href ? <Link href={href} className={cls}>{inner}</Link> : <div className={cls}>{inner}</div>;
 }
 
 function QueueLine({ title, sub }: { title: string; sub: string }) {

@@ -4,7 +4,7 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import { getCurrentWorkspaceId } from '@/lib/auth/get-session';
+import { getCurrentWorkspaceId, getCurrentUserUuid } from '@/lib/auth/get-session';
 import { ProductionOrderService } from '@/lib/modules/production/production-order-service';
 import { requirePermission, PERMISSIONS } from '@/lib/rbac/server';
 import { ProductionOrderStatus } from '@/types/modules';
@@ -19,7 +19,12 @@ export async function GET(request: NextRequest) {
 
     const status = searchParams.get('status') as ProductionOrderStatus | undefined;
     const priority = searchParams.get('priority') as 'low' | 'normal' | 'high' | 'urgent' | undefined;
-    const assignedToId = searchParams.get('assignedToId') || undefined;
+    // assigned=me : « mes ordres » — l'UUID est résolu depuis la session
+    // (session.user.id est l'ID MÉTIER, inutilisable pour le filtre direct)
+    let assignedToId = searchParams.get('assignedToId') || undefined;
+    if (searchParams.get('assigned') === 'me') {
+      assignedToId = (await getCurrentUserUuid()) ?? '00000000-0000-0000-0000-000000000000';
+    }
     const productId = searchParams.get('productId') || undefined;
     const fromDate = searchParams.get('fromDate') || undefined;
     const toDate = searchParams.get('toDate') || undefined;
