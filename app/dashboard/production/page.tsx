@@ -45,6 +45,8 @@ export default function ProductionDashboardPage() {
 
 function Router() {
   const { hasPermission: isManager, loading } = useHasPermission(PERMISSIONS.PRODUCTION_APPROVE);
+  // Aperçu : un manager/admin peut voir l'écran agent sans se déconnecter
+  const [previewAgent, setPreviewAgent] = useState(false);
   if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-50">
@@ -52,13 +54,25 @@ function Router() {
       </div>
     );
   }
-  return isManager ? <ManagerView /> : <AgentView />;
+  if (!isManager) return <AgentView />;
+  if (previewAgent) {
+    return (
+      <div>
+        <button onClick={() => setPreviewAgent(false)}
+          className="w-full bg-amber-100 text-amber-900 text-sm font-bold py-2.5 text-center sticky top-0 z-20">
+          👁 Aperçu de l'écran AGENT — revenir à ma vue manager ✕
+        </button>
+        <AgentView />
+      </div>
+    );
+  }
+  return <ManagerView onPreviewAgent={() => setPreviewAgent(true)} />;
 }
 
 /* ============================================================
    VUE MANAGER — synthèse d'abord, détails à la demande
    ============================================================ */
-function ManagerView() {
+function ManagerView({ onPreviewAgent }: { onPreviewAgent?: () => void }) {
   const [data, setData] = useState<{
     toValidate: any[]; inProgress: number; queue: any; lowIngredients: any[];
     mpValue: number; purchasesOpen: number;
@@ -244,6 +258,13 @@ function ManagerView() {
           <NavCard href="/production/ingredients/inventory" icon={<PackagePlus className="w-5 h-5" />}
             title="Inventaire MP" tone="gray" />
         </section>
+
+        {onPreviewAgent && (
+          <button onClick={onPreviewAgent}
+            className="w-full text-center text-xs text-gray-400 hover:text-purple-700 py-2">
+            👁 Voir l'écran tel que l'agent de production le voit
+          </button>
+        )}
       </div>
     </div>
   );
