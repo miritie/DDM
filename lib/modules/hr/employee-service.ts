@@ -54,7 +54,7 @@ export class EmployeeService {
    */
   async generateEmployeeNumber(workspaceId: string): Promise<string> {
     const employees = await postgresClient.list<Employee>('employees', {
-      filterByFormula: `workspace_id = '${workspaceId}'`,
+      where: { workspace_id: workspaceId },
     });
 
     const count = employees.length + 1;
@@ -102,7 +102,7 @@ export class EmployeeService {
    */
   async getById(employeeId: string): Promise<Employee | null> {
     const employees = await postgresClient.list<Employee>('employees', {
-      filterByFormula: `employee_id = '${employeeId}'`,
+      where: { employee_id: employeeId },
     });
 
     return employees.length > 0 ? employees[0] : null;
@@ -119,27 +119,15 @@ export class EmployeeService {
       contractType?: string;
     } = {}
   ): Promise<Employee[]> {
-    const filterFormulas: string[] = [`workspace_id = '${workspaceId}'`];
-
-    if (filters.status) {
-      filterFormulas.push(`status = '${filters.status}'`);
-    }
-
-    if (filters.department) {
-      filterFormulas.push(`department = '${filters.department}'`);
-    }
-
-    if (filters.contractType) {
-      filterFormulas.push(`contract_type = '${filters.contractType}'`);
-    }
-
-    const filterByFormula =
-      filterFormulas.length > 1
-        ? `AND(${filterFormulas.join(', ')})`
-        : filterFormulas[0];
+    // Égalités simples : option where{} paramétrée (les formules sans
+    // accolades étaient silencieusement ignorées par le parseur)
+    const where: Record<string, any> = { workspace_id: workspaceId };
+    if (filters.status) where.status = filters.status;
+    if (filters.department) where.department = filters.department;
+    if (filters.contractType) where.contract_type = filters.contractType;
 
     return await postgresClient.list<Employee>('employees', {
-      filterByFormula,
+      where,
       sort: [{ field: 'LastName', direction: 'asc' }],
     });
   }
@@ -149,7 +137,7 @@ export class EmployeeService {
    */
   async update(employeeId: string, input: UpdateEmployeeInput): Promise<Employee> {
     const employees = await postgresClient.list<Employee>('employees', {
-      filterByFormula: `employee_id = '${employeeId}'`,
+      where: { employee_id: employeeId },
     });
 
     if (employees.length === 0) {

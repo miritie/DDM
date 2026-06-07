@@ -6,6 +6,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { PayrollService } from '@/lib/modules/hr/payroll-service';
 import { requirePermission, PERMISSIONS } from '@/lib/rbac/server';
+import { getCurrentUserUuid } from '@/lib/auth/get-session';
 
 const service = new PayrollService();
 
@@ -21,11 +22,14 @@ export async function POST(
     const { id } = await params;
     const body = await request.json();
 
+    // Le payeur est l'utilisateur connecté (le body peut le préciser,
+    // mais on ne fait pas confiance au client par défaut)
+    const processedById = await getCurrentUserUuid();
     const payroll = await service.process({
       payrollId: id,
-      paymentDate: body.paymentDate,
-      paymentMethod: body.paymentMethod,
-      processedById: body.processedById,
+      paymentDate: body.paymentDate || new Date().toISOString().slice(0, 10),
+      paymentMethod: body.paymentMethod || 'bank_transfer',
+      processedById: processedById ?? body.processedById,
     });
 
     return NextResponse.json({ data: payroll });
