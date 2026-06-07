@@ -40,6 +40,21 @@ const fmtF = (n: number) => {
 function Content() {
   const [showMargins, setShowMargins] = useState(false);
   const [snap, setSnap] = useState<any | null>(null);
+  // Drill-down : chaque chiffre ouvre sa décomposition
+  const [drill, setDrill] = useState<{ kpi: string; title: string; rows: any[] } | null>(null);
+  const [drillLoading, setDrillLoading] = useState<string | null>(null);
+  async function openDrill(kpi: string) {
+    setDrillLoading(kpi);
+    try {
+      const r = await fetch(`/api/dashboard/pca-drill?kpi=${kpi}`);
+      if (r.ok) {
+        const d = (await r.json()).data;
+        setDrill({ kpi, title: d.title, rows: d.rows });
+      }
+    } finally {
+      setDrillLoading(null);
+    }
+  }
   useEffect(() => {
     fetch('/api/dashboard/pca-snapshot')
       .then(r => (r.ok ? r.json() : null))
@@ -89,20 +104,60 @@ function Content() {
             </div>
           ) : (
             <div className="grid grid-cols-3 gap-1.5 sm:gap-2">
-              <Stat label="CA aujourd'hui" value={fmtF(snap.ca.day)} tone="amber" />
-              <Stat label="CA du mois" value={fmtF(snap.ca.month)} tone="amber" />
-              <Stat label="CA de l'année" value={fmtF(snap.ca.year)} tone="amber" />
-              <Stat label="Stock stands" value={fmtF(snap.stock.stands)} />
-              <Stat label="Stock entrepôt" value={fmtF(snap.stock.warehouse)} />
+              <Stat label="CA aujourd'hui" value={fmtF(snap.ca.day)} tone="amber"
+                onClick={() => openDrill('ca_day')} loading={drillLoading === 'ca_day'} />
+              <Stat label="CA du mois" value={fmtF(snap.ca.month)} tone="amber"
+                onClick={() => openDrill('ca_month')} loading={drillLoading === 'ca_month'} />
+              <Stat label="CA de l'année" value={fmtF(snap.ca.year)} tone="amber"
+                onClick={() => openDrill('ca_year')} loading={drillLoading === 'ca_year'} />
+              <Stat label="Stock stands" value={fmtF(snap.stock.stands)}
+                onClick={() => openDrill('stock_stands')} loading={drillLoading === 'stock_stands'} />
+              <Stat label="Stock entrepôt" value={fmtF(snap.stock.warehouse)}
+                onClick={() => openDrill('stock_warehouse')} loading={drillLoading === 'stock_warehouse'} />
               <Stat label="MP en faible qté" value={String(snap.stock.mpLow)}
-                tone={snap.stock.mpLow > 0 ? 'red' : 'green'} />
-              <Stat label="Dépenses du mois" value={fmtF(snap.engagements.expensesMonth)} />
+                tone={snap.stock.mpLow > 0 ? 'red' : 'green'}
+                onClick={() => openDrill('mp_low')} loading={drillLoading === 'mp_low'} />
+              <Stat label="Dépenses du mois" value={fmtF(snap.engagements.expensesMonth)}
+                onClick={() => openDrill('expenses_month')} loading={drillLoading === 'expenses_month'} />
               <Stat label="Engagements à payer" value={fmtF(snap.engagements.pending)}
-                tone={snap.engagements.pending > 0 ? 'red' : undefined} />
-              <Stat label="Réappros demandés" value={fmtF(snap.engagements.replenishments)} />
+                tone={snap.engagements.pending > 0 ? 'red' : undefined}
+                onClick={() => openDrill('commitments')} loading={drillLoading === 'commitments'} />
+              <Stat label="Réappros demandés" value={fmtF(snap.engagements.replenishments)}
+                onClick={() => openDrill('replenishments')} loading={drillLoading === 'replenishments'} />
             </div>
           )}
+          <p className="text-[10px] text-gray-400 text-center mt-2">Touchez un chiffre pour voir le détail</p>
         </section>
+
+        {/* Panneau de détail (drill-down) */}
+        {drill && (
+          <section className="bg-white border-2 border-purple-300 rounded-2xl p-3 sm:p-4">
+            <div className="flex items-start justify-between gap-2 mb-2">
+              <h2 className="text-sm sm:text-base font-bold text-purple-900">{drill.title}</h2>
+              <button onClick={() => setDrill(null)}
+                className="shrink-0 px-2.5 py-1 rounded-full bg-gray-100 text-gray-600 text-xs font-bold hover:bg-gray-200">
+                Fermer ✕
+              </button>
+            </div>
+            {drill.rows.length === 0 ? (
+              <p className="text-sm text-gray-500 py-4 text-center">Rien à afficher.</p>
+            ) : (
+              <div className="divide-y divide-gray-100">
+                {drill.rows.map((r: any, i: number) => (
+                  <div key={i} className="flex items-center justify-between gap-3 py-2">
+                    <div className="min-w-0">
+                      <p className="text-sm font-medium truncate">{r.label}</p>
+                      {r.sub && <p className="text-xs text-gray-500 truncate">{r.sub}</p>}
+                    </div>
+                    <p className="text-sm font-bold tabular-nums shrink-0">
+                      {typeof r.value === 'number' ? fmtF(r.value) : r.value}
+                    </p>
+                  </div>
+                ))}
+              </div>
+            )}
+          </section>
+        )}
 
         {/* SECTION 1 — Pilotage : l'essentiel d'abord */}
         <section>
@@ -208,17 +263,24 @@ function Content() {
   );
 }
 
-function Stat({ label, value, tone }: { label: string; value: string; tone?: 'amber' | 'red' | 'green' }) {
+function Stat({ label, value, tone, onClick, loading }: {
+  label: string; value: string; tone?: 'amber' | 'red' | 'green';
+  onClick?: () => void; loading?: boolean;
+}) {
   const tones: Record<string, string> = {
     amber: 'bg-amber-50 text-amber-900',
     red: 'bg-red-50 text-red-700',
     green: 'bg-emerald-50 text-emerald-700',
   };
   return (
-    <div className={`rounded-lg px-2 py-2 text-center ${tone ? tones[tone] : 'bg-gray-50 text-gray-900'}`}>
-      <p className="text-base sm:text-xl font-bold tabular-nums leading-tight">{value}</p>
+    <button type="button" onClick={onClick} disabled={!onClick}
+      className={`rounded-lg px-2 py-2 text-center transition-all ${tone ? tones[tone] : 'bg-gray-50 text-gray-900'} ` +
+        (onClick ? 'active:scale-95 hover:ring-2 hover:ring-purple-300 cursor-pointer' : '')}>
+      <p className="text-base sm:text-xl font-bold tabular-nums leading-tight">
+        {loading ? '…' : value}
+      </p>
       <p className="text-[10px] sm:text-xs font-medium opacity-70 leading-tight mt-0.5">{label}</p>
-    </div>
+    </button>
   );
 }
 
