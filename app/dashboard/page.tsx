@@ -213,39 +213,45 @@ export default async function DashboardPage() {
             </Card>
           </Link>
 
-          <Card className="opacity-60 relative overflow-hidden">
-            <div className="absolute top-3 right-3">
-              <span className="px-2 py-1 rounded-lg bg-amber-100 text-amber-700 text-xs font-semibold">Bientôt</span>
-            </div>
-            <CardHeader className="pb-4">
-              <div className="w-14 h-14 rounded-xl bg-brown-200 flex items-center justify-center text-3xl mb-3">
-                📦
-              </div>
-              <CardTitle className="text-xl">Stocks</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <p className="text-sm text-brown-600">
-                Module 7.2 - Stocks & Mouvements
-              </p>
-            </CardContent>
-          </Card>
+          <Link href="/stock" className="block">
+            <Card className="relative overflow-hidden hover:shadow-strong transition-all duration-300 cursor-pointer group">
+              <CardHeader className="pb-4">
+                <div className="w-14 h-14 rounded-xl bg-gradient-to-br from-blue-500 to-blue-600 flex items-center justify-center text-3xl mb-3 shadow-medium">
+                  📦
+                </div>
+                <CardTitle className="text-xl">Stocks</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <p className="text-sm text-brown-600 mb-4">
+                  Inventaire, mouvements, alertes — entrepôt et stands
+                </p>
+                <div className="flex items-center gap-2 text-blue-600 font-semibold text-sm group-hover:gap-3 transition-all">
+                  Gérer les stocks
+                  <span>→</span>
+                </div>
+              </CardContent>
+            </Card>
+          </Link>
 
-          <Card className="opacity-60 relative overflow-hidden">
-            <div className="absolute top-3 right-3">
-              <span className="px-2 py-1 rounded-lg bg-amber-100 text-amber-700 text-xs font-semibold">Bientôt</span>
-            </div>
-            <CardHeader className="pb-4">
-              <div className="w-14 h-14 rounded-xl bg-brown-200 flex items-center justify-center text-3xl mb-3">
-                👥
-              </div>
-              <CardTitle className="text-xl">Ressources Humaines</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <p className="text-sm text-brown-600">
-                Module 7.6 - RH & Commissions
-              </p>
-            </CardContent>
-          </Card>
+          <Link href="/hr" className="block">
+            <Card className="relative overflow-hidden hover:shadow-strong transition-all duration-300 cursor-pointer group">
+              <CardHeader className="pb-4">
+                <div className="w-14 h-14 rounded-xl bg-gradient-to-br from-purple-500 to-purple-600 flex items-center justify-center text-3xl mb-3 shadow-medium">
+                  👥
+                </div>
+                <CardTitle className="text-xl">Ressources Humaines</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <p className="text-sm text-brown-600 mb-4">
+                  Fiches employés, paie, bulletins, charges sociales
+                </p>
+                <div className="flex items-center gap-2 text-purple-600 font-semibold text-sm group-hover:gap-3 transition-all">
+                  Gérer les RH
+                  <span>→</span>
+                </div>
+              </CardContent>
+            </Card>
+          </Link>
         </div>
       </div>
 
