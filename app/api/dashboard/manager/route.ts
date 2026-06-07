@@ -35,21 +35,21 @@ export async function GET() {
     const todaySales = await safeNumber(
       db.query(
         `SELECT COALESCE(SUM(total_amount), 0) as total
-         FROM sales WHERE workspace_id = $1 AND DATE(created_at) = $2`,
+         FROM sales WHERE workspace_id = $1 AND sale_date::date = $2 AND status != 'cancelled'`,
         [workspaceId, today]
       )
     );
     const weekSales = await safeNumber(
       db.query(
         `SELECT COALESCE(SUM(total_amount), 0) as total
-         FROM sales WHERE workspace_id = $1 AND DATE(created_at) >= $2`,
+         FROM sales WHERE workspace_id = $1 AND sale_date >= $2 AND status != 'cancelled'`,
         [workspaceId, weekAgo]
       )
     );
     const monthSales = await safeNumber(
       db.query(
         `SELECT COALESCE(SUM(total_amount), 0) as total
-         FROM sales WHERE workspace_id = $1 AND DATE(created_at) >= $2`,
+         FROM sales WHERE workspace_id = $1 AND sale_date >= $2 AND status != 'cancelled'`,
         [workspaceId, monthAgo]
       )
     );
@@ -61,43 +61,77 @@ export async function GET() {
       )
     );
 
-    // Stock (les colonnes stock_quantity/stock_minimum n'existent pas dans le schéma actuel — fallback 0)
-    const lowStock = 0;
-    const outOfStock = 0;
+    // Stock réel (stock_items : quantité × coût unitaire, seuils)
     const totalProducts = await safeNumber(
       db.query(
-        `SELECT COUNT(*) as total FROM products WHERE workspace_id = $1`,
+        `SELECT COUNT(*) as total FROM products WHERE workspace_id = $1 AND is_active = true`,
         [workspaceId]
       )
     );
-    const totalStockValue = 0;
+    const totalStockValue = await safeNumber(
+      db.query(
+        `SELECT COALESCE(SUM(quantity * COALESCE(unit_cost, 0)), 0) as total
+         FROM stock_items WHERE workspace_id = $1`,
+        [workspaceId]
+      )
+    );
+    const lowStock = await safeNumber(
+      db.query(
+        `SELECT COUNT(*) as total FROM stock_items
+         WHERE workspace_id = $1 AND quantity > 0 AND quantity <= COALESCE(minimum_stock, 0)`,
+        [workspaceId]
+      )
+    );
+    const outOfStock = await safeNumber(
+      db.query(
+        `SELECT COUNT(*) as total FROM stock_items
+         WHERE workspace_id = $1 AND quantity <= 0`,
+        [workspaceId]
+      )
+    );
 
-    // Employés (table attendance peut ne pas exister — graceful fallback)
+    // Équipe : la colonne est status (pas is_active) ; les présents
+    // combinent pointages manuels ET présence POS automatique des
+    // commerciaux (ouverture de caisse du jour)
     const totalEmps = await safeNumber(
       db.query(
         `SELECT COUNT(*) as total FROM employees
-         WHERE workspace_id = $1 AND is_active = true`,
+         WHERE workspace_id = $1 AND status = 'active'`,
         [workspaceId]
       )
     );
     const present = await safeNumber(
       db.query(
-        `SELECT COUNT(DISTINCT employee_id) as total FROM attendance
-         WHERE workspace_id = $1 AND DATE(check_in) = $2`,
-        [workspaceId, today]
+        `SELECT COUNT(*) as total FROM (
+           SELECT a.employee_id FROM attendances a
+           WHERE a.workspace_id = $1 AND a.date = CURRENT_DATE AND a.check_in_time IS NOT NULL
+           UNION
+           SELECT e.id FROM pos_sessions ps
+           JOIN employees e ON e.user_id = ps.user_id AND e.workspace_id = $1
+           WHERE ps.workspace_id = $1 AND ps.started_at::date = CURRENT_DATE
+         ) x`,
+        [workspaceId]
+      )
+    );
+    const onLeave = await safeNumber(
+      db.query(
+        `SELECT COUNT(DISTINCT employee_id) as total FROM leaves
+         WHERE workspace_id = $1 AND status = 'approved'
+           AND start_date <= CURRENT_DATE AND end_date >= CURRENT_DATE`,
+        [workspaceId]
       )
     );
 
-    // Clients (table customers + sales.client_id)
+    // Clients : la table est « clients » (customers n'a jamais existé)
     const totalCustomers = await safeNumber(
       db.query(
-        `SELECT COUNT(*) as total FROM customers WHERE workspace_id = $1`,
+        `SELECT COUNT(*) as total FROM clients WHERE workspace_id = $1`,
         [workspaceId]
       )
     );
     const newCustomers = await safeNumber(
       db.query(
-        `SELECT COUNT(*) as total FROM customers
+        `SELECT COUNT(*) as total FROM clients
          WHERE workspace_id = $1 AND DATE(created_at) >= $2`,
         [workspaceId, weekAgo]
       )
@@ -105,7 +139,8 @@ export async function GET() {
     const activeCustomers = await safeNumber(
       db.query(
         `SELECT COUNT(DISTINCT client_id) as total FROM sales
-         WHERE workspace_id = $1 AND DATE(created_at) >= $2 AND client_id IS NOT NULL`,
+         WHERE workspace_id = $1 AND sale_date >= $2 AND client_id IS NOT NULL
+           AND status != 'cancelled'`,
         [workspaceId, monthAgo]
       )
     );
@@ -136,8 +171,8 @@ export async function GET() {
           employees: {
             total: totalEmps,
             present,
-            absent: Math.max(0, totalEmps - present),
-            onLeave: 0,
+            absent: Math.max(0, totalEmps - present - onLeave),
+            onLeave,
           },
           customers: {
             total: totalCustomers,
