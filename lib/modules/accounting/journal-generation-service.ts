@@ -205,7 +205,7 @@ export class JournalGenerationService {
              line_id, entry_id, line_number, account_id, label,
              debit_amount, credit_amount, reference
            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
-          [`JEL-${uuidv4().slice(0, 8)}`, entryUuid, i + 1, l.accountId, l.label, l.debit, l.credit, exp.expense_number]
+          [`JEL-${uuidv4()}`, entryUuid, i + 1, l.accountId, l.label, l.debit, l.credit, exp.expense_number]
         );
       }
 
@@ -291,7 +291,7 @@ export class JournalGenerationService {
          ) VALUES ($1, $2, $3, $4, $5, $6, 'posted', CURRENT_TIMESTAMP, $7, $8, $9)
          RETURNING id`,
         [
-          `JE-${uuidv4().slice(0, 8)}`,
+          `JE-${uuidv4()}`,
           entryNumber,
           opts.journal.id,
           opts.date.toISOString().slice(0, 10),
@@ -310,7 +310,7 @@ export class JournalGenerationService {
              line_id, entry_id, line_number, account_id, label,
              debit_amount, credit_amount, reference
            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
-          [`JEL-${uuidv4().slice(0, 8)}`, entryUuid, i + 1, l.accountId, l.label, l.debit, l.credit, opts.reference]
+          [`JEL-${uuidv4()}`, entryUuid, i + 1, l.accountId, l.label, l.debit, l.credit, opts.reference]
         );
       }
       return entryUuid;
@@ -430,6 +430,48 @@ export class JournalGenerationService {
       lines: [
         { accountId: treasuryAccountId, label: `${pay.wallet_name || 'Caisse'} — encaissement ${pay.sale_number}`, debit: amount, credit: 0 },
         { accountId: clients.id, label: `Client ${who} — règlement ${pay.sale_number}`, debit: 0, credit: amount },
+      ],
+    });
+  }
+
+  /**
+   * Écriture de SORTIE DE CAISSE (journal CAI) pour une charge payée en
+   * espèces par un stand : Débit compte de charge / Crédit caisse.
+   * Utilisé pour les primes commerciaux versées à la clôture de caisse.
+   * Throw si aucun compte de charge ne matche — l'appelant gère (best-effort).
+   */
+  async fromCashPayout(opts: {
+    workspaceId: string;
+    date: Date;
+    reference: string;
+    description: string;
+    amount: number;
+    /** Compte caisse du wallet du stand (chart_account_id) ; repli 571 */
+    cashAccountId?: string | null;
+    /** Préfixes de compte de charge à essayer dans l'ordre (ex. ['6614','661','66']) */
+    chargeAccountPrefixes: string[];
+  }): Promise<string> {
+    let charge: { id: string } | null = null;
+    for (const prefix of opts.chargeAccountPrefixes) {
+      charge = await this.findAccount(opts.workspaceId, prefix);
+      if (charge) break;
+    }
+    if (!charge) throw new Error(`Aucun compte de charge (${opts.chargeAccountPrefixes.join('/')}) au plan comptable`);
+    const cash = opts.cashAccountId
+      ? { id: opts.cashAccountId }
+      : await this.findAccount(opts.workspaceId, '571');
+    if (!cash) throw new Error('Compte caisse (571) introuvable au plan comptable');
+
+    const journal = await this.ensureJournal(opts.workspaceId, 'CAI', 'Journal de caisse', 'cash');
+    return this.insertEntry({
+      workspaceId: opts.workspaceId,
+      journal,
+      date: opts.date,
+      description: opts.description,
+      reference: opts.reference,
+      lines: [
+        { accountId: charge.id, label: opts.description, debit: opts.amount, credit: 0 },
+        { accountId: cash.id, label: `Caisse — ${opts.reference}`, debit: 0, credit: opts.amount },
       ],
     });
   }

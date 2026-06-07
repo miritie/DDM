@@ -179,6 +179,7 @@ export function SessionJournalModal({ outletId, outletName, onClose }: SessionJo
       byProduct: data.byProduct,
       bySeller: data.bySeller,
       deposits: data.deposits,
+      payouts: data.payouts,
       totals: data.totals,
       observation: obsForPdf,
     };

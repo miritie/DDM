@@ -62,7 +62,8 @@ export interface StandJournalPdfData {
   byProduct: StandJournalProductLine[];
   bySeller: Array<{ name: string; salesCount: number; revenue: number; paid: number }>;
   deposits: Array<{ destinationType: string; label: string; total: number; count: number }>;
-  totals: { salesCount: number; revenue: number; paid: number; deposited: number };
+  payouts?: Array<{ kind: string; sellerName: string; units: number; amount: number }>;
+  totals: { salesCount: number; revenue: number; paid: number; deposited: number; payouts?: number };
   observation?: StandJournalObservation | null;
   currency?: string;
 }
@@ -311,6 +312,40 @@ export function generateStandJournalPdf(data: StandJournalPdfData): Blob {
       foot: [[
         '', '', 'TOTAL DÉPOSÉ',
         fmt(data.totals.deposited, currency),
+      ]],
+      styles: { fontSize: 8, cellPadding: 1.5 },
+      headStyles: { fillColor: [102, 60, 20], textColor: 255 },
+      footStyles: { fillColor: [240, 230, 210], textColor: 0, fontStyle: 'bold' },
+      columnStyles: {
+        2: { halign: 'center' },
+        3: { halign: 'right' },
+      },
+    });
+    y = (doc as DocWithAutoTable).lastAutoTable.finalY + 6;
+  }
+
+  // === Primes versées en espèces (transport + vente) ===
+  const payouts = data.payouts ?? [];
+  if (payouts.length > 0) {
+    if (y > H - 40) { doc.addPage(); y = 20; }
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(9);
+    doc.setTextColor(0, 0, 0);
+    doc.text('PRIMES VERSÉES (ESPÈCES)', margin, y);
+    y += 2;
+    autoTable(doc, {
+      startY: y,
+      margin: { left: margin, right: margin },
+      head: [['Commercial', 'Prime', 'Unités', 'Montant']],
+      body: payouts.map(p => [
+        p.sellerName,
+        p.kind === 'transport' ? 'Transport' : 'Prime de vente',
+        p.kind === 'sales_bonus' ? String(p.units) : '—',
+        fmt(p.amount, currency),
+      ]),
+      foot: [[
+        '', '', 'TOTAL PRIMES',
+        fmt(data.totals.payouts ?? payouts.reduce((s2, p) => s2 + p.amount, 0), currency),
       ]],
       styles: { fontSize: 8, cellPadding: 1.5 },
       headStyles: { fillColor: [102, 60, 20], textColor: 255 },

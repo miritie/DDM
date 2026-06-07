@@ -176,6 +176,25 @@ export async function GET(
       count: r.count,
     }));
 
+    // ===== Primes versées en espèces (transport + vente) =====
+    let payouts: any[] = [];
+    try {
+      const payoutsRes = await db.query<any>(
+        `SELECT cp.kind, cp.units, cp.amount::float AS amount, u.full_name AS seller_name
+         FROM commission_payouts cp
+         JOIN users u ON u.id = cp.seller_user_id
+         WHERE cp.outlet_id = $1 AND cp.payout_date = $2::date
+         ORDER BY u.full_name, cp.kind`,
+        [outlet.id, date]
+      );
+      payouts = payoutsRes.rows.map((r: any) => ({
+        kind: r.kind,
+        sellerName: r.seller_name,
+        units: r.units,
+        amount: Number(r.amount),
+      }));
+    } catch { /* table absente tant que le module paie n'a pas tourné */ }
+
     // ===== Observation du jour (saisie commercial) =====
     const obsRes = await db.query<any>(
       `SELECT o.observation, o.updated_at, u.full_name AS author_name
@@ -199,13 +218,14 @@ export async function GET(
       revenue: bySeller.reduce((s, x) => s + x.revenue, 0),
       paid: bySeller.reduce((s, x) => s + x.paid, 0),
       deposited: deposits.reduce((s, x) => s + x.total, 0),
+      payouts: payouts.reduce((s, x) => s + x.amount, 0),
     };
 
     return NextResponse.json({
       data: {
         outlet: { id: outlet.id, name: outlet.name, code: outlet.code },
         date,
-        sessions, byProduct, bySeller, deposits, totals, observation,
+        sessions, byProduct, bySeller, deposits, payouts, totals, observation,
       },
     });
   } catch (e: any) {

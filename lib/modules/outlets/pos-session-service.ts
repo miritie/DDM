@@ -147,10 +147,22 @@ export class PosSessionService {
     sessionId: string,
     input: { cashCounted: number; cashWalletId?: string | null; closedByUserUuid: string; notes?: string }
   ): Promise<PosSession & { CashExpected: number; CashCounted: number; Discrepancy: number }> {
-    // Source de vérité : le calcul de session (ventes cash − dépôts cash),
-    // pas le solde wallet cumulé. Le wallet n'est utilisé que pour l'audit
-    // si fourni (et n'est PAS modifié — la discordance n'applique aucune
-    // correction automatique).
+    // Primes du jour (transport + vente) versées en espèces au vendeur
+    // AVANT le comptage : elles sortent du tiroir et entrent dans le
+    // cash attendu via getSessionCashSummary. Best-effort : un échec de
+    // primes ne bloque pas la clôture.
+    let payouts: any = null;
+    try {
+      const { CommissionPayoutService } = await import('@/lib/modules/hr/commission-payout-service');
+      payouts = await new CommissionPayoutService().payForSession(sessionId, input.closedByUserUuid);
+    } catch (e: any) {
+      console.warn('[close-cash] primes non versées:', e.message);
+    }
+
+    // Source de vérité : le calcul de session (ventes cash − dépôts cash
+    // − primes versées), pas le solde wallet cumulé. Le wallet n'est
+    // utilisé que pour l'audit si fourni (et n'est PAS modifié — la
+    // discordance n'applique aucune correction automatique).
     const summary = await this.getSessionCashSummary(sessionId);
     const expected = summary.expected;
     const counted = Number(input.cashCounted);
@@ -175,7 +187,8 @@ export class PosSessionService {
       CashExpected: Number(row.closing_cash_expected),
       CashCounted: Number(row.closing_cash_counted),
       Discrepancy: Number(row.closing_discrepancy),
-    };
+      ...(payouts ? { CommissionPayouts: payouts } : {}),
+    } as any;
   }
 
 /**
@@ -228,8 +241,18 @@ export class PosSessionService {
          AND cd.deposited_at <= COALESCE($3::timestamp, CURRENT_TIMESTAMP)`,
       [s.outlet_id, s.started_at, s.ended_at]
     );
+    // Primes commerciaux versées en espèces depuis cette session (Z-out)
+    let payoutsOut = 0;
+    try {
+      const payoutsRes = await db.query<any>(
+        `SELECT COALESCE(SUM(amount), 0)::float AS total
+         FROM commission_payouts WHERE pos_session_id = $1`,
+        [sessionId]
+      );
+      payoutsOut = Number(payoutsRes.rows[0].total);
+    } catch { /* table absente tant que le module paie n'a pas tourné */ }
     const cashIn = Number(cashInRes.rows[0].total);
-    const cashOut = Number(cashOutRes.rows[0].total);
+    const cashOut = Number(cashOutRes.rows[0].total) + payoutsOut;
     return {
       sessionId: s.id,
       outletId: s.outlet_id,
