@@ -16,6 +16,51 @@ import { PaymentMethodService } from '@/lib/modules/treasury/payment-method-serv
 const postgresClient = getPostgresClient();
 const paymentMethodService = new PaymentMethodService();
 
+// La base de prod (Vercel) n'est jamais passée par les scripts de
+// migration : la table payrolls peut ne pas exister. Garantie paresseuse
+// et idempotente, une fois par process (même approche que doc_counters).
+let payrollTableEnsured: Promise<void> | null = null;
+function ensurePayrollTable(): Promise<void> {
+  if (!payrollTableEnsured) {
+    payrollTableEnsured = (async () => {
+      await postgresClient.query(
+        `DO $$ BEGIN
+           CREATE TYPE payroll_status AS ENUM ('draft', 'validated', 'paid', 'cancelled');
+         EXCEPTION WHEN duplicate_object THEN NULL; END $$`
+      );
+      await postgresClient.query(
+        `CREATE TABLE IF NOT EXISTS payrolls (
+           id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+           payroll_id VARCHAR(50) UNIQUE NOT NULL,
+           payroll_number VARCHAR(50) NOT NULL,
+           employee_id UUID NOT NULL REFERENCES employees(id) ON DELETE RESTRICT,
+           period VARCHAR(7) NOT NULL,
+           base_salary DECIMAL(15, 2) NOT NULL,
+           allowances DECIMAL(15, 2) DEFAULT 0 NOT NULL,
+           bonuses DECIMAL(15, 2) DEFAULT 0 NOT NULL,
+           deductions DECIMAL(15, 2) DEFAULT 0 NOT NULL,
+           advance_deduction DECIMAL(15, 2) DEFAULT 0 NOT NULL,
+           net_salary DECIMAL(15, 2) NOT NULL,
+           payment_date DATE,
+           payment_method_id UUID REFERENCES payment_methods(id) ON DELETE RESTRICT,
+           status payroll_status DEFAULT 'draft' NOT NULL,
+           notes TEXT,
+           processed_by_id UUID REFERENCES users(id) ON DELETE SET NULL,
+           processed_at TIMESTAMP,
+           workspace_id UUID NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+           created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL,
+           updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL
+         )`
+      );
+      // Bases déjà migrées mais antérieures à 2a : colonne paiement moderne
+      await postgresClient.query(
+        `ALTER TABLE payrolls ADD COLUMN IF NOT EXISTS payment_method_id UUID REFERENCES payment_methods(id) ON DELETE RESTRICT`
+      );
+    })().catch(e => { payrollTableEnsured = null; throw e; });
+  }
+  return payrollTableEnsured;
+}
+
 export interface CreatePayrollInput {
   employeeId: string; // UUID employees.id OU code métier employees.employee_id
   period: string; // YYYY-MM
@@ -70,6 +115,7 @@ export class PayrollService {
   }
 
   async getById(payrollId: string): Promise<any | null> {
+    await ensurePayrollTable();
     const r = await postgresClient.query(
       `${SELECT_PAYROLL} WHERE p.payroll_id = $1 OR p.id::text = $1 LIMIT 1`,
       [payrollId]
@@ -81,6 +127,7 @@ export class PayrollService {
     workspaceId: string,
     filters: { employeeId?: string; period?: string; status?: string } = {}
   ): Promise<any[]> {
+    await ensurePayrollTable();
     const params: any[] = [workspaceId];
     let where = `p.workspace_id = $1`;
     if (filters.employeeId) {
@@ -103,6 +150,7 @@ export class PayrollService {
   }
 
   async create(input: CreatePayrollInput): Promise<any> {
+    await ensurePayrollTable();
     if (!/^\d{4}-\d{2}$/.test(input.period)) {
       throw new Error('Période invalide (format attendu : AAAA-MM)');
     }
@@ -197,6 +245,7 @@ export class PayrollService {
     period: string,
     employeeIds?: string[]
   ): Promise<any[]> {
+    await ensurePayrollTable();
     if (!/^\d{4}-\d{2}$/.test(period)) {
       throw new Error('Période invalide (format attendu : AAAA-MM)');
     }

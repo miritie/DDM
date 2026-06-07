@@ -42,8 +42,9 @@ export default function PayrollPage() {
   const [payrolls, setPayrolls] = useState<Payroll[]>([]);
   const [statistics, setStatistics] = useState<any>(null);
   const [loading, setLoading] = useState(true);
-  const [periodFilter, setPeriodFilter] = useState<string>('');
+  const [periodFilter, setPeriodFilter] = useState<string>('all');
   const [statusFilter, setStatusFilter] = useState<string>('all');
+  const [error, setError] = useState<string | null>(null);
   const [showBulkDialog, setShowBulkDialog] = useState(false);
   const [bulkPeriod, setBulkPeriod] = useState('');
 
@@ -55,28 +56,34 @@ export default function PayrollPage() {
     try {
       setLoading(true);
       const params = new URLSearchParams();
-      if (periodFilter) params.append('period', periodFilter);
+      if (periodFilter !== 'all') params.append('period', periodFilter);
       if (statusFilter !== 'all') params.append('status', statusFilter);
 
       const statsParams = new URLSearchParams();
-      if (periodFilter) statsParams.append('period', periodFilter);
+      if (periodFilter !== 'all') statsParams.append('period', periodFilter);
 
       const [payrollsRes, statsRes] = await Promise.all([
         fetch(`/api/hr/payroll?${params}`),
         fetch(`/api/hr/payroll/statistics?${statsParams}`),
       ]);
 
+      setError(null);
       if (payrollsRes.ok) {
         const data = await payrollsRes.json();
-        setPayrolls(data.data || []);
+        setPayrolls(Array.isArray(data.data) ? data.data : []);
+      } else {
+        const body = await payrollsRes.json().catch(() => ({}));
+        setPayrolls([]);
+        setError(body.error || 'Erreur lors du chargement des paies');
       }
 
       if (statsRes.ok) {
         const data = await statsRes.json();
         setStatistics(data.data || null);
       }
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error loading data:', error);
+      setError(error?.message || 'Erreur lors du chargement');
     } finally {
       setLoading(false);
     }
@@ -162,6 +169,10 @@ export default function PayrollPage() {
         </div>
       </div>
 
+      {error && (
+        <div className="text-sm text-red-700 bg-red-50 border border-red-200 rounded-lg px-3 py-2">{error}</div>
+      )}
+
       {statistics && (
         <div className="grid gap-4 md:grid-cols-4">
           <Card>
@@ -216,7 +227,7 @@ export default function PayrollPage() {
                 <SelectValue placeholder="Période" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="">Toutes périodes</SelectItem>
+                <SelectItem value="all">Toutes périodes</SelectItem>
                 {periods.map((period) => (
                   <SelectItem key={period} value={period}>
                     {period}
