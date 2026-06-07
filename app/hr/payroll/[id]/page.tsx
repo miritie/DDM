@@ -41,6 +41,7 @@ export default function PayrollDetailPage() {
   const [showPay, setShowPay] = useState(false);
   const [paymentDate, setPaymentDate] = useState(new Date().toISOString().slice(0, 10));
   const [paymentMethod, setPaymentMethod] = useState('bank_transfer');
+  const [payAmount, setPayAmount] = useState('');
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -90,14 +91,25 @@ export default function PayrollDetailPage() {
   const sharePdf = () => payroll && sharePayslipPdf(pdfData());
 
   const validate = () => action(() => fetch(`/api/hr/payroll/${id}/validate`, { method: 'POST' }));
+  const remaining = payroll
+    ? Math.max(0, Math.round((Number(payroll.NetSalary) || 0) - (Number(payroll.AmountPaid) || 0)))
+    : 0;
   const pay = () => action(() => fetch(`/api/hr/payroll/${id}/process`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ paymentDate, paymentMethod }),
+    body: JSON.stringify({
+      paymentDate, paymentMethod,
+      amount: Number(payAmount) > 0 ? Number(payAmount) : undefined,
+    }),
   }));
   const cancel = () => action(() => fetch(`/api/hr/payroll/${id}`, { method: 'DELETE' }));
 
-  const meta = payroll ? (STATUS_META[payroll.Status] || STATUS_META.draft) : null;
+  const partial = payroll && payroll.Status === 'validated' && (Number(payroll.AmountPaid) || 0) > 0;
+  const meta = payroll
+    ? (partial
+        ? { label: `Partiellement payée`, cls: 'bg-amber-50 text-amber-700' }
+        : (STATUS_META[payroll.Status] || STATUS_META.draft))
+    : null;
 
   return (
     <ProtectedPage permission={PERMISSIONS.HR_VIEW}>
@@ -161,9 +173,16 @@ export default function PayrollDetailPage() {
                     )}
                   </tbody>
                 </table>
+                {(Number(payroll.AmountPaid) || 0) > 0 && (
+                  <p className={`text-sm mt-2 font-semibold tabular-nums ${remaining > 0 ? 'text-amber-800' : 'text-emerald-700'}`}>
+                    Versé : {fmt(payroll.AmountPaid)} F{remaining > 0
+                      ? ` — reste à payer : ${fmt(remaining)} F`
+                      : ' — soldée'}
+                  </p>
+                )}
                 {payroll.PaymentDate && (
                   <p className="text-xs text-gray-500 mt-2">
-                    Payée le {new Date(payroll.PaymentDate).toLocaleDateString('fr-FR')}
+                    Dernier versement le {new Date(payroll.PaymentDate).toLocaleDateString('fr-FR')}
                   </p>
                 )}
                 {payroll.Notes && <p className="text-sm text-gray-600 mt-2">{payroll.Notes}</p>}
@@ -188,7 +207,7 @@ export default function PayrollDetailPage() {
                   <CheckCircle2 className="w-4 h-4" /> Valider la paie
                 </button>
               )}
-              {payroll.Status === 'validated' && !showPay && (
+              {payroll.Status === 'validated' && remaining > 0 && !showPay && (
                 <button onClick={() => setShowPay(true)} disabled={acting}
                   className="w-full py-3 rounded-xl bg-emerald-600 text-white font-bold hover:bg-emerald-700 disabled:opacity-50 inline-flex items-center justify-center gap-2">
                   <Banknote className="w-4 h-4" /> Payer
@@ -197,7 +216,7 @@ export default function PayrollDetailPage() {
               {showPay && payroll.Status === 'validated' && (
                 <Card>
                   <CardContent className="pt-4 space-y-3">
-                    <div className="grid sm:grid-cols-2 gap-3">
+                    <div className="grid sm:grid-cols-3 gap-3">
                       <div>
                         <label className="text-sm font-semibold text-gray-700 block mb-1">Date de paiement</label>
                         <input type="date" value={paymentDate} onChange={e => setPaymentDate(e.target.value)}
@@ -210,10 +229,21 @@ export default function PayrollDetailPage() {
                           {PAYMENT_METHODS.map(m => <option key={m.value} value={m.value}>{m.label}</option>)}
                         </select>
                       </div>
+                      <div>
+                        <label className="text-sm font-semibold text-gray-700 block mb-1">
+                          Montant (reste {fmt(remaining)} F)
+                        </label>
+                        <input type="number" min="1" max={remaining} step="1000"
+                          placeholder={String(remaining)}
+                          value={payAmount} onChange={e => setPayAmount(e.target.value)}
+                          className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm tabular-nums" />
+                        <p className="text-xs text-gray-500 mt-0.5">Vide = solde complet</p>
+                      </div>
                     </div>
                     <button onClick={pay} disabled={acting}
                       className="w-full py-2.5 rounded-xl bg-emerald-600 text-white font-bold hover:bg-emerald-700 disabled:opacity-50">
-                      {acting ? 'Paiement…' : `Confirmer le paiement de ${fmt(payroll.NetSalary)} F`}
+                      {acting ? 'Paiement…'
+                        : `Verser ${fmt(Number(payAmount) > 0 ? Math.min(Number(payAmount), remaining) : remaining)} F`}
                     </button>
                   </CardContent>
                 </Card>

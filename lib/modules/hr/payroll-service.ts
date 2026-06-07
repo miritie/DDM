@@ -72,6 +72,7 @@ export function ensurePayrollTable(): Promise<void> {
         `employer_total DECIMAL(15, 2) DEFAULT 0`,
         `fiscal_parts NUMERIC(3, 1)`,
         `charges_settled_at TIMESTAMP`,
+        `amount_paid DECIMAL(15, 2) DEFAULT 0`,
       ]) {
         await postgresClient.query(`ALTER TABLE payrolls ADD COLUMN IF NOT EXISTS ${col}`);
       }
@@ -92,6 +93,19 @@ export function ensurePayrollTable(): Promise<void> {
       ]) {
         await postgresClient.query(`ALTER TABLE employees ADD COLUMN IF NOT EXISTS ${col}`);
       }
+      // ----- Règlements (partiels) des charges sociales & fiscales -----
+      await postgresClient.query(
+        `CREATE TABLE IF NOT EXISTS charge_settlements (
+           id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+           workspace_id UUID NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+           period VARCHAR(7) NOT NULL,
+           organism VARCHAR(10) NOT NULL,
+           amount DECIMAL(15, 2) NOT NULL,
+           transaction_id UUID,
+           paid_by_id UUID REFERENCES users(id) ON DELETE SET NULL,
+           paid_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL
+         )`
+      );
       // ----- Primes payées en espèces à la clôture de caisse -----
       await postgresClient.query(
         `CREATE TABLE IF NOT EXISTS commission_payouts (
@@ -134,6 +148,8 @@ export interface ProcessPayrollInput {
   paymentDate: string;
   paymentMethod: string;
   processedById: string;
+  /** Versement partiel — défaut : tout le reste à payer */
+  amount?: number;
 }
 
 /** Colonnes renvoyées aux pages (PascalCase) + nom de l'employé joint. */
@@ -144,6 +160,7 @@ const SELECT_PAYROLL = `
          p.base_salary::float AS "BaseSalary", p.allowances::float AS "Allowances",
          p.bonuses::float AS "Bonuses", p.deductions::float AS "Deductions",
          p.advance_deduction::float AS "AdvanceDeduction", p.net_salary::float AS "NetSalary",
+         COALESCE(p.amount_paid, 0)::float AS "AmountPaid",
          p.status AS "Status", p.notes AS "Notes",
          p.payment_date AS "PaymentDate", p.processed_at AS "ProcessedAt",
          p.workspace_id AS "WorkspaceId", p.created_at AS "CreatedAt",
@@ -336,62 +353,92 @@ export class PayrollService {
       throw new Error("La paie doit être validée avant d'être payée");
     }
 
+    const net = Number(payroll.NetSalary) || 0;
+    const alreadyPaid = Number(payroll.AmountPaid) || 0;
+    const remaining = Math.round((net - alreadyPaid) * 100) / 100;
+    if (remaining <= 0) throw new Error('Cette paie est déjà soldée');
+
+    // Versement partiel autorisé — jamais plus que le reste à payer
+    const amount = Math.min(
+      input.amount && input.amount > 0 ? Math.round(input.amount * 100) / 100 : remaining,
+      remaining
+    );
+
     // Résolution payment_method_id (la colonne enum legacy a été supprimée en 2c).
     const pm = await paymentMethodService.getByCode(payroll.WorkspaceId, input.paymentMethod);
     if (!pm?.Id) {
       throw new Error(`Moyen de paiement "${input.paymentMethod}" introuvable ou inactif dans ce workspace.`);
     }
 
-    // ----- Sortie de trésorerie réelle (le net quitte un wallet) -----
+    // ----- Sortie de trésorerie réelle du versement -----
     const walletType = input.paymentMethod === 'cash' ? 'cash'
       : input.paymentMethod === 'mobile_money' ? 'mobile_money' : 'bank';
-    const net = Number(payroll.NetSalary) || 0;
-    let walletAccountId: string | null = null;
-    if (net > 0) {
-      walletAccountId = await postgresClient.transaction(async (client) => {
-        const wR = await client.query(
-          `SELECT id, balance::float AS balance, chart_account_id
-           FROM wallets
-           WHERE workspace_id = $1 AND type = $2 AND is_active = true
-             AND ($2 != 'cash' OR outlet_id IS NULL)
-           ORDER BY name LIMIT 1 FOR UPDATE`,
-          [payroll.WorkspaceId, walletType]
-        );
-        if (!wR.rows[0]) {
-          throw new Error(`Aucun portefeuille « ${walletType} » actif pour payer cette paie`);
-        }
-        const wallet = wR.rows[0];
-        if (wallet.balance < net) {
-          throw new Error(`Solde insuffisant (${Math.round(wallet.balance)} F) pour verser le net de ${Math.round(net)} F`);
-        }
-        await client.query(
-          `INSERT INTO transactions (transaction_id, transaction_number, type, category, amount,
-                                     source_wallet_id, description, reference, status,
-                                     processed_by_id, processed_at, workspace_id)
-           VALUES ($1, $2, 'expense', 'salary', $3, $4, $5, $6, 'completed', $7, CURRENT_TIMESTAMP, $8)`,
-          [uuidv4(), `SAL-${payroll.Period.replace('-', '')}-${uuidv4().slice(0, 12)}`,
-           net, wallet.id,
-           `Salaire ${payroll.Period} — ${payroll.EmployeeName ?? payroll.PayrollNumber}`,
-           payroll.PayrollNumber, input.processedById, payroll.WorkspaceId]
-        );
-        await client.query(`UPDATE wallets SET balance = balance - $1 WHERE id = $2`, [net, wallet.id]);
-        return wallet.chart_account_id as string | null;
-      });
-    }
+    const newPaid = Math.round((alreadyPaid + amount) * 100) / 100;
+    const fullyPaid = newPaid >= net - 0.01;
+    const seqR = await postgresClient.query(
+      `SELECT COUNT(*)::int + 1 AS seq FROM transactions
+       WHERE workspace_id = $1 AND reference = $2 AND category = 'salary'`,
+      [payroll.WorkspaceId, payroll.PayrollNumber]
+    );
+    const seq = seqR.rows[0].seq;
+
+    const walletAccountId = await postgresClient.transaction(async (client) => {
+      const wR = await client.query(
+        `SELECT id, balance::float AS balance, chart_account_id
+         FROM wallets
+         WHERE workspace_id = $1 AND type = $2 AND is_active = true
+           AND ($2 != 'cash' OR outlet_id IS NULL)
+         ORDER BY name LIMIT 1 FOR UPDATE`,
+        [payroll.WorkspaceId, walletType]
+      );
+      if (!wR.rows[0]) {
+        throw new Error(`Aucun portefeuille « ${walletType} » actif pour payer cette paie`);
+      }
+      const wallet = wR.rows[0];
+      if (wallet.balance < amount) {
+        throw new Error(`Solde insuffisant (${Math.round(wallet.balance)} F) pour verser ${Math.round(amount)} F`);
+      }
+      await client.query(
+        `INSERT INTO transactions (transaction_id, transaction_number, type, category, amount,
+                                   source_wallet_id, description, reference, status,
+                                   processed_by_id, processed_at, workspace_id)
+         VALUES ($1, $2, 'expense', 'salary', $3, $4, $5, $6, 'completed', $7, CURRENT_TIMESTAMP, $8)`,
+        [uuidv4(), `SAL-${payroll.Period.replace('-', '')}-${uuidv4().slice(0, 12)}`,
+         amount, wallet.id,
+         `Salaire ${payroll.Period} — ${payroll.EmployeeName ?? payroll.PayrollNumber}` +
+         (fullyPaid && seq === 1 ? '' : ` (versement ${seq}${fullyPaid ? ' — solde' : `, reste ${Math.round(net - newPaid)} F`})`),
+         payroll.PayrollNumber, input.processedById, payroll.WorkspaceId]
+      );
+      await client.query(`UPDATE wallets SET balance = balance - $1 WHERE id = $2`, [amount, wallet.id]);
+      return wallet.chart_account_id as string | null;
+    });
 
     await postgresClient.query(
       `UPDATE payrolls
-       SET status = 'paid', payment_date = $2, payment_method_id = $3,
-           processed_by_id = $4, processed_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
+       SET amount_paid = $2, status = $3::payroll_status, payment_date = $4,
+           payment_method_id = $5, processed_by_id = $6,
+           processed_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
        WHERE id = $1`,
-      [payroll.Id, input.paymentDate, pm.Id, input.processedById]
+      [payroll.Id, newPaid, fullyPaid ? 'paid' : 'validated', input.paymentDate,
+       pm.Id, input.processedById]
     );
 
-    // ----- Écriture comptable de paie (best-effort) : matérialise les
-    // dettes sociales (431) et fiscales (442/447) à régler le 15 -----
+    // ----- Écritures comptables (best-effort) -----
+    // 1. Charge de paie : UNE fois (idempotente) — crédit 421 « net dû »,
+    //    matérialise aussi les dettes sociales (431) et fiscales (442/447)
+    // 2. Chaque versement : D 421 ÷ C 5xx pour le montant versé
     try {
       const { JournalGenerationService } = await import('@/lib/modules/accounting/journal-generation-service');
-      await new JournalGenerationService().fromPayrollPayment(payroll.Id, {
+      const gen = new JournalGenerationService();
+      await gen.fromPayrollPayment(payroll.Id);
+      await gen.fromSalaryDisbursement({
+        workspaceId: payroll.WorkspaceId,
+        payrollNumber: payroll.PayrollNumber,
+        employeeName: payroll.EmployeeName ?? payroll.PayrollNumber,
+        period: payroll.Period,
+        seq,
+        date: new Date(input.paymentDate),
+        amount,
         treasuryAccountId: walletAccountId,
         journalCode: input.paymentMethod === 'cash' ? 'CAI' : 'BAN',
       });

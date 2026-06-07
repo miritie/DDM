@@ -137,7 +137,7 @@ export class JournalGenerationService {
       [journal.id, year]
     );
     const entryNumber = `${journal.code}-${year}-${String((cntR.rows[0]?.n || 0) + 1).padStart(4, '0')}`;
-    const entrySlug = `JE-${uuidv4().slice(0, 8)}`;
+    const entrySlug = `JE-${uuidv4()}`; // UUID complet (slice = collisions)
 
     // 7. Construction des lignes (équilibrage par construction)
     type Line = { accountId: string; label: string; debit: number; credit: number };
@@ -481,15 +481,16 @@ export class JournalGenerationService {
    *   D 661  Rémunérations (brut − acomptes espèces déjà passés en 661
    *          aux clôtures de caisse — pas de double charge)
    *   D 664  Charges sociales patronales (CNPS pat. + CMU + FDFP)
-   *   C 5xx  Trésorerie (net versé)
+   *   C 421  Personnel — net dû (éteint ensuite par chaque versement)
    *   C 431  CNPS & organismes sociaux (part salariale + patronale + CMU)
    *   C 442x ITS retenu à la source (dette envers la DGI)
    *   C 447x FDFP (TAP + TFPC)
-   *   C 421  Personnel — autres retenues (avances sur salaire)
-   * Les comptes 43x/44x matérialisent les DETTES à régler le 15 du mois
-   * suivant. Idempotent par numéro de bulletin.
+   * Les comptes 421/43x/44x matérialisent les DETTES (salaires à verser,
+   * organismes à régler le 15) — les paiements FRACTIONNÉS les éteignent
+   * au fur et à mesure via fromSalaryDisbursement / fromLiabilitySettlement.
+   * Idempotent par numéro de bulletin.
    */
-  async fromPayrollPayment(payrollUuid: string, opts?: { treasuryAccountId?: string | null; journalCode?: 'BAN' | 'CAI' }): Promise<string> {
+  async fromPayrollPayment(payrollUuid: string, _opts?: { treasuryAccountId?: string | null; journalCode?: 'BAN' | 'CAI' }): Promise<string> {
     const pR = await db.query<any>(
       `SELECT p.*, e.full_name
        FROM payrolls p LEFT JOIN employees e ON e.id = p.employee_id
@@ -525,9 +526,7 @@ export class JournalGenerationService {
       throw new Error(`Compte ${what} (${prefixes.join('/')}) introuvable au plan comptable`);
     };
     const remun = await need(['661', '66'], 'rémunérations');
-    const treasury = opts?.treasuryAccountId
-      ? { id: opts.treasuryAccountId }
-      : await need([opts?.journalCode === 'CAI' ? '571' : '521', '5'], 'trésorerie');
+    const staff = await need(['421', '42'], 'personnel — net dû');
 
     const who = p.full_name || p.payroll_number;
     const lines: Array<{ accountId: string; label: string; debit: number; credit: number }> = [
@@ -537,7 +536,7 @@ export class JournalGenerationService {
       const chargeAcc = await need(['664', '66'], 'charges sociales patronales');
       lines.push({ accountId: chargeAcc.id, label: `Charges patronales ${who} — ${p.period}`, debit: employerTotal, credit: 0 });
     }
-    lines.push({ accountId: treasury.id, label: `Net versé ${who} — ${p.period}`, debit: 0, credit: net });
+    lines.push({ accountId: staff.id, label: `Net dû ${who} — ${p.period}`, debit: 0, credit: net });
     if (social > 0) {
       const acc = await need(['431', '43'], 'organismes sociaux');
       lines.push({ accountId: acc.id, label: `CNPS + CMU dues — ${p.period}`, debit: 0, credit: social });
@@ -555,12 +554,7 @@ export class JournalGenerationService {
       lines.push({ accountId: acc.id, label: `Retenues diverses ${who} — ${p.period}`, debit: 0, credit: otherDeductions });
     }
 
-    const code = opts?.journalCode ?? 'BAN';
-    const journal = await this.ensureJournal(
-      p.workspace_id, code,
-      code === 'CAI' ? 'Journal de caisse' : 'Journal de banque',
-      code === 'CAI' ? 'cash' : 'bank'
-    );
+    const journal = await this.ensureJournal(p.workspace_id, 'OD', 'Opérations diverses', 'general');
     return this.insertEntry({
       workspaceId: p.workspace_id,
       journal,
@@ -568,6 +562,55 @@ export class JournalGenerationService {
       description: `Paie ${p.period} — ${who} (${p.payroll_number})`,
       reference: p.payroll_number,
       lines,
+    });
+  }
+
+  /**
+   * VERSEMENT de salaire (total ou partiel) : D 421 Personnel ÷ C 5xx.
+   * Une écriture par versement — référence ${'$'}{payrollNumber}-V${'$'}{seq}.
+   */
+  async fromSalaryDisbursement(opts: {
+    workspaceId: string;
+    payrollNumber: string;
+    employeeName: string;
+    period: string;
+    seq: number;
+    date: Date;
+    amount: number;
+    treasuryAccountId?: string | null;
+    journalCode?: 'BAN' | 'CAI';
+  }): Promise<string> {
+    const reference = `${opts.payrollNumber}-V${opts.seq}`;
+    const existing = await db.query<any>(
+      `SELECT id FROM journal_entries WHERE workspace_id = $1 AND reference = $2 LIMIT 1`,
+      [opts.workspaceId, reference]
+    );
+    if (existing.rows[0]) return existing.rows[0].id;
+
+    const staff = await this.findAccount(opts.workspaceId, '421')
+      ?? await this.findAccount(opts.workspaceId, '42');
+    if (!staff) throw new Error('Compte personnel (421) introuvable au plan comptable');
+    const treasury = opts.treasuryAccountId
+      ? { id: opts.treasuryAccountId }
+      : await this.findAccount(opts.workspaceId, opts.journalCode === 'CAI' ? '571' : '521');
+    if (!treasury) throw new Error('Compte de trésorerie introuvable au plan comptable');
+
+    const code = opts.journalCode ?? 'BAN';
+    const journal = await this.ensureJournal(
+      opts.workspaceId, code,
+      code === 'CAI' ? 'Journal de caisse' : 'Journal de banque',
+      code === 'CAI' ? 'cash' : 'bank'
+    );
+    return this.insertEntry({
+      workspaceId: opts.workspaceId,
+      journal,
+      date: opts.date,
+      description: `Versement salaire ${opts.period} — ${opts.employeeName} (n°${opts.seq})`,
+      reference,
+      lines: [
+        { accountId: staff.id, label: `Personnel — versement ${reference}`, debit: opts.amount, credit: 0 },
+        { accountId: treasury.id, label: `Trésorerie — ${reference}`, debit: 0, credit: opts.amount },
+      ],
     });
   }
 

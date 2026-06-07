@@ -16,16 +16,22 @@ import { Card, CardContent } from '@/components/ui/card';
 
 const fmt = (n: number) => new Intl.NumberFormat('fr-FR').format(Math.round(n || 0));
 
+interface OrganismRow {
+  organism: 'CNPS' | 'DGI' | 'FDFP';
+  due: number;
+  paid: number;
+  remaining: number;
+  lastPaidAt?: string | null;
+}
 interface ChargeRow {
   period: string;
   bulletins: number;
-  cnps: number;
-  its: number;
-  fdfp: number;
+  organisms: OrganismRow[];
   total: number;
+  totalPaid: number;
+  totalRemaining: number;
   dueDate: string;
   settled: boolean;
-  settledAt?: string | null;
 }
 
 export default function PayrollChargesPage() {
@@ -51,20 +57,28 @@ export default function PayrollChargesPage() {
 
   useEffect(() => { void load(); }, [load]);
 
-  async function settle(period: string, total: number) {
-    if (!window.confirm(`Régler ${fmt(total)} F de charges (CNPS + DGI + FDFP) pour ${period} depuis la banque ?`)) return;
-    setSettling(period);
+  // Montants saisis pour versements partiels (clé période:organisme)
+  const [amounts, setAmounts] = useState<Record<string, string>>({});
+
+  async function settle(period: string, organism: string, remaining: number) {
+    const key = `${period}:${organism}`;
+    const amount = Number(amounts[key]) || remaining;
+    if (!window.confirm(`Verser ${fmt(amount)} F à ${organism} pour ${period} depuis la banque ?` +
+      (amount < remaining ? `\n(versement partiel — il restera ${fmt(remaining - amount)} F)` : ''))) return;
+    setSettling(key);
     setError(null);
     setDone(null);
     try {
       const r = await fetch('/api/hr/payroll/charges', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ period }),
+        body: JSON.stringify({ period, organism, amount }),
       });
       const body = await r.json().catch(() => ({}));
       if (!r.ok) throw new Error(body.error || 'Échec du règlement');
-      setDone(`Charges ${period} réglées : ${fmt(body.data?.total || total)} F versés (CNPS, DGI, FDFP)`);
+      setDone(`${organism} ${period} : ${fmt(body.data.amount)} F versés` +
+        (body.data.remaining > 0 ? ` — reste ${fmt(body.data.remaining)} F` : ' — soldé ✅'));
+      setAmounts(prev => ({ ...prev, [key]: '' }));
       await load();
     } catch (e: any) {
       setError(e.message);
@@ -121,7 +135,7 @@ export default function PayrollChargesPage() {
                       {r.settled ? (
                         <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-semibold bg-emerald-50 text-emerald-700">
                           <CheckCircle2 className="w-3.5 h-3.5" />
-                          Réglées{r.settledAt ? ` le ${new Date(r.settledAt).toLocaleDateString('fr-FR')}` : ''}
+                          Soldées
                         </span>
                       ) : (
                         <span className={`inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-semibold ${late ? 'bg-red-50 text-red-700' : 'bg-amber-50 text-amber-700'}`}>
@@ -131,34 +145,56 @@ export default function PayrollChargesPage() {
                       )}
                     </div>
 
-                    <div className="grid grid-cols-3 gap-2 text-center mb-3">
-                      <div className="bg-gray-50 rounded-lg py-2">
-                        <p className="text-[11px] text-gray-500 font-medium">CNPS</p>
-                        <p className="font-bold tabular-nums text-sm">{fmt(r.cnps)} F</p>
-                      </div>
-                      <div className="bg-gray-50 rounded-lg py-2">
-                        <p className="text-[11px] text-gray-500 font-medium">DGI — ITS</p>
-                        <p className="font-bold tabular-nums text-sm">{fmt(r.its)} F</p>
-                      </div>
-                      <div className="bg-gray-50 rounded-lg py-2">
-                        <p className="text-[11px] text-gray-500 font-medium">FDFP</p>
-                        <p className="font-bold tabular-nums text-sm">{fmt(r.fdfp)} F</p>
-                      </div>
+                    <div className="space-y-2 mb-3">
+                      {r.organisms.map(o => {
+                        const key = `${r.period}:${o.organism}`;
+                        return (
+                          <div key={o.organism} className="bg-gray-50 rounded-lg px-3 py-2">
+                            <div className="flex items-center justify-between gap-2 flex-wrap">
+                              <div>
+                                <p className="text-sm font-semibold">
+                                  {o.organism === 'DGI' ? 'DGI — ITS' : o.organism}
+                                </p>
+                                <p className="text-xs text-gray-500 tabular-nums">
+                                  Dû {fmt(o.due)} F · Réglé {fmt(o.paid)} F ·{' '}
+                                  <span className={o.remaining > 0 ? 'text-red-700 font-semibold' : 'text-emerald-700 font-semibold'}>
+                                    {o.remaining > 0 ? `Reste ${fmt(o.remaining)} F` : 'Soldé ✓'}
+                                  </span>
+                                </p>
+                              </div>
+                              {o.remaining > 0 && (
+                                <div className="flex items-center gap-1.5">
+                                  <input
+                                    type="number" min="1" max={o.remaining} step="1000"
+                                    placeholder={String(o.remaining)}
+                                    value={amounts[key] ?? ''}
+                                    onChange={e => setAmounts(prev => ({ ...prev, [key]: e.target.value }))}
+                                    className="w-28 px-2 py-1.5 border border-gray-300 rounded-lg text-sm text-right tabular-nums"
+                                  />
+                                  <button
+                                    onClick={() => settle(r.period, o.organism, o.remaining)}
+                                    disabled={settling === key}
+                                    className="px-3 py-1.5 rounded-lg bg-amber-700 text-white text-xs font-bold hover:bg-amber-800 disabled:opacity-50"
+                                  >
+                                    {settling === key ? '…' : 'Verser'}
+                                  </button>
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        );
+                      })}
                     </div>
 
-                    <div className="flex items-center justify-between gap-3">
-                      <p className="font-bold text-amber-900 tabular-nums">Total : {fmt(r.total)} F</p>
-                      {!r.settled && (
-                        <button
-                          onClick={() => settle(r.period, r.total)}
-                          disabled={settling === r.period}
-                          className="px-4 py-2 rounded-xl bg-amber-700 text-white text-sm font-bold hover:bg-amber-800 disabled:opacity-50 inline-flex items-center gap-2"
-                        >
-                          {settling === r.period
-                            ? <><Loader2 className="w-4 h-4 animate-spin" /> Règlement…</>
-                            : 'Régler depuis la banque'}
-                        </button>
-                      )}
+                    <div className="flex items-center justify-between gap-3 text-sm">
+                      <p className="font-bold text-amber-900 tabular-nums">
+                        Total dû : {fmt(r.total)} F
+                      </p>
+                      <p className="tabular-nums text-gray-600">
+                        Réglé {fmt(r.totalPaid)} F · <span className={r.totalRemaining > 0 ? 'text-red-700 font-bold' : 'text-emerald-700 font-bold'}>
+                          {r.totalRemaining > 0 ? `Reste ${fmt(r.totalRemaining)} F` : 'Soldé'}
+                        </span>
+                      </p>
                     </div>
                   </CardContent>
                 </Card>
