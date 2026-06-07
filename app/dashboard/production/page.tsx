@@ -45,10 +45,18 @@ export default function ProductionDashboardPage() {
 
 function Router() {
   const { permissions, roleCodes, loading } = usePermissions();
-  // Le RÔLE prime : un opérateur de production est TOUJOURS en vue agent,
-  // même si son jeu de permissions déborde (constaté en base de prod).
-  const isOperator = roleCodes.includes('operateur_production');
-  const isManager = !isOperator && permissions.includes(PERMISSIONS.PRODUCTION_APPROVE);
+  // Le RÔLE décide, dans les DEUX sens (les permissions en base sont
+  // incohérentes : Gervais avait approve, Hélène ne l'avait pas) :
+  //  - operateur_production  → TOUJOURS la vue agent
+  //  - manager_production / admin / pca → TOUJOURS la vue manager
+  //  - sinon, repli sur la permission production:approve
+  const AGENT_ROLES = ['operateur_production'];
+  const MANAGER_ROLES = ['manager_production', 'admin', 'pca', 'role_admin', 'role_manager'];
+  const isOperator = roleCodes.some(r => AGENT_ROLES.includes(r));
+  const isManager = !isOperator && (
+    roleCodes.some(r => MANAGER_ROLES.includes(r)) ||
+    permissions.includes(PERMISSIONS.PRODUCTION_APPROVE)
+  );
   // Aperçu : un manager/admin peut voir l'écran agent sans se déconnecter
   const [previewAgent, setPreviewAgent] = useState(false);
   if (loading) {
