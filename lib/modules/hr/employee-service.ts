@@ -19,6 +19,8 @@ export interface EmployeePayrollFields {
   maritalStatus?: 'celibataire' | 'marie' | 'divorce' | 'veuf';
   childrenCount?: number;
   cnpsNumber?: string;
+  /** Salarié déclaré : assujetti CNPS/ITS/CMU/FDFP (true par défaut) */
+  cnpsSubject?: boolean;
   cmuBeneficiaries?: number;
   /** journaliers : salaire = taux × jours travaillés */
   dailyRate?: number | null;
@@ -102,10 +104,10 @@ export class EmployeeService {
                               phone, email, date_of_birth, hire_date, department, position,
                               contract_type, category, base_salary, currency, daily_rate,
                               transport_daily, marital_status, children_count, fiscal_parts,
-                              cnps_number, cmu_beneficiaries, education_level, diploma,
+                              cnps_number, cnps_subject, cmu_beneficiaries, education_level, diploma,
                               address, emergency_contact, emergency_phone, workspace_id)
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16,
-               $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28)
+               $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29)
        RETURNING id`,
       [uuidv4(), code, input.firstName.trim(), input.lastName.trim(), fullName,
        input.phone.trim(), input.email ?? null, input.dateOfBirth ?? null, input.hireDate,
@@ -114,7 +116,7 @@ export class EmployeeService {
        input.baseSalary, input.currency || 'XOF', input.dailyRate ?? null,
        input.transportDaily ?? 2500, input.maritalStatus ?? 'celibataire',
        input.childrenCount ?? 0, fiscalParts,
-       input.cnpsNumber ?? null, input.cmuBeneficiaries ?? 1,
+       input.cnpsNumber ?? null, input.cnpsSubject !== false, input.cmuBeneficiaries ?? 1,
        input.educationLevel ?? null, input.diploma ?? null,
        input.address ?? null, input.emergencyContact ?? null, input.emergencyPhone ?? null,
        input.workspaceId]
@@ -195,6 +197,7 @@ export class EmployeeService {
     if (input.dailyRate !== undefined) set('daily_rate', input.dailyRate);
     if (input.transportDaily !== undefined) set('transport_daily', input.transportDaily);
     if (input.cnpsNumber !== undefined) set('cnps_number', input.cnpsNumber || null);
+    if (input.cnpsSubject !== undefined) set('cnps_subject', input.cnpsSubject);
     if (input.cmuBeneficiaries !== undefined) set('cmu_beneficiaries', input.cmuBeneficiaries);
     if (input.educationLevel !== undefined) set('education_level', input.educationLevel || null);
     if (input.diploma !== undefined) set('diploma', input.diploma || null);

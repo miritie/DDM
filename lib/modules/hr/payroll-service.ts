@@ -83,6 +83,7 @@ export function ensurePayrollTable(): Promise<void> {
         `daily_rate DECIMAL(15, 2)`,
         `transport_daily DECIMAL(15, 2) DEFAULT 2500`,
         `work_accident_rate NUMERIC(4, 3) DEFAULT 0.02`,
+        `cnps_subject BOOLEAN DEFAULT true`,
         `marital_status VARCHAR(20) DEFAULT 'celibataire'`,
         `children_count INT DEFAULT 0`,
         `category VARCHAR(50)`,
@@ -154,7 +155,8 @@ const SELECT_PAYROLL = `
          p.employer_charges AS "EmployerCharges", p.employer_total::float AS "EmployerTotal",
          p.charges_settled_at AS "ChargesSettledAt",
          e.contract_type AS "ContractType", e.position AS "Position",
-         e.cnps_number AS "CnpsNumber", e.hire_date AS "HireDate", e.department AS "Department"
+         e.cnps_number AS "CnpsNumber", e.hire_date AS "HireDate", e.department AS "Department",
+         e.cnps_subject AS "CnpsSubject"
   FROM payrolls p
   LEFT JOIN employees e ON e.id = p.employee_id`;
 
@@ -166,7 +168,7 @@ export class PayrollService {
               daily_rate::float AS daily_rate, transport_daily::float AS transport_daily,
               fiscal_parts::float AS fiscal_parts, cmu_beneficiaries,
               work_accident_rate::float AS work_accident_rate,
-              marital_status, children_count
+              marital_status, children_count, cnps_subject
        FROM employees
        WHERE workspace_id = $1 AND (id::text = $2 OR employee_id = $2)
        LIMIT 1`,
@@ -289,6 +291,7 @@ export class PayrollService {
         || employee.fiscal_parts || 1,
       cmuBeneficiaries: employee.cmu_beneficiaries ?? 1,
       workAccidentRate: employee.work_accident_rate || undefined,
+      subjectToLegalCharges: employee.cnps_subject !== false,
     });
 
     const payrollId = uuidv4();

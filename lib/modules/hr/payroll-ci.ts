@@ -70,6 +70,12 @@ export interface CIPayrollInput {
   cmuBeneficiaries?: number;
   /** Taux accident du travail du secteur (0.02 à 0.05) */
   workAccidentRate?: number;
+  /**
+   * Salarié déclaré (assujetti CNPS et charges légales). À false :
+   * aucune retenue CNPS/ITS ni charge patronale (CNPS, CMU, FDFP) —
+   * le net = brut. Piloté par la fiche employé (cnps_subject).
+   */
+  subjectToLegalCharges?: boolean;
 }
 
 export interface CIPayrollResult {
@@ -152,6 +158,8 @@ export function computeCIPayroll(input: CIPayrollInput): CIPayrollResult {
   const cmuBeneficiaries = input.cmuBeneficiaries ?? 1;
   const atRate = input.workAccidentRate ?? CI_PAYROLL.cnps.workAccidentDefault;
 
+  const subject = input.subjectToLegalCharges !== false;
+
   const exemptTransport = Math.min(transport, CI_PAYROLL.exemptTransportMax);
   const taxableTransportExcess = Math.max(0, transport - CI_PAYROLL.exemptTransportMax);
   const exemptMeal = Math.min(meal, CI_PAYROLL.exemptMealMax);
@@ -160,24 +168,24 @@ export function computeCIPayroll(input: CIPayrollInput): CIPayrollResult {
   const grossTaxable = r2(baseSalary + taxableBonuses + taxableTransportExcess + taxableMealExcess);
   const grossTotal = r2(grossTaxable + exemptTransport + exemptMeal);
 
-  // ----- Retenues salariales -----
-  const cnpsBase = Math.min(grossTaxable, CI_PAYROLL.cnps.retirementCeiling);
+  // ----- Retenues salariales (nulles si salarié non assujetti) -----
+  const cnpsBase = subject ? Math.min(grossTaxable, CI_PAYROLL.cnps.retirementCeiling) : 0;
   const cnpsEmployee = r2(cnpsBase * CI_PAYROLL.cnps.retirementEmployee);
-  const its = computeITS(grossTaxable, fiscalParts);
+  const its = subject ? computeITS(grossTaxable, fiscalParts) : { gross: 0, ricf: 0, net: 0 };
   const otherDeductions = input.otherDeductions || 0;
   const cashAlreadyPaid = input.cashAlreadyPaid || 0;
   const employeeTotal = r2(cnpsEmployee + its.net);
 
-  // ----- Charges patronales -----
-  const socialBase = Math.min(grossTaxable, CI_PAYROLL.cnps.socialCeiling);
+  // ----- Charges patronales (nulles si salarié non assujetti) -----
+  const socialBase = subject ? Math.min(grossTaxable, CI_PAYROLL.cnps.socialCeiling) : 0;
   const employer = {
     cnpsRetirement: r2(cnpsBase * CI_PAYROLL.cnps.retirementEmployer),
     familyAllowance: r2(socialBase * CI_PAYROLL.cnps.familyAllowance),
     maternity: r2(socialBase * CI_PAYROLL.cnps.maternity),
     workAccident: r2(socialBase * atRate),
-    cmu: r2(cmuBeneficiaries * CI_PAYROLL.cmuPerBeneficiary),
-    fdfpApprenticeship: r2(grossTaxable * CI_PAYROLL.fdfp.apprenticeship),
-    fdfpContinuingTraining: r2(grossTaxable * CI_PAYROLL.fdfp.continuingTraining),
+    cmu: subject ? r2(cmuBeneficiaries * CI_PAYROLL.cmuPerBeneficiary) : 0,
+    fdfpApprenticeship: subject ? r2(grossTaxable * CI_PAYROLL.fdfp.apprenticeship) : 0,
+    fdfpContinuingTraining: subject ? r2(grossTaxable * CI_PAYROLL.fdfp.continuingTraining) : 0,
     total: 0,
   };
   employer.total = r2(

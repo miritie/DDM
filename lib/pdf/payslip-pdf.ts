@@ -31,6 +31,7 @@ export interface PayslipPdfData {
     Position?: string | null;
     ContractType?: string | null;
     CnpsNumber?: string | null;
+    CnpsSubject?: boolean;
     HireDate?: string | null;
     Department?: string | null;
     DaysWorked?: number | null;
@@ -63,8 +64,12 @@ const CONTRACT_LABELS: Record<string, string> = {
   intern: 'Stagiaire',
 };
 
+// jsPDF (helvetica/WinAnsi) ne connaît pas l'espace fine insécable
+// (U+202F) qu'insère Intl fr-FR → elle s'affichait en « / ». On force
+// l'espace simple comme séparateur de milliers.
 const fmt = (n: number | null | undefined) =>
-  new Intl.NumberFormat('fr-FR').format(Math.round(Number(n) || 0));
+  new Intl.NumberFormat('fr-FR').format(Math.round(Number(n) || 0))
+    .replace(/[\u202F\u00A0]/g, ' ');
 
 const MONTHS = ['janvier', 'février', 'mars', 'avril', 'mai', 'juin',
   'juillet', 'août', 'septembre', 'octobre', 'novembre', 'décembre'];
@@ -75,6 +80,7 @@ const periodLabel = (p: string) => {
 
 export function generatePayslipPdf(data: PayslipPdfData): Blob {
   const p = data.payroll;
+  const subject = p.CnpsSubject !== false; // salarié déclaré (assujetti CNPS)
   const companyName = data.companyName ?? 'DUNE DE MIEL';
   const doc = new jsPDF({ unit: 'mm', format: 'a4' });
   const W = doc.internal.pageSize.getWidth();
@@ -85,17 +91,19 @@ export function generatePayslipPdf(data: PayslipPdfData): Blob {
   const brown: [number, number, number] = [102, 60, 20];
   const cream: [number, number, number] = [240, 230, 210];
 
-  // ===== En-tête =====
-  doc.setFillColor(...brown);
-  doc.rect(0, 0, W, 24, 'F');
-  doc.setTextColor(255, 255, 255);
+  // ===== En-tête sobre =====
+  doc.setTextColor(40, 40, 40);
   doc.setFont('helvetica', 'bold');
-  doc.setFontSize(15);
-  doc.text('BULLETIN DE PAIE', W / 2, 11, { align: 'center' });
+  doc.setFontSize(14);
+  doc.text('BULLETIN DE PAIE', margin, y);
   doc.setFont('helvetica', 'normal');
   doc.setFontSize(9);
-  doc.text(`${companyName} — ${periodLabel(p.Period)}`, W / 2, 18, { align: 'center' });
-  y = 30;
+  doc.setTextColor(100, 100, 100);
+  doc.text(`${companyName} — ${periodLabel(p.Period)}`, W - margin, y, { align: 'right' });
+  doc.setDrawColor(...brown);
+  doc.setLineWidth(0.6);
+  doc.line(margin, y + 3, W - margin, y + 3);
+  y += 9;
 
   // ===== Employeur / Salarié =====
   doc.setTextColor(0, 0, 0);
@@ -108,10 +116,11 @@ export function generatePayslipPdf(data: PayslipPdfData): Blob {
       `${p.EmployeeName ?? '—'}\n${p.Position ?? '—'}${p.Department ? ' · ' + p.Department : ''}\n` +
       `Contrat : ${CONTRACT_LABELS[p.ContractType ?? ''] ?? p.ContractType ?? '—'}` +
       `${p.HireDate ? ' · Entrée : ' + new Date(p.HireDate).toLocaleDateString('fr-FR') : ''}\n` +
-      `N° CNPS : ${p.CnpsNumber ?? 'À renseigner'} · Parts fiscales : ${p.FiscalParts ?? 1}`,
+      `N° CNPS : ${p.CnpsSubject === false ? 'N/A (non assujetti)' : (p.CnpsNumber ?? 'À renseigner')}` +
+      `${p.CnpsSubject === false ? '' : ' · Parts fiscales : ' + (p.FiscalParts ?? 1)}`,
     ]],
     styles: { fontSize: 8, cellPadding: 2.5, valign: 'top' },
-    headStyles: { fillColor: brown, textColor: 255, fontSize: 8.5 },
+    headStyles: { fillColor: [235, 235, 235] as any, textColor: 40, fontSize: 8.5 },
     columnStyles: { 0: { cellWidth: innerW / 2 }, 1: { cellWidth: innerW / 2 } },
   });
   y = (doc as DocWithAutoTable).lastAutoTable.finalY + 3;
@@ -141,7 +150,7 @@ export function generatePayslipPdf(data: PayslipPdfData): Blob {
   if (salesBonus > 0) remunRows.push(['Primes de vente (imposables)', fmt(salesBonus)]);
   if (otherTaxable > 0) remunRows.push(['Primes et indemnités diverses (imposables)', fmt(otherTaxable)]);
   if (transport > 0) remunRows.push([`Prime de transport${transport <= 30000 ? ' (exonérée)' : ' (exonérée à 30 000)'}`, fmt(transport)]);
-  if (meal > 0) remunRows.push(['Prime de panier / repas (exonérée ≤ 30 000)', fmt(meal)]);
+  if (meal > 0) remunRows.push(["Prime de panier / repas (exonérée jusqu'à 30 000)", fmt(meal)]);
 
   autoTable(doc, {
     startY: y,
@@ -150,11 +159,13 @@ export function generatePayslipPdf(data: PayslipPdfData): Blob {
     body: remunRows,
     foot: [
       ['SALAIRE BRUT TOTAL', fmt(grossTotal)],
-      ['dont brut imposable (assiette CNPS / ITS)', fmt(grossTaxable)],
+      subject
+        ? ['dont brut imposable (assiette CNPS / ITS)', fmt(grossTaxable)]
+        : ['Assiette CNPS / ITS', 'N/A — non assujetti'],
     ],
     styles: { fontSize: 8.5, cellPadding: 2 },
-    headStyles: { fillColor: brown, textColor: 255 },
-    footStyles: { fillColor: cream, textColor: 0, fontStyle: 'bold' },
+    headStyles: { fillColor: [235, 235, 235] as any, textColor: 40 },
+    footStyles: { fillColor: [248, 245, 240] as any, textColor: 0, fontStyle: 'bold' },
     columnStyles: { 1: { halign: 'right', cellWidth: 40 } },
   });
   y = (doc as DocWithAutoTable).lastAutoTable.finalY + 4;
@@ -163,27 +174,31 @@ export function generatePayslipPdf(data: PayslipPdfData): Blob {
   const cnps = Number(p.CnpsEmployee) || 0;
   const its = Number(p.ItsAmount) || 0;
   const ricf = Number(p.Ricf) || 0;
-  const retRows: any[][] = [
+  const retRows: any[][] = subject ? [
     ['CNPS — Retraite (part salarié 6,3 %)', fmt(grossTaxable), '6,3 %', fmt(cnps)],
     ['ITS — Impôt sur Traitements et Salaires (Ord. 2023-719)', fmt(grossTaxable), 'Barème', fmt(its)],
+  ] : [
+    ['Salarié non assujetti à la CNPS — aucune retenue légale', '', '', 'N/A'],
   ];
-  if (ricf > 0) retRows.push(['dont RICF déduite (charges de famille)', '', '', '− ' + fmt(ricf)]);
+  if (subject && ricf > 0) retRows.push(['dont RICF déduite (charges de famille)', '', '', '- ' + fmt(ricf)]);
   autoTable(doc, {
     startY: y,
     margin: { left: margin, right: margin },
     head: [['2. RETENUES SALARIALES', 'Base', 'Taux', 'Retenue']],
     body: retRows,
-    foot: [['TOTAL RETENUES SALARIALES', '', '', fmt(cnps + its)]],
+    foot: [['TOTAL RETENUES SALARIALES', '', '', subject ? fmt(cnps + its) : 'N/A']],
     styles: { fontSize: 8.5, cellPadding: 2 },
-    headStyles: { fillColor: brown, textColor: 255 },
-    footStyles: { fillColor: cream, textColor: 0, fontStyle: 'bold' },
+    headStyles: { fillColor: [235, 235, 235] as any, textColor: 40 },
+    footStyles: { fillColor: [248, 245, 240] as any, textColor: 0, fontStyle: 'bold' },
     columnStyles: { 1: { halign: 'right' }, 2: { halign: 'center' }, 3: { halign: 'right', cellWidth: 32 } },
   });
   y = (doc as DocWithAutoTable).lastAutoTable.finalY + 4;
 
   // ===== 3. Charges patronales =====
   const ec = p.EmployerCharges || {};
-  const employerRows: any[][] = [
+  const employerRows: any[][] = !subject ? [
+    ['Salarié non assujetti — aucune charge patronale (CNPS, CMU, FDFP)', 'N/A'],
+  ] : [
     ['CNPS — Retraite (7,7 %)', fmt(ec.cnpsRetirement)],
     ['CNPS — Prestations Familiales (5 %, plafond 70 000)', fmt(ec.familyAllowance)],
     ['CNPS — Assurance Maternité (0,75 %)', fmt(ec.maternity)],
@@ -197,10 +212,10 @@ export function generatePayslipPdf(data: PayslipPdfData): Blob {
     margin: { left: margin, right: margin },
     head: [['3. CHARGES PATRONALES (dettes sociales de l\'employeur)', 'Montant']],
     body: employerRows,
-    foot: [['TOTAL CHARGES PATRONALES', fmt(p.EmployerTotal ?? ec.total)]],
+    foot: [['TOTAL CHARGES PATRONALES', subject ? fmt(p.EmployerTotal ?? ec.total) : 'N/A']],
     styles: { fontSize: 8, cellPadding: 1.8 },
-    headStyles: { fillColor: [70, 70, 70], textColor: 255 },
-    footStyles: { fillColor: [225, 225, 225], textColor: 0, fontStyle: 'bold' },
+    headStyles: { fillColor: [235, 235, 235] as any, textColor: 40 },
+    footStyles: { fillColor: [245, 245, 245] as any, textColor: 0, fontStyle: 'bold' },
     columnStyles: { 1: { halign: 'right', cellWidth: 36 } },
   });
   y = (doc as DocWithAutoTable).lastAutoTable.finalY + 4;
@@ -209,9 +224,9 @@ export function generatePayslipPdf(data: PayslipPdfData): Blob {
   const advances = Number(p.AdvanceDeduction) || 0;
   const otherDeductions = Number(p.Deductions) || 0;
   const netRows: any[][] = [];
-  netRows.push(['Net salarial (brut total − retenues)', fmt(grossTotal - cnps - its)]);
-  if (advances > 0) netRows.push(['Acomptes espèces déjà versés (primes à la clôture de caisse)', '− ' + fmt(advances)]);
-  if (otherDeductions > 0) netRows.push(['Autres retenues (avances sur salaire…)', '− ' + fmt(otherDeductions)]);
+  netRows.push(['Net salarial (brut total - retenues)', fmt(grossTotal - cnps - its)]);
+  if (advances > 0) netRows.push(['Acomptes espèces déjà versés (primes à la clôture de caisse)', '- ' + fmt(advances)]);
+  if (otherDeductions > 0) netRows.push(['Autres retenues (avances sur salaire…)', '- ' + fmt(otherDeductions)]);
 
   autoTable(doc, {
     startY: y,
@@ -222,15 +237,17 @@ export function generatePayslipPdf(data: PayslipPdfData): Blob {
   });
   y = (doc as DocWithAutoTable).lastAutoTable.finalY + 2;
 
-  doc.setFillColor(...brown);
-  doc.rect(margin, y, innerW, 14, 'F');
-  doc.setTextColor(255, 255, 255);
+  doc.setFillColor(...cream);
+  doc.setDrawColor(...brown);
+  doc.setLineWidth(0.4);
+  doc.rect(margin, y, innerW, 13, 'FD');
+  doc.setTextColor(...brown);
   doc.setFont('helvetica', 'bold');
-  doc.setFontSize(11);
-  doc.text('NET À PAYER AU SALARIÉ', margin + 4, y + 9);
-  doc.setFontSize(14);
-  doc.text(fmt(p.NetSalary) + ' FCFA', W - margin - 4, y + 9.5, { align: 'right' });
-  y += 20;
+  doc.setFontSize(10.5);
+  doc.text('NET À PAYER AU SALARIÉ', margin + 4, y + 8.5);
+  doc.setFontSize(13);
+  doc.text(fmt(p.NetSalary) + ' FCFA', W - margin - 4, y + 8.7, { align: 'right' });
+  y += 19;
 
   // ===== Mentions légales =====
   doc.setTextColor(90, 90, 90);

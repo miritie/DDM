@@ -30,6 +30,7 @@ export interface EmployeeFormValues {
   dailyRate: string;
   transportDaily: string;
   cnpsNumber: string;
+  cnpsSubject: boolean;
   cmuBeneficiaries: string;
   educationLevel: string;
   diploma: string;
@@ -41,7 +42,7 @@ export const EMPTY_EMPLOYEE: EmployeeFormValues = {
   contractType: 'permanent', category: 'employe', position: '', department: '',
   hireDate: new Date().toISOString().slice(0, 10),
   baseSalary: '', dailyRate: '', transportDaily: '2500',
-  cnpsNumber: '', cmuBeneficiaries: '1', educationLevel: '', diploma: '',
+  cnpsNumber: '', cnpsSubject: true, cmuBeneficiaries: '1', educationLevel: '', diploma: '',
 };
 
 const MARITAL = [
@@ -208,11 +209,24 @@ export function EmployeeForm({
       <Card>
         <CardContent className="pt-5 space-y-4">
           <h2 className="font-bold">Social & études</h2>
+          <label className="flex items-start gap-2.5 bg-gray-50 border border-gray-200 rounded-lg px-3 py-2.5 cursor-pointer">
+            <input type="checkbox" checked={v.cnpsSubject}
+              onChange={e => up({ cnpsSubject: e.target.checked })}
+              className="mt-0.5 w-4 h-4 accent-amber-700" />
+            <span className="text-sm">
+              <strong>Assujetti à la CNPS</strong> (salarié déclaré)
+              <span className="block text-xs text-gray-500">
+                Décoché : aucune retenue CNPS/ITS ni charge patronale (CNPS, CMU, FDFP) — le bulletin affichera N/A
+              </span>
+            </span>
+          </label>
           <div className="grid sm:grid-cols-2 gap-4">
             <div>
               <label className={label}>Matricule CNPS</label>
               <input value={v.cnpsNumber} onChange={e => up({ cnpsNumber: e.target.value })}
-                placeholder="À renseigner pour les déclarations" className={input} />
+                disabled={!v.cnpsSubject}
+                placeholder={v.cnpsSubject ? 'À renseigner pour les déclarations' : 'N/A — non assujetti'}
+                className={input + (v.cnpsSubject ? '' : ' bg-gray-100 text-gray-400')} />
             </div>
             <div>
               <label className={label}>Bénéficiaires CMU pris en charge</label>
@@ -267,6 +281,7 @@ export function toEmployeePayload(v: EmployeeFormValues) {
     dailyRate: v.dailyRate === '' ? null : Number(v.dailyRate),
     transportDaily: Number(v.transportDaily) || 0,
     cnpsNumber: v.cnpsNumber.trim() || undefined,
+    cnpsSubject: v.cnpsSubject,
     cmuBeneficiaries: Number(v.cmuBeneficiaries) || 1,
     educationLevel: v.educationLevel || undefined,
     diploma: v.diploma.trim() || undefined,
@@ -293,6 +308,7 @@ export function fromEmployee(e: any): EmployeeFormValues {
     dailyRate: e.DailyRate != null ? String(Number(e.DailyRate)) : '',
     transportDaily: String(Number(e.TransportDaily ?? 2500)),
     cnpsNumber: e.CnpsNumber ?? '',
+    cnpsSubject: e.CnpsSubject !== false,
     cmuBeneficiaries: String(e.CmuBeneficiaries ?? 1),
     educationLevel: e.EducationLevel ?? '',
     diploma: e.Diploma ?? '',

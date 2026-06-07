@@ -123,6 +123,21 @@ describe('cas métier DDM', () => {
     expect(p.netToPay).toBeGreaterThan(0);
   });
 
+  it('salarié NON assujetti CNPS : aucune charge légale, net = brut', () => {
+    const p = computeCIPayroll({
+      baseSalary: 150_000,
+      taxableBonuses: 24_000,
+      transportAllowance: 55_000,
+      cashAlreadyPaid: 79_000,
+      subjectToLegalCharges: false,
+    });
+    expect(p.employee.cnpsRetirement).toBe(0);
+    expect(p.employee.its).toBe(0);
+    expect(p.employer.total).toBe(0);
+    expect(p.netSalary).toBe(p.grossTotal);
+    expect(p.netToPay).toBe(p.grossTotal - 79_000);
+  });
+
   it('journalier sous le SMIG mensuel : ni ITS ni RICF négative', () => {
     const p = computeCIPayroll({ baseSalary: 5_000 * 12 }); // 12 jours à 5 000
     expect(p.employee.its).toBe(0);
