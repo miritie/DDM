@@ -10,7 +10,7 @@
  * (confidentielles, volumineuses) sont REPLIÉES par défaut et ne se
  * chargent qu'à la demande.
  */
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import {
   Lock, FileText, Beaker, BarChart3, Calculator, Briefcase, ArrowRight,
@@ -29,8 +29,23 @@ export default function PCADashboardPage() {
   );
 }
 
+// Lisibilité maximale : montants compacts (« 12,4 M ») dès le million
+const fmtF = (n: number) => {
+  if (Math.abs(n) >= 1_000_000) {
+    return (n / 1_000_000).toLocaleString('fr-FR', { maximumFractionDigits: 1 }) + ' M F';
+  }
+  return new Intl.NumberFormat('fr-FR').format(Math.round(n)) + ' F';
+};
+
 function Content() {
   const [showMargins, setShowMargins] = useState(false);
+  const [snap, setSnap] = useState<any | null>(null);
+  useEffect(() => {
+    fetch('/api/dashboard/pca-snapshot')
+      .then(r => (r.ok ? r.json() : null))
+      .then(b => b?.data && setSnap(b.data))
+      .catch(() => {});
+  }, []);
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-purple-50 via-white to-pink-50 pb-16">
@@ -58,6 +73,37 @@ function Content() {
       </div>
 
       <div className="max-w-5xl mx-auto p-3 sm:p-6 space-y-4 sm:space-y-6">
+        {/* SECTION 0 — ÉTAT DES LIEUX : les 9 chiffres, d'entrée de jeu */}
+        <section className="bg-white border-2 border-purple-200 rounded-2xl p-3 sm:p-4">
+          <div className="flex items-baseline justify-between mb-2">
+            <h2 className="text-sm sm:text-base font-bold text-purple-900">État des lieux</h2>
+            <span className="text-[10px] text-gray-400">
+              {new Date().toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' })}
+            </span>
+          </div>
+          {!snap ? (
+            <div className="grid grid-cols-3 gap-1.5">
+              {Array.from({ length: 9 }).map((_, i) => (
+                <div key={i} className="h-14 bg-gray-100 rounded-lg animate-pulse" />
+              ))}
+            </div>
+          ) : (
+            <div className="grid grid-cols-3 gap-1.5 sm:gap-2">
+              <Stat label="CA aujourd'hui" value={fmtF(snap.ca.day)} tone="amber" />
+              <Stat label="CA du mois" value={fmtF(snap.ca.month)} tone="amber" />
+              <Stat label="CA de l'année" value={fmtF(snap.ca.year)} tone="amber" />
+              <Stat label="Stock stands" value={fmtF(snap.stock.stands)} />
+              <Stat label="Stock entrepôt" value={fmtF(snap.stock.warehouse)} />
+              <Stat label="MP en faible qté" value={String(snap.stock.mpLow)}
+                tone={snap.stock.mpLow > 0 ? 'red' : 'green'} />
+              <Stat label="Dépenses du mois" value={fmtF(snap.engagements.expensesMonth)} />
+              <Stat label="Engagements à payer" value={fmtF(snap.engagements.pending)}
+                tone={snap.engagements.pending > 0 ? 'red' : undefined} />
+              <Stat label="Réappros demandés" value={fmtF(snap.engagements.replenishments)} />
+            </div>
+          )}
+        </section>
+
         {/* SECTION 1 — Pilotage : l'essentiel d'abord */}
         <section>
           <h2 className="text-base sm:text-xl font-bold mb-2 sm:mb-3 flex items-center gap-2 text-purple-900">
@@ -158,6 +204,20 @@ function Content() {
           au PCA et à l'administrateur décideur.
         </p>
       </div>
+    </div>
+  );
+}
+
+function Stat({ label, value, tone }: { label: string; value: string; tone?: 'amber' | 'red' | 'green' }) {
+  const tones: Record<string, string> = {
+    amber: 'bg-amber-50 text-amber-900',
+    red: 'bg-red-50 text-red-700',
+    green: 'bg-emerald-50 text-emerald-700',
+  };
+  return (
+    <div className={`rounded-lg px-2 py-2 text-center ${tone ? tones[tone] : 'bg-gray-50 text-gray-900'}`}>
+      <p className="text-base sm:text-xl font-bold tabular-nums leading-tight">{value}</p>
+      <p className="text-[10px] sm:text-xs font-medium opacity-70 leading-tight mt-0.5">{label}</p>
     </div>
   );
 }
