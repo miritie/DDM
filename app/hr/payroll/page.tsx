@@ -267,7 +267,7 @@ export default function PayrollPage() {
                       {payroll.PayrollNumber}
                     </TableCell>
                     <TableCell>{payroll.Period}</TableCell>
-                    <TableCell>{(payroll as any).EmployeeId || (payroll as any).TotalEmployees}</TableCell>
+                    <TableCell>{(payroll as any).EmployeeName || (payroll as any).EmployeeId}</TableCell>
                     <TableCell>
                       {((payroll as any).BaseSalary || (payroll as any).TotalGross)?.toLocaleString()} F
                     </TableCell>

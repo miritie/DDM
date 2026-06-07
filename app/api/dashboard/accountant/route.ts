@@ -152,14 +152,14 @@ export async function GET(request: NextRequest) {
     // ===== Masse salariale =====
     const totalEmployees = await safeQuery('employees-count',
       async () => (await db.query(
-        `SELECT COUNT(*)::int AS count FROM employees WHERE workspace_id = $1 AND is_active = true`,
+        `SELECT COUNT(*)::int AS count FROM employees WHERE workspace_id = $1 AND status = 'active'`,
         [workspaceId]
       )).rows[0]?.count ?? 0,
       0
     );
     const totalSalaries = await safeQuery('total-salaries',
       async () => (await db.query(
-        `SELECT COALESCE(SUM(base_salary), 0)::float AS total FROM employees WHERE workspace_id = $1 AND is_active = true`,
+        `SELECT COALESCE(SUM(base_salary), 0)::float AS total FROM employees WHERE workspace_id = $1 AND status = 'active'`,
         [workspaceId]
       )).rows[0]?.total ?? 0,
       0
