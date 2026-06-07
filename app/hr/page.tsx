@@ -70,15 +70,35 @@ export default function HRDashboardPage() {
 
   async function loadTodayAttendance() {
     try {
-      const today = new Date().toISOString().split('T')[0];
-      const response = await fetch(`/api/hr/attendance/my-today?date=${today}`);
-
+      const response = await fetch('/api/hr/attendance/my-today');
       if (response.ok) {
         const data = await response.json();
         setCurrentAttendance(data.data);
       }
     } catch (error) {
       console.error('Erreur chargement présence:', error);
+    }
+  }
+
+  const [punching, setPunching] = useState(false);
+  const [punchMsg, setPunchMsg] = useState<string | null>(null);
+  async function punch(action: 'check-in' | 'check-out') {
+    setPunching(true);
+    setPunchMsg(null);
+    try {
+      const r = await fetch('/api/hr/attendance/my-today', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action }),
+      });
+      const body = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(body.error || 'Échec du pointage');
+      setCurrentAttendance(body.data);
+      setPunchMsg(action === 'check-in' ? '✅ Arrivée pointée' : '✅ Sortie pointée');
+    } catch (e: any) {
+      setPunchMsg(`❌ ${e.message}`);
+    } finally {
+      setPunching(false);
     }
   }
 
@@ -144,22 +164,25 @@ export default function HRDashboardPage() {
                   <Button
                     size="sm"
                     variant="outline"
-                    onClick={() => router.push('/hr/attendance/check-out')}
+                    disabled={punching}
+                    onClick={() => punch('check-out')}
                     className="text-emerald-700 border-emerald-300"
                   >
-                    <LogOut className="w-4 h-4 mr-1" /> Pointer la sortie (non commercial)
+                    <LogOut className="w-4 h-4 mr-1" /> Pointer ma sortie (non commercial)
                   </Button>
                 ) : !currentAttendance && (
                   <Button
                     size="sm"
                     variant="outline"
-                    onClick={() => router.push('/hr/attendance/check-in')}
+                    disabled={punching}
+                    onClick={() => punch('check-in')}
                     className="text-emerald-700 border-emerald-300"
                   >
-                    <LogIn className="w-4 h-4 mr-1" /> Pointage manuel (non commercial)
+                    <LogIn className="w-4 h-4 mr-1" /> Pointer mon arrivée (non commercial)
                   </Button>
                 )}
               </div>
+              {punchMsg && <p className="text-sm mt-2">{punchMsg}</p>}
             </div>
           </div>
         </div>
