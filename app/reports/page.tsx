@@ -190,6 +190,8 @@ export default function ReportsAnalyticsPage() {
   const [metric, setMetric] = useState<Metric>('revenue');
   const [dimension, setDimension] = useState<Dimension>('global');
   const [view, setView] = useState<'chart' | 'table'>('chart');
+  // Mobile-first : les réglages avancés sont REPLIÉS — l'info d'abord
+  const [showFilters, setShowFilters] = useState(false);
   const [outletFilter, setOutletFilter] = useState<Set<string>>(new Set());
   const [sellerFilter, setSellerFilter] = useState<Set<string>>(new Set());
 
@@ -348,6 +350,11 @@ export default function ReportsAnalyticsPage() {
     return [...keys];
   }, [chartData]);
 
+  // Nombre de réglages avancés actifs (badge du bouton Filtres)
+  const activeFilterCount =
+    (compare !== 'none' ? 1 : 0) + (dimension !== 'global' ? 1 : 0) +
+    (metric !== 'revenue' ? 1 : 0) + outletFilter.size + sellerFilter.size;
+
   // ---- KPIs ----
   const kpis = useMemo(() => {
     const calc = (d: Overview | null) => {
@@ -399,60 +406,54 @@ export default function ReportsAnalyticsPage() {
           </div>
         </div>
 
-        {/* ===== Contrôles ===== */}
-        <Card>
-          <CardContent className="py-3 space-y-3">
-            {/* Période */}
-            <div className="flex gap-1.5 overflow-x-auto pb-1 -mx-1 px-1">
-              {PRESETS.map(p => (
-                <button key={p.key} onClick={() => setPreset(p.key)}
-                  className={'px-3 py-1.5 rounded-full text-xs font-semibold whitespace-nowrap border ' +
-                    (preset === p.key ? 'bg-amber-700 text-white border-amber-700' : 'bg-white border-gray-300 text-gray-700 hover:bg-gray-50')}>
-                  {p.label}
-                </button>
-              ))}
-            </div>
-            {preset === 'custom' && (
-              <div className="flex items-center gap-2 text-xs">
-                <input type="date" value={customFrom} onChange={e => setCustomFrom(e.target.value)}
-                  className="border border-gray-300 rounded-md px-2 py-1.5" />
-                <span className="text-gray-400">→</span>
-                <input type="date" value={customTo} onChange={e => setCustomTo(e.target.value)}
-                  className="border border-gray-300 rounded-md px-2 py-1.5" />
-              </div>
-            )}
+        {/* ===== Barre compacte : période + bouton Filtres ===== */}
+        <div className="flex items-center gap-1.5">
+          <div className="flex gap-1.5 overflow-x-auto pb-1 -mx-1 px-1 flex-1">
+            {PRESETS.map(p => (
+              <button key={p.key} onClick={() => setPreset(p.key)}
+                className={'px-3 py-1.5 rounded-full text-xs font-semibold whitespace-nowrap border ' +
+                  (preset === p.key ? 'bg-amber-700 text-white border-amber-700' : 'bg-white border-gray-300 text-gray-700 hover:bg-gray-50')}>
+                {p.label}
+              </button>
+            ))}
+          </div>
+          <button onClick={() => setShowFilters(v => !v)}
+            className={'shrink-0 inline-flex items-center gap-1 px-3 py-1.5 rounded-full text-xs font-bold border ' +
+              (showFilters || activeFilterCount > 0
+                ? 'bg-emerald-700 text-white border-emerald-700'
+                : 'bg-white border-gray-300 text-gray-700 hover:bg-gray-50')}>
+            <SlidersHorizontal className="w-3.5 h-3.5" />
+            Filtres{activeFilterCount > 0 ? ` (${activeFilterCount})` : ''}
+          </button>
+        </div>
 
-            {/* Superposition + dimension + vue */}
-            <div className="flex flex-wrap items-center gap-2">
-              <label className="text-xs text-gray-600 inline-flex items-center gap-1.5">
-                <SlidersHorizontal className="w-3.5 h-3.5" />
+        {/* ===== Réglages avancés : repliés par défaut ===== */}
+        {showFilters && (
+          <Card>
+            <CardContent className="py-3 space-y-3">
+              {preset === 'custom' && (
+                <div className="flex items-center gap-2 text-xs">
+                  <input type="date" value={customFrom} onChange={e => setCustomFrom(e.target.value)}
+                    className="border border-gray-300 rounded-md px-2 py-1.5" />
+                  <span className="text-gray-400">→</span>
+                  <input type="date" value={customTo} onChange={e => setCustomTo(e.target.value)}
+                    className="border border-gray-300 rounded-md px-2 py-1.5" />
+                </div>
+              )}
+
+              <div className="flex flex-wrap items-center gap-2">
                 <select value={compare} onChange={e => setCompare(e.target.value as Compare)}
                   className="border border-gray-300 rounded-md px-2 py-1.5 text-xs bg-white">
                   <option value="none">Sans comparaison</option>
                   <option value="previous">⇆ Superposer période précédente</option>
                   <option value="lastYear">⇆ Superposer l'an dernier</option>
                 </select>
-              </label>
-              <select value={dimension} onChange={e => setDimension(e.target.value as Dimension)}
-                className="border border-gray-300 rounded-md px-2 py-1.5 text-xs bg-white">
-                {DIMENSIONS.map(d => <option key={d.key} value={d.key}>{d.label}</option>)}
-              </select>
-              <div className="ml-auto inline-flex rounded-lg border border-gray-300 overflow-hidden">
-                <button onClick={() => setView('chart')}
-                  className={'px-3 py-1.5 text-xs font-semibold inline-flex items-center gap-1 ' +
-                    (view === 'chart' ? 'bg-amber-700 text-white' : 'bg-white text-gray-600 hover:bg-gray-50')}>
-                  <BarChart3 className="w-3.5 h-3.5" /> Graphique
-                </button>
-                <button onClick={() => setView('table')}
-                  className={'px-3 py-1.5 text-xs font-semibold inline-flex items-center gap-1 border-l border-gray-300 ' +
-                    (view === 'table' ? 'bg-amber-700 text-white' : 'bg-white text-gray-600 hover:bg-gray-50')}>
-                  <Table2 className="w-3.5 h-3.5" /> Tableau
-                </button>
+                <select value={dimension} onChange={e => setDimension(e.target.value as Dimension)}
+                  className="border border-gray-300 rounded-md px-2 py-1.5 text-xs bg-white">
+                  {DIMENSIONS.map(d => <option key={d.key} value={d.key}>{d.label}</option>)}
+                </select>
               </div>
-            </div>
 
-            {/* Métrique + filtres multi-sélection */}
-            <div className="flex flex-wrap items-center gap-2">
               <div className="flex gap-1.5 overflow-x-auto pb-0.5">
                 {metricsForDim.map(m => (
                   <button key={m.key} onClick={() => setMetric(m.key)}
@@ -462,23 +463,26 @@ export default function ReportsAnalyticsPage() {
                   </button>
                 ))}
               </div>
-              <MultiSelect label="Stands" options={outletOptions} selected={outletFilter} onChange={setOutletFilter} />
-              <MultiSelect label="Vendeurs" options={sellerOptions} selected={sellerFilter} onChange={setSellerFilter} />
-              {(outletFilter.size > 0 || sellerFilter.size > 0) && (
-                <button onClick={() => { setOutletFilter(new Set()); setSellerFilter(new Set()); }}
-                  className="text-xs text-gray-500 inline-flex items-center gap-1 hover:text-red-600">
-                  <X className="w-3.5 h-3.5" /> Effacer filtres
-                </button>
-              )}
-            </div>
-            <p className="text-[11px] text-gray-400">
-              Période : {period.from} → {period.to}
-              {periodB && <> · comparée à {periodB.from} → {periodB.to}</>}
-              {(metric === 'expenses' || metric === 'net')
-                ? ' · les dépenses sont globales au workspace (non filtrées par stand/vendeur)' : ''}
-            </p>
-          </CardContent>
-        </Card>
+
+              <div className="flex flex-wrap items-center gap-2">
+                <MultiSelect label="Stands" options={outletOptions} selected={outletFilter} onChange={setOutletFilter} />
+                <MultiSelect label="Vendeurs" options={sellerOptions} selected={sellerFilter} onChange={setSellerFilter} />
+                {(outletFilter.size > 0 || sellerFilter.size > 0) && (
+                  <button onClick={() => { setOutletFilter(new Set()); setSellerFilter(new Set()); }}
+                    className="text-xs text-gray-500 inline-flex items-center gap-1 hover:text-red-600">
+                    <X className="w-3.5 h-3.5" /> Effacer filtres
+                  </button>
+                )}
+              </div>
+              <p className="text-[11px] text-gray-400">
+                Période : {period.from} → {period.to}
+                {periodB && <> · comparée à {periodB.from} → {periodB.to}</>}
+                {(metric === 'expenses' || metric === 'net')
+                  ? ' · les dépenses sont globales au workspace (non filtrées par stand/vendeur)' : ''}
+              </p>
+            </CardContent>
+          </Card>
+        )}
 
         {error && (
           <div className="text-sm text-red-700 bg-red-50 border border-red-200 rounded-lg px-3 py-2">{error}</div>
@@ -516,6 +520,20 @@ export default function ReportsAnalyticsPage() {
         )}
 
         {/* ===== Visualisation ===== */}
+        <div className="flex justify-end -mb-2">
+          <div className="inline-flex rounded-lg border border-gray-300 overflow-hidden">
+            <button onClick={() => setView('chart')}
+              className={'px-3 py-1.5 text-xs font-semibold inline-flex items-center gap-1 ' +
+                (view === 'chart' ? 'bg-amber-700 text-white' : 'bg-white text-gray-600 hover:bg-gray-50')}>
+              <BarChart3 className="w-3.5 h-3.5" /> Graphique
+            </button>
+            <button onClick={() => setView('table')}
+              className={'px-3 py-1.5 text-xs font-semibold inline-flex items-center gap-1 border-l border-gray-300 ' +
+                (view === 'table' ? 'bg-amber-700 text-white' : 'bg-white text-gray-600 hover:bg-gray-50')}>
+              <Table2 className="w-3.5 h-3.5" /> Tableau
+            </button>
+          </div>
+        </div>
         <Card>
           <CardContent className="pt-4">
             {loading ? (
