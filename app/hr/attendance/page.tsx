@@ -31,6 +31,7 @@ const fmtTime = (d?: string) =>
 export default function AttendancePage() {
   const [date, setDate] = useState(todayIso());
   const [rows, setRows] = useState<Attendance[]>([]);
+  const [posRows, setPosRows] = useState<any[]>([]);
   const [employeeNames, setEmployeeNames] = useState<Map<string, string>>(new Map());
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -39,10 +40,16 @@ export default function AttendancePage() {
     setLoading(true);
     setError(null);
     try {
-      const [aRes, eRes] = await Promise.allSettled([
+      const [aRes, eRes, posRes] = await Promise.allSettled([
         fetch(`/api/hr/attendance?startDate=${day}&endDate=${day}`),
         fetch('/api/hr/employees'),
+        fetch(`/api/hr/attendance/pos-presence?date=${day}`),
       ]);
+      if (posRes.status === 'fulfilled' && posRes.value.ok) {
+        setPosRows(((await posRes.value.json()).data || []));
+      } else {
+        setPosRows([]);
+      }
       if (aRes.status !== 'fulfilled' || !aRes.value.ok) {
         const body = aRes.status === 'fulfilled' ? await aRes.value.json().catch(() => ({})) : {};
         throw new Error((body as any).error || 'Erreur de chargement');
@@ -89,6 +96,46 @@ export default function AttendancePage() {
           </div>
         </div>
 
+        {!loading && posRows.length > 0 && (
+          <Card>
+            <CardContent className="pt-4">
+              <h2 className="font-bold text-sm mb-2 text-emerald-800">
+                Commerciaux — présence automatique (POS)
+              </h2>
+              <table className="w-full text-sm">
+                <thead className="text-xs uppercase text-gray-500">
+                  <tr className="border-b">
+                    <th className="text-left py-2">Commercial</th>
+                    <th className="text-left py-2">Stand</th>
+                    <th className="text-center py-2 w-20">Arrivée</th>
+                    <th className="text-center py-2 w-20">Départ</th>
+                    <th className="text-right py-2 w-28">Ventes</th>
+                    <th className="text-center py-2 w-24">Transport</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {posRows.map((r, i) => (
+                    <tr key={i} className="border-b last:border-b-0">
+                      <td className="py-2 font-medium">{r.SellerName}</td>
+                      <td className="py-2 text-gray-600">{r.OutletName}</td>
+                      <td className="py-2 text-center tabular-nums">{fmtTime(r.FirstIn)}</td>
+                      <td className="py-2 text-center tabular-nums">{r.LastOut ? fmtTime(r.LastOut) : 'En poste'}</td>
+                      <td className="py-2 text-right tabular-nums">
+                        {new Intl.NumberFormat('fr-FR').format(Math.round(r.Revenue || 0))} F
+                      </td>
+                      <td className="py-2 text-center">
+                        {r.TransportPaid
+                          ? <span className="text-emerald-700 text-xs font-semibold">✓ versée</span>
+                          : <span className="text-gray-400 text-xs">—</span>}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </CardContent>
+          </Card>
+        )}
+
         {loading ? (
           <div className="text-center py-16"><Loader2 className="w-8 h-8 mx-auto animate-spin text-amber-700" /></div>
         ) : error ? (
@@ -96,7 +143,7 @@ export default function AttendancePage() {
         ) : rows.length === 0 ? (
           <Card>
             <CardContent className="py-12 text-center text-sm text-gray-500">
-              Aucun pointage à cette date.
+              Aucun pointage manuel à cette date (les commerciaux sont suivis automatiquement via le POS, ci-dessus).
             </CardContent>
           </Card>
         ) : (

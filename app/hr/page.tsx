@@ -122,66 +122,46 @@ export default function HRDashboardPage() {
 
       {/* Contenu */}
       <div className="max-w-7xl mx-auto px-4 -mt-4 space-y-4">
-        {/* Pointage Rapide */}
-        <div className="bg-gradient-to-br from-green-500 to-emerald-600 rounded-2xl shadow-xl p-6 text-white">
-          <h2 className="text-xl font-bold flex items-center gap-2 mb-3">
-            <Zap className="w-6 h-6" />
-            Pointage Rapide
-          </h2>
-
-          {currentAttendance ? (
-            canCheckOut ? (
-              <div className="space-y-4">
-                <div className="bg-white/20 backdrop-blur-sm rounded-xl p-4">
-                  <p className="text-sm opacity-90 mb-1">Arrivée</p>
-                  <p className="text-2xl font-bold">
-                    {new Date(currentAttendance.CheckInTime).toLocaleTimeString('fr-FR', {
-                      hour: '2-digit',
-                      minute: '2-digit',
-                    })}
-                  </p>
-                  <p className="text-xs opacity-80 mt-1">
-                    {currentAttendance.LocationName}
-                  </p>
-                </div>
-
+        {/* Présence : commerciaux automatiques (POS), pointage manuel pour les autres */}
+        <div className="bg-white rounded-2xl shadow-xl p-5">
+          <div className="flex items-start gap-3">
+            <Zap className="w-5 h-5 text-emerald-600 flex-shrink-0 mt-0.5" />
+            <div className="flex-1">
+              <p className="font-semibold text-gray-900">Présence des commerciaux : automatique</p>
+              <p className="text-sm text-gray-600 mt-0.5">
+                Gérée par le POS — ouverture de caisse = arrivée, clôture = départ,
+                prime de transport versée à la clôture. Aucun pointage manuel à faire.
+              </p>
+              <div className="mt-3 flex flex-wrap gap-2">
                 <Button
-                  onClick={() => router.push('/hr/attendance/check-out')}
-                  className="w-full bg-white text-green-600 hover:bg-green-50 h-14 text-lg font-bold rounded-xl"
+                  size="sm"
+                  variant="outline"
+                  onClick={() => router.push('/hr/attendance')}
                 >
-                  <LogOut className="w-6 h-6 mr-2" />
-                  Pointer la Sortie
+                  Voir les présences du jour
                 </Button>
+                {currentAttendance && canCheckOut ? (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => router.push('/hr/attendance/check-out')}
+                    className="text-emerald-700 border-emerald-300"
+                  >
+                    <LogOut className="w-4 h-4 mr-1" /> Pointer la sortie (non commercial)
+                  </Button>
+                ) : !currentAttendance && (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => router.push('/hr/attendance/check-in')}
+                    className="text-emerald-700 border-emerald-300"
+                  >
+                    <LogIn className="w-4 h-4 mr-1" /> Pointage manuel (non commercial)
+                  </Button>
+                )}
               </div>
-            ) : (
-              <div className="bg-white/20 backdrop-blur-sm rounded-xl p-4">
-                <p className="font-semibold mb-2">Pointage du jour complet ✓</p>
-                <p className="text-sm opacity-90">
-                  Arrivée: {new Date(currentAttendance.CheckInTime).toLocaleTimeString('fr-FR', {
-                    hour: '2-digit',
-                    minute: '2-digit',
-                  })}
-                </p>
-                <p className="text-sm opacity-90">
-                  Sortie: {new Date(currentAttendance.CheckOutTime).toLocaleTimeString('fr-FR', {
-                    hour: '2-digit',
-                    minute: '2-digit',
-                  })}
-                </p>
-                <p className="text-xs opacity-80 mt-2">
-                  {currentAttendance.TotalHours}h travaillées
-                </p>
-              </div>
-            )
-          ) : (
-            <Button
-              onClick={() => router.push('/hr/attendance/check-in')}
-              className="w-full bg-white text-green-600 hover:bg-green-50 h-14 text-lg font-bold rounded-xl"
-            >
-              <LogIn className="w-6 h-6 mr-2" />
-              Pointer l'Arrivée
-            </Button>
-          )}
+            </div>
+          </div>
         </div>
 
         {/* KPIs */}
@@ -225,38 +205,6 @@ export default function HRDashboardPage() {
           </div>
         )}
 
-        {/* Transports en attente */}
-        {statistics && statistics.transportsPending > 0 && (
-          <div className="bg-white rounded-2xl shadow-xl p-6">
-            <div className="flex items-center justify-between mb-4">
-              <h2 className="font-bold text-lg flex items-center gap-2">
-                <Navigation className="w-5 h-5 text-orange-600" />
-                Transports en Attente
-              </h2>
-              <span className="bg-orange-100 text-orange-700 px-3 py-1 rounded-full text-sm font-semibold">
-                {statistics.transportsPending}
-              </span>
-            </div>
-
-            <div className="bg-orange-50 border-2 border-orange-200 rounded-xl p-4">
-              <p className="font-semibold text-orange-800 mb-1">
-                Montant total: {new Intl.NumberFormat('fr-FR').format(statistics.transportsAmount)} F CFA
-              </p>
-              <p className="text-sm text-orange-700">
-                En attente de validation
-              </p>
-            </div>
-
-            <Button
-              onClick={() => router.push('/hr/transport-allowances')}
-              variant="outline"
-              className="w-full mt-4"
-            >
-              Voir les détails
-            </Button>
-          </div>
-        )}
-
         {/* Actions Rapides */}
         <div className="bg-white rounded-2xl shadow-xl p-6">
           <h2 className="font-bold text-lg mb-4">Actions Rapides</h2>
@@ -279,11 +227,12 @@ export default function HRDashboardPage() {
             </button>
 
             <button
-              onClick={() => router.push('/hr/transport-allowances')}
+              onClick={() => router.push('/hr/payroll/settings')}
               className="bg-orange-50 hover:bg-orange-100 border-2 border-orange-200 rounded-xl p-4 text-left transition-colors"
             >
               <Navigation className="w-6 h-6 text-orange-600 mb-2" />
-              <p className="font-semibold text-gray-900 text-sm">Transports</p>
+              <p className="font-semibold text-gray-900 text-sm">Primes</p>
+              <p className="text-xs text-gray-500">transport & vente</p>
             </button>
 
             <button
@@ -303,11 +252,12 @@ export default function HRDashboardPage() {
             </button>
 
             <button
-              onClick={() => router.push('/hr/reports')}
+              onClick={() => router.push('/hr/payroll/charges')}
               className="bg-indigo-50 hover:bg-indigo-100 border-2 border-indigo-200 rounded-xl p-4 text-left transition-colors"
             >
               <TrendingUp className="w-6 h-6 text-indigo-600 mb-2" />
-              <p className="font-semibold text-gray-900 text-sm">Rapports</p>
+              <p className="font-semibold text-gray-900 text-sm">Charges sociales</p>
+              <p className="text-xs text-gray-500">CNPS · DGI · FDFP</p>
             </button>
           </div>
         </div>
@@ -317,10 +267,12 @@ export default function HRDashboardPage() {
           <div className="flex items-start gap-3">
             <FileText className="w-5 h-5 text-blue-600 flex-shrink-0 mt-0.5" />
             <div>
-              <p className="font-semibold text-blue-800">Rappel</p>
+              <p className="font-semibold text-blue-800">Comment ça marche</p>
               <p className="text-sm text-blue-700 mt-1">
-                N'oubliez pas de pointer votre arrivée et votre sortie chaque jour.
-                Les indemnités de transport sont automatiquement créées pour les déplacements.
+                Commerciaux : présence et primes (transport + vente) gérées automatiquement
+                par la caisse — la clôture de caisse verse les primes en espèces.
+                Bulletins mensuels : Paie → Générer Paies du Mois, après mise à jour des
+                fiches employés (état civil, CNPS, catégorie).
               </p>
             </div>
           </div>
