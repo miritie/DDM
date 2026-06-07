@@ -69,9 +69,9 @@ export interface StandJournalPdfData {
 }
 
 const fmt = (n: number, currency: string) =>
-  new Intl.NumberFormat('fr-FR').format(Math.round(n)) + ' ' + currency;
+  new Intl.NumberFormat('fr-FR').format(Math.round(n)).replace(/[\u202F\u00A0]/g, ' ') + ' ' + currency;
 
-const num = (n: number) => new Intl.NumberFormat('fr-FR').format(Math.round(n));
+const num = (n: number) => new Intl.NumberFormat('fr-FR').format(Math.round(n)).replace(/[\u202F\u00A0]/g, ' ');
 
 const DEST_LABELS: Record<string, string> = {
   bank: 'Banque',

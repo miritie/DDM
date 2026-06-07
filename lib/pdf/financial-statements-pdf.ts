@@ -34,7 +34,7 @@ const W = 210;
 const H = 297;
 const M = 14;
 
-const fmt = (n: number) => new Intl.NumberFormat('fr-FR').format(Math.round(n || 0));
+const fmt = (n: number) => new Intl.NumberFormat('fr-FR').format(Math.round(n || 0)).replace(/[\u202F\u00A0]/g, ' ');
 
 export function generateFinancialStatementsPdf(
   data: FinancialStatements,
@@ -247,10 +247,10 @@ export function generateFinancialStatementsPdf(
     startY: lastY() + 5,
     head: [['Décaissements', `Montant (${cur})`]],
     body: [
-      ...data.tft.outflows.map(l => [l.category, '−' + fmt(l.amount)]),
-      [{ content: 'Total décaissements', styles: { fontStyle: 'bold' } }, { content: '−' + fmt(data.tft.totalOut), styles: { fontStyle: 'bold' } }],
+      ...data.tft.outflows.map(l => [l.category, '-' + fmt(l.amount)]),
+      [{ content: 'Total décaissements', styles: { fontStyle: 'bold' } }, { content: '-' + fmt(data.tft.totalOut), styles: { fontStyle: 'bold' } }],
       [{ content: 'VARIATION NETTE DE TRÉSORERIE', styles: { fontStyle: 'bold' } },
-       { content: (data.tft.net >= 0 ? '+' : '−') + fmt(Math.abs(data.tft.net)), styles: { fontStyle: 'bold' } }],
+       { content: (data.tft.net >= 0 ? '+' : '-') + fmt(Math.abs(data.tft.net)), styles: { fontStyle: 'bold' } }],
     ] as any,
     columnStyles: { 1: { cellWidth: 42, halign: 'right' } },
   });

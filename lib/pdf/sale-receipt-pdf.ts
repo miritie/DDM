@@ -44,7 +44,7 @@ export interface SaleReceiptPdfData {
 }
 
 const fmt = (n: number, currency: string) =>
-  new Intl.NumberFormat('fr-FR').format(Math.round(n)) + ' ' + currency;
+  new Intl.NumberFormat('fr-FR').format(Math.round(n)).replace(/[\u202F\u00A0]/g, ' ') + ' ' + currency;
 
 // Palette du reçu — cohérente avec l'identité « miel » de l'app.
 const BROWN: [number, number, number] = [92, 51, 10];     // brun profond
