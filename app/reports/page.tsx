@@ -383,10 +383,20 @@ export default function ReportsAnalyticsPage() {
               Vue d'ensemble de l'activité — filtres croisés, périodes superposées
             </p>
           </div>
-          <button onClick={load} disabled={loading}
-            className="p-2 rounded-lg border border-gray-300 bg-white hover:bg-gray-50" aria-label="Rafraîchir">
-            <RefreshCw className={'w-4 h-4 text-gray-600 ' + (loading ? 'animate-spin' : '')} />
-          </button>
+          <div className="flex items-center gap-2">
+            <a href="/reports/annual"
+              className="px-3 py-2 rounded-lg bg-amber-700 text-white text-sm font-bold hover:bg-amber-800">
+              Rapport annuel
+            </a>
+            <a href="/reports/financial"
+              className="px-3 py-2 rounded-lg border border-amber-300 text-amber-800 text-sm font-semibold hover:bg-amber-50">
+              Réglementaire
+            </a>
+            <button onClick={load} disabled={loading}
+              className="p-2 rounded-lg border border-gray-300 bg-white hover:bg-gray-50" aria-label="Rafraîchir">
+              <RefreshCw className={'w-4 h-4 text-gray-600 ' + (loading ? 'animate-spin' : '')} />
+            </button>
+          </div>
         </div>
 
         {/* ===== Contrôles ===== */}
