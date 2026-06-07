@@ -265,8 +265,10 @@ export class EmployeeService {
     const activeEmployees = employees.filter((e) => e.Status === 'active');
     const onLeaveEmployees = employees.filter((e) => (e as any).Status === 'on_leave');
 
+    // pg renvoie les NUMERIC en string : Number() obligatoire sinon
+    // la somme CONCATÈNE (« 0150000350000… »)
     const totalPayroll = activeEmployees.reduce(
-      (sum, e) => sum + e.BaseSalary,
+      (sum, e) => sum + (Number(e.BaseSalary) || 0),
       0
     );
     const averageSalary =

@@ -178,7 +178,7 @@ export default function EmployeesPage() {
             </CardHeader>
             <CardContent>
               <div className="text-2xl font-bold">
-                {statistics.averageSalary.toLocaleString()} F
+                {Math.round(Number(statistics.averageSalary) || 0).toLocaleString('fr-FR')} F
               </div>
             </CardContent>
           </Card>
@@ -258,7 +258,7 @@ export default function EmployeesPage() {
                     <TableCell>{employee.Department || '-'}</TableCell>
                     <TableCell>{getContractTypeBadge(employee.ContractType)}</TableCell>
                     <TableCell>
-                      {employee.BaseSalary.toLocaleString()} {employee.Currency}
+                      {Math.round(Number(employee.BaseSalary) || 0).toLocaleString('fr-FR')} {employee.Currency || 'XOF'}
                     </TableCell>
                     <TableCell>{getStatusBadge(employee.Status)}</TableCell>
                     <TableCell>
