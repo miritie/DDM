@@ -418,12 +418,21 @@ export default function AccountantDashboardPage() {
               </div>
             )}
 
-            <Button
-              onClick={() => router.push('/hr/payroll')}
-              className="w-full mt-4 bg-purple-600 hover:bg-purple-700"
-            >
-              Gérer la paie <ArrowRight className="w-4 h-4 ml-2" />
-            </Button>
+            <div className="grid grid-cols-2 gap-2 mt-4">
+              <Button
+                onClick={() => router.push('/hr/payroll')}
+                className="bg-purple-600 hover:bg-purple-700"
+              >
+                Gérer la paie <ArrowRight className="w-4 h-4 ml-2" />
+              </Button>
+              <Button
+                variant="outline"
+                onClick={() => router.push('/hr')}
+                className="border-purple-300 text-purple-700 hover:bg-purple-50"
+              >
+                Module RH complet
+              </Button>
+            </div>
           </CardContent>
         </Card>
 

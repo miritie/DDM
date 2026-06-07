@@ -154,6 +154,10 @@ export default function PayrollPage() {
     <div className="container mx-auto p-6 space-y-6">
       <div className="flex justify-between items-center">
         <div>
+          <button onClick={() => router.push('/hr')}
+            className="text-sm text-gray-500 hover:text-gray-800 mb-1">
+            ← Ressources Humaines
+          </button>
           <h1 className="text-3xl font-bold">Gestion de la Paie</h1>
           <p className="text-muted-foreground">
             Module Ressources Humaines - {payrolls.length} paie(s)
