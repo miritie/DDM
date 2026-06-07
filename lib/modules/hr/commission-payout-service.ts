@@ -31,7 +31,10 @@ function ensureBonusColumns(): Promise<void> {
   if (!bonusColumnsEnsured) {
     bonusColumnsEnsured = (async () => {
       await db.query(`ALTER TABLE products ADD COLUMN IF NOT EXISTS sales_bonus_per_unit DECIMAL(15, 2)`);
-      await db.query(`ALTER TABLE workspaces ADD COLUMN IF NOT EXISTS sales_bonus_per_unit DECIMAL(15, 2) DEFAULT 0`);
+      // Forfait métier confirmé : 100 F par produit vendu (modifiable
+      // à tout moment via /hr/payroll/settings)
+      await db.query(`ALTER TABLE workspaces ADD COLUMN IF NOT EXISTS sales_bonus_per_unit DECIMAL(15, 2) DEFAULT 100`);
+      await db.query(`UPDATE workspaces SET sales_bonus_per_unit = 100 WHERE sales_bonus_per_unit IS NULL`);
     })().catch(e => { bonusColumnsEnsured = null; throw e; });
   }
   return bonusColumnsEnsured;
