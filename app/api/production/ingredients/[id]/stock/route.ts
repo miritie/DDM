@@ -5,7 +5,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { IngredientService } from '@/lib/modules/production/ingredient-service';
-import { requirePermission, PERMISSIONS } from '@/lib/rbac/server';
+import { requireAnyPermission, PERMISSIONS } from '@/lib/rbac/server';
 
 const service = new IngredientService();
 
@@ -16,7 +16,7 @@ export async function POST(
   try {
     // Ajustement direct de stock (hors flux réception PR / consommation OP) :
     // c'est un acte d'inventaire. Voir INGREDIENT_INVENTORY pour la liste des rôles.
-    await requirePermission(PERMISSIONS.INGREDIENT_INVENTORY);
+    await requireAnyPermission([PERMISSIONS.INGREDIENT_INVENTORY, PERMISSIONS.PRODUCTION_EDIT]);
     const { id } = await params;
     const body = await request.json();
 

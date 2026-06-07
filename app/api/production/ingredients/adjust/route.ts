@@ -14,14 +14,14 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { getCurrentWorkspaceId, getCurrentUserId } from '@/lib/auth/get-session';
-import { requirePermission, PERMISSIONS } from '@/lib/rbac/server';
+import { requireAnyPermission, PERMISSIONS } from '@/lib/rbac/server';
 import { IngredientAdjustmentService } from '@/lib/modules/production/ingredient-adjustment-service';
 
 const service = new IngredientAdjustmentService();
 
 export async function POST(request: NextRequest) {
   try {
-    await requirePermission(PERMISSIONS.INGREDIENT_INVENTORY);
+    await requireAnyPermission([PERMISSIONS.INGREDIENT_INVENTORY, PERMISSIONS.PRODUCTION_EDIT]);
     const workspaceId = await getCurrentWorkspaceId();
     const processedById = await getCurrentUserId();
     const body = await request.json();

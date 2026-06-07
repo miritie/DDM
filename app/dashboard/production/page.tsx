@@ -414,6 +414,17 @@ function AgentView() {
             </div>
             <ArrowRight className="w-5 h-5 text-gray-400" />
           </Link>
+          <Link href="/production/ingredients/inventory"
+            className="bg-white border-2 border-purple-200 hover:border-purple-400 rounded-2xl p-4 flex items-center gap-3 active:scale-[0.99]">
+            <div className="w-14 h-14 rounded-xl bg-purple-100 text-purple-700 flex items-center justify-center shrink-0">
+              <ClipboardList className="w-7 h-7" />
+            </div>
+            <div className="flex-1">
+              <p className="text-lg font-bold">Compter les matières</p>
+              <p className="text-sm text-gray-500">Inventaire : ce qu'il reste vraiment</p>
+            </div>
+            <ArrowRight className="w-5 h-5 text-gray-400" />
+          </Link>
           <Link href="/expenses/requests/quick"
             className="bg-white border-2 border-emerald-200 hover:border-emerald-400 rounded-2xl p-4 flex items-center gap-3 active:scale-[0.99]">
             <div className="w-14 h-14 rounded-xl bg-emerald-100 text-emerald-700 flex items-center justify-center shrink-0">
