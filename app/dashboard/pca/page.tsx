@@ -6,15 +6,15 @@
  * Accessible aux rôles `pca` et `admin` (gardé par recipe:view_formula).
  * Vue de contrôle uniquement — pas d'écran opérationnel.
  *
- * Contenu :
- * - Section marges & coûts (PCAMarginsPanel : top marges, marges négatives,
- *   alertes MP, valeur stock)
- * - Accès secret de fabrication (formules, matières premières)
- * - Vue lecture seule (rapports, comptabilité)
+ * MOBILE-FIRST : pensé pour le téléphone du PCA. Les marges produits
+ * (confidentielles, volumineuses) sont REPLIÉES par défaut et ne se
+ * chargent qu'à la demande.
  */
+import { useState } from 'react';
 import Link from 'next/link';
 import {
-  Lock, FileText, Beaker, BarChart3, Calculator, Briefcase, ArrowRight, Crown,
+  Lock, FileText, Beaker, BarChart3, Calculator, Briefcase, ArrowRight,
+  Crown, FileBarChart, Landmark, ChevronDown, ChevronUp,
 } from 'lucide-react';
 import { ProtectedPage } from '@/components/rbac/protected-page';
 import { PERMISSIONS } from '@/lib/rbac';
@@ -30,104 +30,133 @@ export default function PCADashboardPage() {
 }
 
 function Content() {
+  const [showMargins, setShowMargins] = useState(false);
+
   return (
-    <div className="min-h-screen bg-gradient-to-br from-purple-50 via-white to-pink-50 pb-20">
-      {/* Header */}
-      <div className="bg-gradient-to-r from-purple-700 via-fuchsia-700 to-pink-700 text-white p-6 sticky top-0 z-10 shadow-lg">
-        <div className="max-w-7xl mx-auto flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <Crown className="w-10 h-10" />
-            <div>
-              <h1 className="text-3xl font-bold flex items-center gap-2">
-                Espace PCA
-                <Lock className="w-5 h-5 opacity-80" />
+    <div className="min-h-screen bg-gradient-to-br from-purple-50 via-white to-pink-50 pb-16">
+      {/* Header compact (mobile-first) */}
+      <div className="bg-gradient-to-r from-purple-700 via-fuchsia-700 to-pink-700 text-white px-4 py-3 sm:px-6 sm:py-4 sticky top-0 z-10 shadow-lg">
+        <div className="max-w-5xl mx-auto flex items-center justify-between gap-2">
+          <div className="flex items-center gap-2.5 min-w-0">
+            <Crown className="w-7 h-7 sm:w-9 sm:h-9 shrink-0" />
+            <div className="min-w-0">
+              <h1 className="text-lg sm:text-2xl font-bold flex items-center gap-1.5 truncate">
+                Espace PCA <Lock className="w-4 h-4 opacity-80 shrink-0" />
               </h1>
-              <p className="text-sm opacity-90">Synthèses stratégiques, formules & contrôle</p>
+              <p className="text-[11px] sm:text-sm opacity-90 truncate">
+                Synthèses stratégiques, formules & contrôle
+              </p>
             </div>
           </div>
           <LogoutButton
             variant="ghost"
             size="sm"
             showText={false}
-            className="p-3 bg-white/20 backdrop-blur-sm rounded-full hover:bg-white/30 text-white"
+            className="p-2.5 bg-white/20 backdrop-blur-sm rounded-full hover:bg-white/30 text-white shrink-0"
           />
         </div>
       </div>
 
-      <div className="max-w-7xl mx-auto p-6 space-y-6">
-        {/* Bannière confidentialité */}
-        <div className="bg-gradient-to-r from-amber-50 to-yellow-50 border-2 border-amber-200 rounded-2xl p-4 flex items-start gap-3">
-          <Lock className="w-5 h-5 text-amber-700 shrink-0 mt-0.5" />
-          <div>
-            <p className="font-semibold text-amber-900">Espace confidentiel</p>
-            <p className="text-sm text-amber-800">
-              Les formules de fabrication et marges détaillées affichées ici sont strictement
-              réservées au PCA et à l'administrateur décideur.
-            </p>
-          </div>
-        </div>
-
-        {/* SECTION 1 — Marges & coûts (vue confidentielle) */}
+      <div className="max-w-5xl mx-auto p-3 sm:p-6 space-y-4 sm:space-y-6">
+        {/* SECTION 1 — Pilotage : l'essentiel d'abord */}
         <section>
-          <h2 className="text-xl font-bold mb-3 flex items-center gap-2 text-purple-900">
-            <BarChart3 className="w-6 h-6" /> Marges & coûts matières
+          <h2 className="text-base sm:text-xl font-bold mb-2 sm:mb-3 flex items-center gap-2 text-purple-900">
+            <Briefcase className="w-5 h-5" /> Pilotage & audit
           </h2>
-          <PCAMarginsPanel />
-        </section>
-
-        {/* SECTION 2 — Secret de fabrication */}
-        <section>
-          <h2 className="text-xl font-bold mb-3 flex items-center gap-2 text-purple-900">
-            <Lock className="w-6 h-6" /> Secret de fabrication
-          </h2>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 sm:gap-4">
             <AccessCard
-              href="/production/recipes"
-              icon={<FileText className="w-6 h-6" />}
-              title="Formules / Recettes"
-              description="Composition de chaque produit (ingrédients, %, rendement). Création, édition, versioning."
+              href="/reports/annual"
+              icon={<FileBarChart className="w-5 h-5" />}
+              title="Rapport annuel"
+              description="Bilan moral & financier d'une année : CA, stands, vendeurs, paie, charges, dettes. Imprimable."
               tone="purple"
             />
             <AccessCard
-              href="/production/ingredients"
-              icon={<Beaker className="w-6 h-6" />}
-              title="Matières premières"
-              description="PMP, stocks, fournisseurs préférés, historique des réceptions."
+              href="/reports"
+              icon={<BarChart3 className="w-5 h-5" />}
+              title="Rapports & analyses"
+              description="Dashboard décisionnel : filtres croisés, périodes superposées, stands et vendeurs."
+              tone="emerald"
+            />
+            <AccessCard
+              href="/accounting"
+              icon={<Calculator className="w-5 h-5" />}
+              title="Comptabilité"
+              description="Journaux, écritures, balance, bilan, états financiers OHADA."
+              tone="amber"
+            />
+            <AccessCard
+              href="/hr/payroll/charges"
+              icon={<Landmark className="w-5 h-5" />}
+              title="Charges sociales"
+              description="CNPS · DGI · FDFP — dû, réglé, reste, échéances du 15."
               tone="blue"
             />
           </div>
         </section>
 
-        {/* SECTION 3 — Vue d'ensemble lecture seule */}
+        {/* SECTION 2 — Marges (confidentiel) : repliée par défaut */}
         <section>
-          <h2 className="text-xl font-bold mb-3 flex items-center gap-2 text-purple-900">
-            <Briefcase className="w-6 h-6" /> Pilotage & audit
+          <button
+            onClick={() => setShowMargins(v => !v)}
+            className="w-full flex items-center justify-between gap-2 bg-white border-2 border-purple-200 hover:border-purple-400 rounded-2xl px-4 py-3 transition-colors"
+          >
+            <span className="flex items-center gap-2 font-bold text-purple-900 text-sm sm:text-base">
+              <Lock className="w-4 h-4" /> Marges & coûts matières
+              <span className="hidden sm:inline text-xs font-normal text-purple-500">— confidentiel</span>
+            </span>
+            <span className="flex items-center gap-1 text-xs font-semibold text-purple-700">
+              {showMargins ? 'Masquer' : 'Afficher'}
+              {showMargins ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+            </span>
+          </button>
+          {showMargins && (
+            <div className="mt-3">
+              <PCAMarginsPanel />
+            </div>
+          )}
+        </section>
+
+        {/* SECTION 3 — Secret de fabrication */}
+        <section>
+          <h2 className="text-base sm:text-xl font-bold mb-2 sm:mb-3 flex items-center gap-2 text-purple-900">
+            <Lock className="w-5 h-5" /> Secret de fabrication
           </h2>
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 sm:gap-4">
             <AccessCard
-              href="/reports"
-              icon={<BarChart3 className="w-6 h-6" />}
-              title="Rapports"
-              description="Tableaux de bord transverses : ventes, dépenses, stocks, RH, comptabilité."
-              tone="emerald"
+              href="/production/recipes"
+              icon={<FileText className="w-5 h-5" />}
+              title="Formules / Recettes"
+              description="Composition de chaque produit (ingrédients, %, rendement)."
+              tone="purple"
             />
             <AccessCard
-              href="/accounting"
-              icon={<Calculator className="w-6 h-6" />}
-              title="Comptabilité"
-              description="Plan comptable, journaux, écritures, exercices."
-              tone="amber"
-            />
-            <AccessCard
-              href="/dashboard/admin"
-              icon={<Briefcase className="w-6 h-6" />}
-              title="Dashboard admin"
-              description="File de validation, sollicitations, contrôle utilisateurs."
-              tone="gray"
-              adminOnly
+              href="/production/ingredients"
+              icon={<Beaker className="w-5 h-5" />}
+              title="Matières premières"
+              description="PMP, stocks, fournisseurs, historique des réceptions."
+              tone="blue"
             />
           </div>
         </section>
+
+        {/* SECTION 4 — Admin */}
+        <section>
+          <AccessCard
+            href="/dashboard/admin"
+            icon={<Briefcase className="w-5 h-5" />}
+            title="Dashboard admin"
+            description="File de validation, sollicitations, contrôle utilisateurs."
+            tone="gray"
+            adminOnly
+          />
+        </section>
+
+        <p className="text-[11px] text-gray-400 flex items-start gap-1.5 px-1">
+          <Lock className="w-3 h-3 mt-0.5 shrink-0" />
+          Les formules de fabrication et marges détaillées sont strictement réservées
+          au PCA et à l'administrateur décideur.
+        </p>
       </div>
     </div>
   );
@@ -151,23 +180,23 @@ function AccessCard({ href, icon, title, description, tone, adminOnly }: {
   return (
     <Link
       href={href}
-      className={`group block bg-white border-2 rounded-2xl p-5 transition-all hover:shadow-lg ${palette[tone]}`}
+      className={`group block bg-white border-2 rounded-2xl p-3.5 sm:p-5 transition-all hover:shadow-lg active:scale-[0.99] ${palette[tone]}`}
     >
-      <div className="flex items-start gap-3 mb-2">
-        <div className={`w-12 h-12 rounded-xl bg-gradient-to-br flex items-center justify-center ${palette[tone]}`}>
+      <div className="flex items-center gap-3">
+        <div className={`w-10 h-10 sm:w-12 sm:h-12 rounded-xl bg-gradient-to-br flex items-center justify-center shrink-0 ${palette[tone]}`}>
           {icon}
         </div>
         <div className="flex-1 min-w-0">
-          <h3 className="font-bold text-gray-900 flex items-center gap-2 flex-wrap">
+          <h3 className="font-bold text-gray-900 text-sm sm:text-base flex items-center gap-2 flex-wrap">
             {title}
             {adminOnly && (
               <span className="text-[10px] bg-gray-200 text-gray-700 px-2 py-0.5 rounded-full">admin only</span>
             )}
           </h3>
+          <p className="text-xs sm:text-sm text-gray-600 line-clamp-2">{description}</p>
         </div>
-        <ArrowRight className="w-4 h-4 text-gray-400 group-hover:translate-x-1 transition-transform" />
+        <ArrowRight className="w-4 h-4 text-gray-400 group-hover:translate-x-1 transition-transform shrink-0" />
       </div>
-      <p className="text-sm text-gray-600">{description}</p>
     </Link>
   );
 }
