@@ -163,6 +163,9 @@ export default function PayrollPage() {
           <Button onClick={() => setShowBulkDialog(true)}>
             Générer Paies du Mois
           </Button>
+          <Button variant="outline" onClick={() => router.push('/hr/payroll/charges')}>
+            Charges sociales
+          </Button>
           <Button onClick={() => router.push('/hr/payroll/new')}>
             Nouvelle Paie
           </Button>

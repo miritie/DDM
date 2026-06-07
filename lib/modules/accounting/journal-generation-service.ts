@@ -477,6 +477,139 @@ export class JournalGenerationService {
   }
 
   /**
+   * Écriture de PAIE (au paiement d'un bulletin) — OHADA :
+   *   D 661  Rémunérations (brut − acomptes espèces déjà passés en 661
+   *          aux clôtures de caisse — pas de double charge)
+   *   D 664  Charges sociales patronales (CNPS pat. + CMU + FDFP)
+   *   C 5xx  Trésorerie (net versé)
+   *   C 431  CNPS & organismes sociaux (part salariale + patronale + CMU)
+   *   C 442x ITS retenu à la source (dette envers la DGI)
+   *   C 447x FDFP (TAP + TFPC)
+   *   C 421  Personnel — autres retenues (avances sur salaire)
+   * Les comptes 43x/44x matérialisent les DETTES à régler le 15 du mois
+   * suivant. Idempotent par numéro de bulletin.
+   */
+  async fromPayrollPayment(payrollUuid: string, opts?: { treasuryAccountId?: string | null; journalCode?: 'BAN' | 'CAI' }): Promise<string> {
+    const pR = await db.query<any>(
+      `SELECT p.*, e.full_name
+       FROM payrolls p LEFT JOIN employees e ON e.id = p.employee_id
+       WHERE p.id::text = $1 OR p.payroll_id = $1 LIMIT 1`,
+      [payrollUuid]
+    );
+    if (!pR.rows[0]) throw new Error('Paie introuvable');
+    const p = pR.rows[0];
+
+    const existing = await db.query<any>(
+      `SELECT je.id FROM journal_entries je
+       WHERE je.workspace_id = $1 AND je.reference = $2 LIMIT 1`,
+      [p.workspace_id, p.payroll_number]
+    );
+    if (existing.rows[0]) return existing.rows[0].id;
+
+    const ec = typeof p.employer_charges === 'string' ? JSON.parse(p.employer_charges) : (p.employer_charges || {});
+    const grossTotal = Number(p.gross_total ?? p.base_salary) || 0;
+    const advances = Number(p.advance_deduction) || 0;
+    const otherDeductions = Number(p.deductions) || 0;
+    const net = Number(p.net_salary) || 0;
+    const cnpsEmployee = Number(p.cnps_employee) || 0;
+    const its = Number(p.its_amount) || 0;
+    const employerTotal = Number(p.employer_total) || 0;
+    const fdfp = (Number(ec.fdfpApprenticeship) || 0) + (Number(ec.fdfpContinuingTraining) || 0);
+    const social = cnpsEmployee + (employerTotal - fdfp); // CNPS sal. + pat. + CMU
+
+    const need = async (prefixes: string[], what: string) => {
+      for (const pr of prefixes) {
+        const acc = await this.findAccount(p.workspace_id, pr);
+        if (acc) return acc;
+      }
+      throw new Error(`Compte ${what} (${prefixes.join('/')}) introuvable au plan comptable`);
+    };
+    const remun = await need(['661', '66'], 'rémunérations');
+    const treasury = opts?.treasuryAccountId
+      ? { id: opts.treasuryAccountId }
+      : await need([opts?.journalCode === 'CAI' ? '571' : '521', '5'], 'trésorerie');
+
+    const who = p.full_name || p.payroll_number;
+    const lines: Array<{ accountId: string; label: string; debit: number; credit: number }> = [
+      { accountId: remun.id, label: `Salaire ${who} — ${p.period}`, debit: grossTotal - advances, credit: 0 },
+    ];
+    if (employerTotal > 0) {
+      const chargeAcc = await need(['664', '66'], 'charges sociales patronales');
+      lines.push({ accountId: chargeAcc.id, label: `Charges patronales ${who} — ${p.period}`, debit: employerTotal, credit: 0 });
+    }
+    lines.push({ accountId: treasury.id, label: `Net versé ${who} — ${p.period}`, debit: 0, credit: net });
+    if (social > 0) {
+      const acc = await need(['431', '43'], 'organismes sociaux');
+      lines.push({ accountId: acc.id, label: `CNPS + CMU dues — ${p.period}`, debit: 0, credit: social });
+    }
+    if (its > 0) {
+      const acc = await need(['442', '44'], 'État — ITS');
+      lines.push({ accountId: acc.id, label: `ITS retenu à la source — ${p.period}`, debit: 0, credit: its });
+    }
+    if (fdfp > 0) {
+      const acc = await need(['447', '44'], 'État — FDFP');
+      lines.push({ accountId: acc.id, label: `FDFP (TAP + TFPC) — ${p.period}`, debit: 0, credit: fdfp });
+    }
+    if (otherDeductions > 0) {
+      const acc = await need(['421', '42'], 'personnel');
+      lines.push({ accountId: acc.id, label: `Retenues diverses ${who} — ${p.period}`, debit: 0, credit: otherDeductions });
+    }
+
+    const code = opts?.journalCode ?? 'BAN';
+    const journal = await this.ensureJournal(
+      p.workspace_id, code,
+      code === 'CAI' ? 'Journal de caisse' : 'Journal de banque',
+      code === 'CAI' ? 'cash' : 'bank'
+    );
+    return this.insertEntry({
+      workspaceId: p.workspace_id,
+      journal,
+      date: p.payment_date ? new Date(p.payment_date) : new Date(),
+      description: `Paie ${p.period} — ${who} (${p.payroll_number})`,
+      reference: p.payroll_number,
+      lines,
+    });
+  }
+
+  /**
+   * Écriture de RÈGLEMENT D'UNE DETTE (sociale ou fiscale) par la banque :
+   * Débit 43x/44x (extinction de la dette) / Crédit 521.
+   */
+  async fromLiabilitySettlement(opts: {
+    workspaceId: string;
+    date: Date;
+    reference: string;
+    description: string;
+    amount: number;
+    debitAccountPrefixes: string[];
+    treasuryAccountId?: string | null;
+  }): Promise<string> {
+    let debit: { id: string } | null = null;
+    for (const prefix of opts.debitAccountPrefixes) {
+      debit = await this.findAccount(opts.workspaceId, prefix);
+      if (debit) break;
+    }
+    if (!debit) throw new Error(`Compte de dette (${opts.debitAccountPrefixes.join('/')}) introuvable`);
+    const treasury = opts.treasuryAccountId
+      ? { id: opts.treasuryAccountId }
+      : await this.findAccount(opts.workspaceId, '521');
+    if (!treasury) throw new Error('Compte banque (521) introuvable au plan comptable');
+
+    const journal = await this.ensureJournal(opts.workspaceId, 'BAN', 'Journal de banque', 'bank');
+    return this.insertEntry({
+      workspaceId: opts.workspaceId,
+      journal,
+      date: opts.date,
+      description: opts.description,
+      reference: opts.reference,
+      lines: [
+        { accountId: debit.id, label: opts.description, debit: opts.amount, credit: 0 },
+        { accountId: treasury.id, label: `Banque — ${opts.reference}`, debit: 0, credit: opts.amount },
+      ],
+    });
+  }
+
+  /**
    * Récupère l'écriture comptable liée à une dépense (entête + lignes
    * détaillées avec libellé des comptes) pour affichage UI.
    * Retourne null s'il n'y en a pas.

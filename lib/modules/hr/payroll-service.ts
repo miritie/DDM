@@ -332,6 +332,43 @@ export class PayrollService {
       throw new Error(`Moyen de paiement "${input.paymentMethod}" introuvable ou inactif dans ce workspace.`);
     }
 
+    // ----- Sortie de trésorerie réelle (le net quitte un wallet) -----
+    const walletType = input.paymentMethod === 'cash' ? 'cash'
+      : input.paymentMethod === 'mobile_money' ? 'mobile_money' : 'bank';
+    const net = Number(payroll.NetSalary) || 0;
+    let walletAccountId: string | null = null;
+    if (net > 0) {
+      walletAccountId = await postgresClient.transaction(async (client) => {
+        const wR = await client.query(
+          `SELECT id, balance::float AS balance, chart_account_id
+           FROM wallets
+           WHERE workspace_id = $1 AND type = $2 AND is_active = true
+             AND ($2 != 'cash' OR outlet_id IS NULL)
+           ORDER BY name LIMIT 1 FOR UPDATE`,
+          [payroll.WorkspaceId, walletType]
+        );
+        if (!wR.rows[0]) {
+          throw new Error(`Aucun portefeuille « ${walletType} » actif pour payer cette paie`);
+        }
+        const wallet = wR.rows[0];
+        if (wallet.balance < net) {
+          throw new Error(`Solde insuffisant (${Math.round(wallet.balance)} F) pour verser le net de ${Math.round(net)} F`);
+        }
+        await client.query(
+          `INSERT INTO transactions (transaction_id, transaction_number, type, category, amount,
+                                     source_wallet_id, description, reference, status,
+                                     processed_by_id, processed_at, workspace_id)
+           VALUES ($1, $2, 'expense', 'salary', $3, $4, $5, $6, 'completed', $7, CURRENT_TIMESTAMP, $8)`,
+          [uuidv4(), `SAL-${payroll.Period.replace('-', '')}-${uuidv4().slice(0, 12)}`,
+           net, wallet.id,
+           `Salaire ${payroll.Period} — ${payroll.EmployeeName ?? payroll.PayrollNumber}`,
+           payroll.PayrollNumber, input.processedById, payroll.WorkspaceId]
+        );
+        await client.query(`UPDATE wallets SET balance = balance - $1 WHERE id = $2`, [net, wallet.id]);
+        return wallet.chart_account_id as string | null;
+      });
+    }
+
     await postgresClient.query(
       `UPDATE payrolls
        SET status = 'paid', payment_date = $2, payment_method_id = $3,
@@ -339,6 +376,19 @@ export class PayrollService {
        WHERE id = $1`,
       [payroll.Id, input.paymentDate, pm.Id, input.processedById]
     );
+
+    // ----- Écriture comptable de paie (best-effort) : matérialise les
+    // dettes sociales (431) et fiscales (442/447) à régler le 15 -----
+    try {
+      const { JournalGenerationService } = await import('@/lib/modules/accounting/journal-generation-service');
+      await new JournalGenerationService().fromPayrollPayment(payroll.Id, {
+        treasuryAccountId: walletAccountId,
+        journalCode: input.paymentMethod === 'cash' ? 'CAI' : 'BAN',
+      });
+    } catch (e: any) {
+      console.warn('[payroll] écriture de paie sautée:', e.message);
+    }
+
     return this.getById(input.payrollId);
   }
 
