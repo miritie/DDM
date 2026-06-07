@@ -21,6 +21,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { requirePermission, PERMISSIONS } from '@/lib/rbac/server';
 import { getCurrentWorkspaceId } from '@/lib/auth/get-session';
 import { getPostgresClient } from '@/lib/database/postgres-client';
+import { ensurePayrollTable } from '@/lib/modules/hr/payroll-service';
 import { handleApiError, ValidationError } from '@/lib/http/api-error';
 
 const db = getPostgresClient();
@@ -36,6 +37,10 @@ export async function GET(request: NextRequest) {
   try {
     await requirePermission(PERMISSIONS.REPORTS_VIEW);
     const ws = await getCurrentWorkspaceId();
+    // Les blocs RH/charges interrogent les colonnes de paie (amount_paid,
+    // employer_charges…) et charge_settlements : on les garantit AVANT,
+    // sinon premier appel post-déploiement = zéros silencieux.
+    await safe('ensure-payroll', () => ensurePayrollTable(), undefined);
     const year = Number(request.nextUrl.searchParams.get('year')) || new Date().getFullYear();
     if (year < 2000 || year > 2100) throw new ValidationError('Année invalide');
     const y0 = `${year}-01-01`;
