@@ -120,10 +120,10 @@ export class PointFlashService {
     const productivityTrend = this.calculateTrend(productivity, previousProductivity);
 
     // Top produits
-    const topProducts = await this.getTopProducts(workspaceId, sales);
+    const topProducts = await this.getTopProducts(workspaceId, startDate, endDate);
 
-    // Top commerciaux (si SoldBy existe)
-    const topSalespersons = await this.getTopSalespersons(workspaceId, sales);
+    // Top commerciaux
+    const topSalespersons = await this.getTopSalespersons(workspaceId, startDate, endDate);
 
     // Alertes automatiques
     const alerts = this.generateAlerts({
@@ -266,14 +266,18 @@ export class PointFlashService {
 
   // ============ Methodes privees ============
 
+  // Filtres réécrits en SQL paramétré : les formules sans accolades
+  // étaient silencieusement ignorées (lecture de table entière).
   private async getSales(
     workspaceId: string,
     startDate: string,
     endDate: string
   ): Promise<Sale[]> {
-    return await postgresClient.list<Sale>('sales', {
-      filterByFormula: `workspace_id = '${workspaceId}' AND sale_date >= '${startDate}' AND sale_date <= '${endDate}' AND status != 'cancelled'`,
-    });
+    return await postgresClient.listWhere<Sale>(
+      'sales',
+      `workspace_id = $1 AND sale_date >= $2 AND sale_date < ($3::date + 1) AND status != 'cancelled'`,
+      [workspaceId, startDate, endDate]
+    );
   }
 
   private async getExpenses(
@@ -281,9 +285,11 @@ export class PointFlashService {
     startDate: string,
     endDate: string
   ): Promise<Expense[]> {
-    return await postgresClient.list<Expense>('expenses', {
-      filterByFormula: `workspace_id = '${workspaceId}' AND created_at >= '${startDate}' AND created_at <= '${endDate}' AND status = 'paid'`,
-    });
+    return await postgresClient.listWhere<Expense>(
+      'expenses',
+      `workspace_id = $1 AND created_at >= $2 AND created_at < ($3::date + 1) AND status = 'paid'`,
+      [workspaceId, startDate, endDate]
+    );
   }
 
   private async getTransactions(
@@ -291,14 +297,16 @@ export class PointFlashService {
     startDate: string,
     endDate: string
   ): Promise<Transaction[]> {
-    return await postgresClient.list<Transaction>('transactions', {
-      filterByFormula: `workspace_id = '${workspaceId}' AND processed_at >= '${startDate}' AND processed_at <= '${endDate}'`,
-    });
+    return await postgresClient.listWhere<Transaction>(
+      'transactions',
+      `workspace_id = $1 AND processed_at >= $2 AND processed_at < ($3::date + 1)`,
+      [workspaceId, startDate, endDate]
+    );
   }
 
   private async getProducts(workspaceId: string): Promise<Product[]> {
     return await postgresClient.list<Product>('products', {
-      filterByFormula: `workspace_id = '${workspaceId}' AND is_active = true`,
+      where: { workspace_id: workspaceId, is_active: true },
     });
   }
 
@@ -315,81 +323,51 @@ export class PointFlashService {
     return ((current - previous) / previous) * 100;
   }
 
+  // Agrégat SQL direct — l'ancien code lisait « sale_lines » (table
+  // inexistante, la vraie est sale_items) en N+1 par vente.
   private async getTopProducts(
     workspaceId: string,
-    sales: Sale[]
+    startDate: string,
+    endDate: string
   ): Promise<Array<{ name: string; quantity: number; revenue: number }>> {
-    const productStats = new Map<string, { name: string; quantity: number; revenue: number }>();
-
-    for (const sale of sales) {
-      const lines = await postgresClient.list<any>('sale_lines', {
-        filterByFormula: `sale_id = '${sale.SaleId}'`,
-      });
-
-      for (const line of lines) {
-        const products = await postgresClient.list<Product>('products', {
-          filterByFormula: `product_id = '${line.product_id}'`,
-        });
-
-        if (products.length > 0) {
-          const product = products[0];
-          const key = product.ProductId;
-
-          if (!productStats.has(key)) {
-            productStats.set(key, {
-              name: product.Name,
-              quantity: 0,
-              revenue: 0,
-            });
-          }
-
-          productStats.get(key)!.quantity += line.quantity;
-          productStats.get(key)!.revenue += line.total_price;
-        }
-      }
-    }
-
-    return Array.from(productStats.values())
-      .sort((a, b) => b.revenue - a.revenue)
-      .slice(0, 5);
+    const result = await postgresClient.query(
+      `SELECT COALESCE(p.name, si.product_name) AS name,
+              SUM(si.quantity)::float AS quantity,
+              SUM(si.total_price)::float AS revenue
+       FROM sale_items si
+       JOIN sales s ON s.id = si.sale_id
+       LEFT JOIN products p ON p.id = si.product_id
+       WHERE s.workspace_id = $1 AND s.sale_date >= $2 AND s.sale_date < ($3::date + 1)
+         AND s.status != 'cancelled'
+       GROUP BY COALESCE(p.name, si.product_name)
+       ORDER BY revenue DESC
+       LIMIT 5`,
+      [workspaceId, startDate, endDate]
+    );
+    return result.rows;
   }
 
+  // sales_person_id référence users(id) — l'ancien code cherchait dans
+  // employees par employee_id : aucune correspondance possible.
   private async getTopSalespersons(
     workspaceId: string,
-    sales: Sale[]
+    startDate: string,
+    endDate: string
   ): Promise<Array<{ name: string; salesCount: number; revenue: number }>> {
-    const salespersonStats = new Map<
-      string,
-      { name: string; salesCount: number; revenue: number }
-    >();
-
-    for (const sale of sales) {
-      if (!sale.SalesPersonId) continue;
-
-      const employees = await postgresClient.list<Employee>('employees', {
-        filterByFormula: `employee_id = '${sale.SalesPersonId}'`,
-      });
-
-      if (employees.length > 0) {
-        const employee = employees[0];
-        const key = employee.EmployeeId;
-
-        if (!salespersonStats.has(key)) {
-          salespersonStats.set(key, {
-            name: employee.FullName,
-            salesCount: 0,
-            revenue: 0,
-          });
-        }
-
-        salespersonStats.get(key)!.salesCount += 1;
-        salespersonStats.get(key)!.revenue += sale.TotalAmount;
-      }
-    }
-
-    return Array.from(salespersonStats.values())
-      .sort((a, b) => b.revenue - a.revenue)
-      .slice(0, 5);
+    const result = await postgresClient.query(
+      `SELECT COALESCE(u.full_name, u.username, 'Inconnu') AS name,
+              COUNT(*)::int AS "salesCount",
+              SUM(s.total_amount)::float AS revenue
+       FROM sales s
+       JOIN users u ON u.id = s.sales_person_id
+       WHERE s.workspace_id = $1 AND s.sale_date >= $2 AND s.sale_date < ($3::date + 1)
+         AND s.status != 'cancelled'
+       GROUP BY COALESCE(u.full_name, u.username, 'Inconnu')
+       ORDER BY revenue DESC
+       LIMIT 5`,
+      [workspaceId, startDate, endDate]
+    );
+    return result.rows;
   }
 
   private generateAlerts(data: {

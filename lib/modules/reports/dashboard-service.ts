@@ -124,33 +124,42 @@ export class DashboardService {
     };
   }
 
+  // NB : ces filtres étaient en filterByFormula SANS accolades — le parseur
+  // les ignorait silencieusement et chaque « période » lisait la table
+  // entière. Réécrits en SQL paramétré (borne de fin inclusive).
   private async getSalesData(workspaceId: string, startDate: string, endDate: string): Promise<Sale[]> {
-    return await postgresClient.list<Sale>('sales', {
-      filterByFormula: `workspace_id = '${workspaceId}' AND sale_date >= '${startDate}' AND sale_date <= '${endDate}' AND status != 'cancelled'`,
-    });
+    return await postgresClient.listWhere<Sale>(
+      'sales',
+      `workspace_id = $1 AND sale_date >= $2 AND sale_date < ($3::date + 1) AND status != 'cancelled'`,
+      [workspaceId, startDate, endDate]
+    );
   }
 
   private async getExpensesData(workspaceId: string, startDate: string, endDate: string): Promise<Expense[]> {
-    return await postgresClient.list<Expense>('expenses', {
-      filterByFormula: `workspace_id = '${workspaceId}' AND created_at >= '${startDate}' AND created_at <= '${endDate}' AND status = 'paid'`,
-    });
+    return await postgresClient.listWhere<Expense>(
+      'expenses',
+      `workspace_id = $1 AND created_at >= $2 AND created_at < ($3::date + 1) AND status = 'paid'`,
+      [workspaceId, startDate, endDate]
+    );
   }
 
   private async getTransactionsData(workspaceId: string, startDate: string, endDate: string): Promise<Transaction[]> {
-    return await postgresClient.list<Transaction>('transactions', {
-      filterByFormula: `workspace_id = '${workspaceId}' AND processed_at >= '${startDate}' AND processed_at <= '${endDate}'`,
-    });
+    return await postgresClient.listWhere<Transaction>(
+      'transactions',
+      `workspace_id = $1 AND processed_at >= $2 AND processed_at < ($3::date + 1)`,
+      [workspaceId, startDate, endDate]
+    );
   }
 
   private async getProductsData(workspaceId: string): Promise<Product[]> {
     return await postgresClient.list<Product>('products', {
-      filterByFormula: `workspace_id = '${workspaceId}' AND is_active = true`,
+      where: { workspace_id: workspaceId, is_active: true },
     });
   }
 
   private async getEmployeesData(workspaceId: string): Promise<Employee[]> {
     return await postgresClient.list<Employee>('employees', {
-      filterByFormula: `workspace_id = '${workspaceId}' AND status = 'active'`,
+      where: { workspace_id: workspaceId, status: 'active' },
     });
   }
 
@@ -269,37 +278,21 @@ export class DashboardService {
   }
 
   private async getTopProductsChart(workspaceId: string, startDate: string, endDate: string): Promise<ChartData> {
-    const sales = await this.getSalesData(workspaceId, startDate, endDate);
-
-    // Aggregate by product
-    const productSales = new Map<string, { label: string; total: number }>();
-
-    for (const sale of sales) {
-      // Get sale lines
-      const lines = await postgresClient.list<any>('sale_lines', {
-        filterByFormula: `sale_id = '${sale.SaleId}'`,
-      });
-
-      for (const line of lines) {
-        const products = await postgresClient.list<Product>('products', {
-          filterByFormula: `product_id = '${line.product_id}'`,
-        });
-
-        if (products.length > 0) {
-          const product = products[0];
-          const key = product.ProductId;
-          if (!productSales.has(key)) {
-            productSales.set(key, { label: product.Name, total: 0 });
-          }
-          productSales.get(key)!.total += line.total_price;
-        }
-      }
-    }
-
-    // Get top 10
-    const sorted = Array.from(productSales.values())
-      .sort((a, b) => b.total - a.total)
-      .slice(0, 10);
+    // Agrégat SQL direct — l'ancien code lisait « sale_lines » (table
+    // inexistante, la vraie est sale_items) en N+1 par vente.
+    const result = await postgresClient.query(
+      `SELECT COALESCE(p.name, si.product_name) AS label, SUM(si.total_price)::float AS total
+       FROM sale_items si
+       JOIN sales s ON s.id = si.sale_id
+       LEFT JOIN products p ON p.id = si.product_id
+       WHERE s.workspace_id = $1 AND s.sale_date >= $2 AND s.sale_date < ($3::date + 1)
+         AND s.status != 'cancelled'
+       GROUP BY COALESCE(p.name, si.product_name)
+       ORDER BY total DESC
+       LIMIT 10`,
+      [workspaceId, startDate, endDate]
+    );
+    const sorted = result.rows as Array<{ label: string; total: number }>;
 
     return {
       labels: sorted.map(p => p.label),
@@ -317,28 +310,19 @@ export class DashboardService {
   }
 
   private async getExpensesByCategoryChart(workspaceId: string, startDate: string, endDate: string): Promise<ChartData> {
-    const expenses = await this.getExpensesData(workspaceId, startDate, endDate);
-
-    // Aggregate by category
-    const categoryExpenses = new Map<string, { label: string; total: number }>();
-
-    for (const expense of expenses) {
-      const categories = await postgresClient.list<any>('expense_categories', {
-        filterByFormula: `expense_category_id = '${expense.CategoryId}'`,
-      });
-
-      if (categories.length > 0) {
-        const category = categories[0];
-        const key = category.expense_category_id;
-        if (!categoryExpenses.has(key)) {
-          categoryExpenses.set(key, { label: category.label, total: 0 });
-        }
-        categoryExpenses.get(key)!.total += expense.Amount;
-      }
-    }
-
-    const sorted = Array.from(categoryExpenses.values())
-      .sort((a, b) => b.total - a.total);
+    // Agrégat SQL direct (l'ancien code relisait expense_categories par
+    // dépense, avec un filtre sans accolades = table entière à chaque tour)
+    const result = await postgresClient.query(
+      `SELECT COALESCE(c.label, 'Sans catégorie') AS label, SUM(e.amount)::float AS total
+       FROM expenses e
+       LEFT JOIN expense_categories c ON c.id = e.category_id
+       WHERE e.workspace_id = $1 AND e.created_at >= $2 AND e.created_at < ($3::date + 1)
+         AND e.status = 'paid'
+       GROUP BY COALESCE(c.label, 'Sans catégorie')
+       ORDER BY total DESC`,
+      [workspaceId, startDate, endDate]
+    );
+    const sorted = result.rows as Array<{ label: string; total: number }>;
 
     return {
       labels: sorted.map(c => c.label),

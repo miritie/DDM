@@ -65,7 +65,7 @@ export class ReportService {
 
   async execute(reportId: string, triggeredById: string): Promise<ReportExecution> {
     const reports = await postgresClient.list<Report>('reports', {
-      filterByFormula: `report_id = '${reportId}'`,
+      where: { report_id: reportId },
     });
 
     if (reports.length === 0) {
@@ -142,12 +142,13 @@ export class ReportService {
   private async generateSalesReport(workspaceId: string, parameters: Record<string, any>): Promise<SalesReport> {
     const { startDate, endDate, groupBy = 'day' } = parameters;
 
-    const sales = await postgresClient.list<Sale>('sales', {
-      filterByFormula: `workspace_id = '${workspaceId}' AND sale_date >= '${startDate}' AND sale_date <= '${endDate}' AND status != 'cancelled'`,
-    });
+    const sales = await postgresClient.listWhere<Sale>(
+      'sales',
+      `workspace_id = $1 AND sale_date >= $2 AND sale_date < ($3::date + 1) AND status != 'cancelled'`,
+      [workspaceId, startDate, endDate]
+    );
 
     const totalRevenue = sales.reduce((sum, s) => sum + s.TotalAmount, 0);
-    const totalQuantity = 0; // TODO: Calculate from sale lines
     const averageOrderValue = sales.length > 0 ? totalRevenue / sales.length : 0;
 
     // Group by period
@@ -170,67 +171,41 @@ export class ReportService {
       salesByPeriod.get(period)!.count += 1;
     });
 
-    // Top products
-    const productSales = new Map<string, { productId: string; productName: string; quantity: number; revenue: number }>();
+    // Top products — agrégat SQL (l'ancien code lisait « sale_lines »,
+    // table inexistante : la vraie est sale_items)
+    const topProductsR = await postgresClient.query(
+      `SELECT COALESCE(p.product_id, si.product_id::text) AS "productId",
+              COALESCE(p.name, si.product_name) AS "productName",
+              SUM(si.quantity)::float AS quantity,
+              SUM(si.total_price)::float AS revenue
+       FROM sale_items si
+       JOIN sales s ON s.id = si.sale_id
+       LEFT JOIN products p ON p.id = si.product_id
+       WHERE s.workspace_id = $1 AND s.sale_date >= $2 AND s.sale_date < ($3::date + 1)
+         AND s.status != 'cancelled'
+       GROUP BY 1, 2
+       ORDER BY revenue DESC
+       LIMIT 10`,
+      [workspaceId, startDate, endDate]
+    );
+    const topProducts = topProductsR.rows;
 
-    for (const sale of sales) {
-      const lines = await postgresClient.list<any>('sale_lines', {
-        filterByFormula: `sale_id = '${sale.SaleId}'`,
-      });
-
-      for (const line of lines) {
-        const products = await postgresClient.list<Product>('products', {
-          filterByFormula: `product_id = '${line.product_id}'`,
-        });
-
-        if (products.length > 0) {
-          const product = products[0];
-          const key = product.ProductId;
-          if (!productSales.has(key)) {
-            productSales.set(key, {
-              productId: product.ProductId,
-              productName: product.Name,
-              quantity: 0,
-              revenue: 0,
-            });
-          }
-          productSales.get(key)!.quantity += line.quantity;
-          productSales.get(key)!.revenue += line.total_price;
-        }
-      }
-    }
-
-    const topProducts = Array.from(productSales.values())
-      .sort((a, b) => b.revenue - a.revenue)
-      .slice(0, 10);
-
-    // Top customers
-    const customerSales = new Map<string, { customerId: string; customerName: string; orderCount: number; totalRevenue: number }>();
-
-    for (const sale of sales) {
-      const customers = await postgresClient.list<any>('customers', {
-        filterByFormula: `customer_id = '${sale.ClientId}'`,
-      });
-
-      if (customers.length > 0) {
-        const customer = customers[0];
-        const key = customer.customer_id;
-        if (!customerSales.has(key)) {
-          customerSales.set(key, {
-            customerId: customer.customer_id,
-            customerName: customer.company_name || customer.full_name,
-            orderCount: 0,
-            totalRevenue: 0,
-          });
-        }
-        customerSales.get(key)!.orderCount += 1;
-        customerSales.get(key)!.totalRevenue += sale.TotalAmount;
-      }
-    }
-
-    const topCustomers = Array.from(customerSales.values())
-      .sort((a, b) => b.totalRevenue - a.totalRevenue)
-      .slice(0, 10);
+    // Top customers — la table est « clients » (customers n'existe pas)
+    const topCustomersR = await postgresClient.query(
+      `SELECT c.client_id AS "customerId",
+              COALESCE(c.company_name, c.name) AS "customerName",
+              COUNT(*)::int AS "orderCount",
+              SUM(s.total_amount)::float AS "totalRevenue"
+       FROM sales s
+       JOIN clients c ON c.id = s.client_id
+       WHERE s.workspace_id = $1 AND s.sale_date >= $2 AND s.sale_date < ($3::date + 1)
+         AND s.status != 'cancelled'
+       GROUP BY c.client_id, COALESCE(c.company_name, c.name)
+       ORDER BY "totalRevenue" DESC
+       LIMIT 10`,
+      [workspaceId, startDate, endDate]
+    );
+    const topCustomers = topCustomersR.rows;
 
     return {
       period: { start: startDate, end: endDate },
@@ -253,35 +228,26 @@ export class ReportService {
   private async generateExpenseReport(workspaceId: string, parameters: Record<string, any>): Promise<ExpenseReport> {
     const { startDate, endDate, groupBy = 'category' } = parameters;
 
-    const expenses = await postgresClient.list<Expense>('expenses', {
-      filterByFormula: `workspace_id = '${workspaceId}' AND created_at >= '${startDate}' AND created_at <= '${endDate}'`,
-    });
+    const expenses = await postgresClient.listWhere<Expense>(
+      'expenses',
+      `workspace_id = $1 AND created_at >= $2 AND created_at < ($3::date + 1)`,
+      [workspaceId, startDate, endDate]
+    );
 
     const totalAmount = expenses.reduce((sum, e) => sum + e.Amount, 0);
 
-    // Group by category
-    const expensesByCategory = new Map<string, { categoryId: string; categoryName: string; amount: number; count: number }>();
-
-    for (const expense of expenses) {
-      const categories = await postgresClient.list<any>('expense_categories', {
-        filterByFormula: `expense_category_id = '${expense.CategoryId}'`,
-      });
-
-      if (categories.length > 0) {
-        const category = categories[0];
-        const key = category.expense_category_id;
-        if (!expensesByCategory.has(key)) {
-          expensesByCategory.set(key, {
-            categoryId: category.expense_category_id,
-            categoryName: category.label,
-            amount: 0,
-            count: 0,
-          });
-        }
-        expensesByCategory.get(key)!.amount += expense.Amount;
-        expensesByCategory.get(key)!.count += 1;
-      }
-    }
+    // Group by category — agrégat SQL (l'ancien N+1 relisait la table
+    // des catégories à chaque dépense, sans filtre effectif)
+    const byCategoryR = await postgresClient.query(
+      `SELECT COALESCE(c.label, 'Sans catégorie') AS "categoryName",
+              SUM(e.amount)::float AS amount, COUNT(*)::int AS count
+       FROM expenses e
+       LEFT JOIN expense_categories c ON c.id = e.category_id
+       WHERE e.workspace_id = $1 AND e.created_at >= $2 AND e.created_at < ($3::date + 1)
+       GROUP BY COALESCE(c.label, 'Sans catégorie')
+       ORDER BY amount DESC`,
+      [workspaceId, startDate, endDate]
+    );
 
     // Group by period
     const expensesByPeriod = new Map<string, { amount: number; count: number }>();
@@ -295,7 +261,7 @@ export class ReportService {
       expensesByPeriod.get(period)!.count += 1;
     });
 
-    const categoryData = Array.from(expensesByCategory.values());
+    const categoryData = byCategoryR.rows as Array<{ categoryName: string; amount: number; count: number }>;
 
     return {
       period: { start: startDate, end: endDate },
@@ -331,9 +297,11 @@ export class ReportService {
   private async generateCashflowReport(workspaceId: string, parameters: Record<string, any>): Promise<CashflowReport> {
     const { startDate, endDate } = parameters;
 
-    const transactions = await postgresClient.list<Transaction>('transactions', {
-      filterByFormula: `workspace_id = '${workspaceId}' AND processed_at >= '${startDate}' AND processed_at <= '${endDate}'`,
-    });
+    const transactions = await postgresClient.listWhere<Transaction>(
+      'transactions',
+      `workspace_id = $1 AND processed_at >= $2 AND processed_at < ($3::date + 1)`,
+      [workspaceId, startDate, endDate]
+    );
 
     const totalInflow = transactions
       .filter(t => t.Type === 'income')
@@ -363,14 +331,15 @@ export class ReportService {
         cashflowByPeriod.get(period)!.inflow - cashflowByPeriod.get(period)!.outflow;
     });
 
-    // Get opening and closing balance
-    const allTransactions = await postgresClient.list<Transaction>('transactions', {
-      filterByFormula: `workspace_id = '${workspaceId}' AND processed_at < '${endDate}'`,
-    });
-
-    const closingBalance = allTransactions.reduce((sum, t) =>
-      sum + (t.Type === 'income' ? t.Amount : t.Type === 'expense' ? -t.Amount : 0), 0
+    // Get opening and closing balance — agrégat SQL (la liste complète
+    // des transactions historiques n'a pas à transiter par Node)
+    const balR = await postgresClient.query(
+      `SELECT COALESCE(SUM(CASE type WHEN 'income' THEN amount WHEN 'expense' THEN -amount ELSE 0 END), 0)::float AS bal
+       FROM transactions
+       WHERE workspace_id = $1 AND processed_at < ($2::date + 1)`,
+      [workspaceId, endDate]
     );
+    const closingBalance = balR.rows[0].bal as number;
 
     const openingBalance = closingBalance - netCashflow;
 
@@ -400,7 +369,7 @@ export class ReportService {
 
   private async generateInventoryReport(workspaceId: string, parameters: Record<string, any>): Promise<InventoryReport> {
     const products = await postgresClient.list<Product>('products', {
-      filterByFormula: `workspace_id = '${workspaceId}' AND is_active = true`,
+      where: { workspace_id: workspaceId, is_active: true },
     });
 
     const totalProducts = products.length;
@@ -450,16 +419,18 @@ export class ReportService {
     const { startDate, endDate } = parameters;
 
     const employees = await postgresClient.list<Employee>('employees', {
-      filterByFormula: `workspace_id = '${workspaceId}'`,
+      where: { workspace_id: workspaceId },
     });
 
     const activeEmployees = employees.filter(e => e.Status === 'active').length;
     const totalEmployees = employees.length;
 
     // Get leaves
-    const leaves = await postgresClient.list<any>('leaves', {
-      filterByFormula: `workspace_id = '${workspaceId}' AND start_date >= '${startDate}' AND end_date <= '${endDate}'`,
-    });
+    const leaves = await postgresClient.listWhere<any>(
+      'leaves',
+      `workspace_id = $1 AND start_date >= $2 AND end_date <= $3`,
+      [workspaceId, startDate, endDate]
+    );
 
     const totalLeaveDays = leaves.reduce((sum, l) => sum + (l.DaysCount || 0), 0);
     const approvedLeaves = leaves.filter(l => l.Status === 'approved').length;
@@ -501,32 +472,25 @@ export class ReportService {
 
   async getById(reportId: string): Promise<Report | null> {
     const reports = await postgresClient.list<Report>('reports', {
-      filterByFormula: `report_id = '${reportId}'`,
+      where: { report_id: reportId },
     });
     return reports.length > 0 ? reports[0] : null;
   }
 
   async list(workspaceId: string, filters: { reportType?: string; isActive?: boolean } = {}): Promise<Report[]> {
-    const filterFormulas: string[] = [`workspace_id = '${workspaceId}'`];
-
-    if (filters.reportType) {
-      filterFormulas.push(`report_type = '${filters.reportType}'`);
-    }
-    if (filters.isActive !== undefined) {
-      filterFormulas.push(`is_active = ${filters.isActive}`);
-    }
-
-    const filterByFormula = filterFormulas.join(' AND ');
+    const where: Record<string, any> = { workspace_id: workspaceId };
+    if (filters.reportType) where.report_type = filters.reportType;
+    if (filters.isActive !== undefined) where.is_active = filters.isActive;
 
     return await postgresClient.list<Report>('reports', {
-      filterByFormula,
+      where,
       sort: [{ field: 'CreatedAt', direction: 'desc' }],
     });
   }
 
   async getExecutions(reportId: string): Promise<ReportExecution[]> {
     return await postgresClient.list<ReportExecution>('report_executions', {
-      filterByFormula: `report_id = '${reportId}'`,
+      where: { report_id: reportId },
       sort: [{ field: 'StartedAt', direction: 'desc' }],
     });
   }

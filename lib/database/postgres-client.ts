@@ -332,6 +332,25 @@ export class PostgresClient {
   }
 
   /**
+   * Lister avec un WHERE SQL paramétré, résultats mappés en PascalCase.
+   * À préférer à filterByFormula dès que le filtre dépasse l'égalité
+   * simple : le parseur de formule ignore SILENCIEUSEMENT toute formule
+   * sans accolades (lecture de table entière).
+   */
+  async listWhere<T>(
+    tableName: string,
+    whereSql: string,
+    params: any[] = [],
+    options: { orderBy?: string; limit?: number } = {}
+  ): Promise<T[]> {
+    let query = `SELECT * FROM ${tableName} WHERE ${whereSql}`;
+    if (options.orderBy) query += ` ORDER BY ${options.orderBy}`;
+    if (options.limit) query += ` LIMIT ${options.limit}`;
+    const result = await this.pool.query(query, params);
+    return result.rows.map(row => this.mapRowToPascalCase<T>(row));
+  }
+
+  /**
    * Obtenir un client pour exécuter une transaction manuelle
    */
   async getClient(): Promise<PoolClient> {
