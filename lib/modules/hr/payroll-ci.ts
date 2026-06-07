@@ -104,6 +104,26 @@ export interface CIPayrollResult {
 
 const r2 = (n: number) => Math.round(n * 100) / 100;
 
+export type MaritalStatus = 'celibataire' | 'marie' | 'divorce' | 'veuf';
+
+/**
+ * Parts fiscales du foyer (Art. 119 bis CGI — quotient familial) :
+ *   - célibataire / divorcé / veuf SANS enfant à charge : 1 part
+ *   - marié sans enfant : 2 parts
+ *   - célibataire ou divorcé AVEC enfants : 1,5 part de base
+ *   - marié ou veuf avec enfants : 2 parts de base
+ *   - + 0,5 part par enfant à charge — plafond global 5 parts
+ */
+export function computeFiscalParts(maritalStatus: MaritalStatus | string | null | undefined, childrenCount = 0): number {
+  const children = Math.max(0, Math.floor(childrenCount || 0));
+  const status = (maritalStatus || 'celibataire') as MaritalStatus;
+  let base: number;
+  if (status === 'marie') base = 2;
+  else if (children > 0) base = status === 'veuf' ? 2 : 1.5;
+  else base = 1;
+  return Math.min(base + 0.5 * children, CI_PAYROLL.its.ricfMaxParts);
+}
+
 /** ITS mensuel par tranches progressives sur le brut imposable. */
 export function computeITS(grossTaxable: number, fiscalParts = 1): { gross: number; ricf: number; net: number } {
   let remaining = grossTaxable;

@@ -6,43 +6,59 @@
 import { getPostgresClient } from '@/lib/database/postgres-client';
 import { Employee, HRStatistics, Leave } from '@/types/modules';
 import { v4 as uuidv4 } from 'uuid';
+import { ensurePayrollTable } from './payroll-service';
+import { computeFiscalParts } from './payroll-ci';
 
 const postgresClient = getPostgresClient();
 
-export interface CreateEmployeeInput {
+export interface EmployeePayrollFields {
+  /** permanent (CDI) | temporary (CDD / journalier) | contractor | intern */
+  contractType?: 'permanent' | 'temporary' | 'contractor' | 'intern';
+  /** cadre | agent_maitrise | employe | ouvrier | journalier */
+  category?: string;
+  maritalStatus?: 'celibataire' | 'marie' | 'divorce' | 'veuf';
+  childrenCount?: number;
+  cnpsNumber?: string;
+  cmuBeneficiaries?: number;
+  /** journaliers : salaire = taux × jours travaillés */
+  dailyRate?: number | null;
+  /** prime de transport versée chaque jour de présence (2 500 F défaut) */
+  transportDaily?: number;
+  educationLevel?: string;
+  diploma?: string;
+}
+
+export interface CreateEmployeeInput extends EmployeePayrollFields {
   firstName: string;
   lastName: string;
+  phone: string; // NOT NULL en base
   email?: string;
-  phone?: string;
   dateOfBirth?: string;
   hireDate: string;
   department?: string;
   position: string;
-  contractType: 'CDI' | 'CDD' | 'Stage' | 'Freelance' | 'Other';
   baseSalary: number;
   currency?: string;
-  bankAccount?: string;
-  taxNumber?: string;
-  socialSecurityNumber?: string;
   address?: string;
   emergencyContact?: string;
   emergencyPhone?: string;
   workspaceId: string;
 }
 
-export interface UpdateEmployeeInput {
+export interface UpdateEmployeeInput extends EmployeePayrollFields {
   firstName?: string;
   lastName?: string;
   email?: string;
   phone?: string;
+  dateOfBirth?: string;
+  hireDate?: string;
   department?: string;
   position?: string;
   baseSalary?: number;
-  bankAccount?: string;
   address?: string;
   emergencyContact?: string;
   emergencyPhone?: string;
-  status?: 'active' | 'on_leave' | 'terminated' | 'suspended';
+  status?: 'active' | 'inactive' | 'suspended' | 'terminated';
 }
 
 /**
@@ -62,50 +78,60 @@ export class EmployeeService {
   }
 
   /**
-   * Crée un nouvel employé
+   * Crée un nouvel employé — SQL direct, aligné sur le schéma réel
+   * (l'ancienne version envoyait 'CDI' dans l'enum contract_type
+   * permanent/temporary/…, sans full_name ni phone NOT NULL : la
+   * création n'a jamais pu aboutir). Les parts fiscales sont déduites
+   * de l'état civil (quotient familial CI).
    */
-  async create(input: CreateEmployeeInput): Promise<Employee> {
-    const employeeNumber = await this.generateEmployeeNumber(input.workspaceId);
+  async create(input: CreateEmployeeInput): Promise<Employee | null> {
+    await ensurePayrollTable(); // colonnes RH/paie garanties
+    if (!input.phone?.trim()) throw new Error('Le téléphone est requis');
+    const fullName = `${input.lastName.trim()} ${input.firstName.trim()}`.trim();
+    const fiscalParts = computeFiscalParts(input.maritalStatus, input.childrenCount ?? 0);
 
-    const employee: any = {
-      EmployeeId: uuidv4(),
-      EmployeeNumber: employeeNumber,
-      FirstName: input.firstName,
-      LastName: input.lastName,
-      Email: input.email,
-      Phone: input.phone,
-      DateOfBirth: input.dateOfBirth,
-      HireDate: input.hireDate,
-      Department: input.department,
-      Position: input.position,
-      ContractType: input.contractType,
-      BaseSalary: input.baseSalary,
-      Currency: input.currency || 'XOF',
-      BankAccount: input.bankAccount,
-      TaxNumber: input.taxNumber,
-      SocialSecurityNumber: input.socialSecurityNumber,
-      Address: input.address,
-      EmergencyContact: input.emergencyContact,
-      EmergencyPhone: input.emergencyPhone,
-      Status: 'active',
-      WorkspaceId: input.workspaceId,
-      CreatedAt: new Date().toISOString(),
-      UpdatedAt: new Date().toISOString(),
-    };
+    const seqR = await postgresClient.query(
+      `SELECT COALESCE(MAX(NULLIF(regexp_replace(employee_code, '\\D', '', 'g'), '')::int), 0) + 1 AS next
+       FROM employees WHERE workspace_id = $1`,
+      [input.workspaceId]
+    );
+    const code = `EMP-${String(seqR.rows[0].next).padStart(4, '0')}`;
 
-    const created = await postgresClient.create<Employee>('employees', employee);
-    return created;
+    const r = await postgresClient.query(
+      `INSERT INTO employees (employee_id, employee_code, first_name, last_name, full_name,
+                              phone, email, date_of_birth, hire_date, department, position,
+                              contract_type, category, base_salary, currency, daily_rate,
+                              transport_daily, marital_status, children_count, fiscal_parts,
+                              cnps_number, cmu_beneficiaries, education_level, diploma,
+                              address, emergency_contact, emergency_phone, workspace_id)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16,
+               $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28)
+       RETURNING id`,
+      [uuidv4(), code, input.firstName.trim(), input.lastName.trim(), fullName,
+       input.phone.trim(), input.email ?? null, input.dateOfBirth ?? null, input.hireDate,
+       input.department ?? null, input.position,
+       input.contractType ?? 'permanent', input.category ?? null,
+       input.baseSalary, input.currency || 'XOF', input.dailyRate ?? null,
+       input.transportDaily ?? 2500, input.maritalStatus ?? 'celibataire',
+       input.childrenCount ?? 0, fiscalParts,
+       input.cnpsNumber ?? null, input.cmuBeneficiaries ?? 1,
+       input.educationLevel ?? null, input.diploma ?? null,
+       input.address ?? null, input.emergencyContact ?? null, input.emergencyPhone ?? null,
+       input.workspaceId]
+    );
+    return postgresClient.get<Employee>('employees', r.rows[0].id);
   }
 
   /**
    * Récupère un employé par ID
    */
   async getById(employeeId: string): Promise<Employee | null> {
-    const employees = await postgresClient.list<Employee>('employees', {
-      where: { employee_id: employeeId },
-    });
-
-    return employees.length > 0 ? employees[0] : null;
+    await ensurePayrollTable();
+    const r = await postgresClient.query(
+      `SELECT id FROM employees WHERE id::text = $1 OR employee_id = $1 LIMIT 1`,
+      [employeeId]
+    );
+    return r.rows[0] ? postgresClient.get<Employee>('employees', r.rows[0].id) : null;
   }
 
   /**
@@ -136,41 +162,62 @@ export class EmployeeService {
    * Met à jour un employé
    */
   async update(employeeId: string, input: UpdateEmployeeInput): Promise<Employee> {
-    const employees = await postgresClient.list<Employee>('employees', {
-      where: { employee_id: employeeId },
-    });
+    await ensurePayrollTable();
+    const found = await postgresClient.query(
+      `SELECT id, marital_status, children_count, first_name, last_name
+       FROM employees WHERE id::text = $1 OR employee_id = $1 LIMIT 1`,
+      [employeeId]
+    );
+    if (!found.rows[0]) throw new Error('Employé non trouvé');
+    const current = found.rows[0];
 
-    if (employees.length === 0) {
-      throw new Error('Employé non trouvé');
-    }
-
-    const updates: any = {
-      UpdatedAt: new Date().toISOString(),
+    const sets: string[] = [`updated_at = CURRENT_TIMESTAMP`];
+    const params: any[] = [];
+    const set = (col: string, val: any) => {
+      params.push(val);
+      sets.push(`${col} = $${params.length}`);
     };
 
-    if (input.firstName !== undefined) updates.FirstName = input.firstName;
-    if (input.lastName !== undefined) updates.LastName = input.lastName;
-    if (input.email !== undefined) updates.Email = input.email;
-    if (input.phone !== undefined) updates.Phone = input.phone;
-    if (input.department !== undefined) updates.Department = input.department;
-    if (input.position !== undefined) updates.Position = input.position;
-    if (input.baseSalary !== undefined) updates.BaseSalary = input.baseSalary;
-    if (input.bankAccount !== undefined) updates.BankAccount = input.bankAccount;
-    if (input.address !== undefined) updates.Address = input.address;
-    if (input.emergencyContact !== undefined) updates.EmergencyContact = input.emergencyContact;
-    if (input.emergencyPhone !== undefined) updates.EmergencyPhone = input.emergencyPhone;
-    if (input.status !== undefined) updates.Status = input.status;
+    if (input.firstName !== undefined) set('first_name', input.firstName.trim());
+    if (input.lastName !== undefined) set('last_name', input.lastName.trim());
+    if (input.firstName !== undefined || input.lastName !== undefined) {
+      set('full_name', `${(input.lastName ?? current.last_name).trim()} ${(input.firstName ?? current.first_name).trim()}`);
+    }
+    if (input.email !== undefined) set('email', input.email || null);
+    if (input.phone !== undefined) set('phone', input.phone);
+    if (input.dateOfBirth !== undefined) set('date_of_birth', input.dateOfBirth || null);
+    if (input.hireDate !== undefined) set('hire_date', input.hireDate);
+    if (input.department !== undefined) set('department', input.department || null);
+    if (input.position !== undefined) set('position', input.position);
+    if (input.baseSalary !== undefined) set('base_salary', input.baseSalary);
+    if (input.contractType !== undefined) set('contract_type', input.contractType);
+    if (input.category !== undefined) set('category', input.category || null);
+    if (input.dailyRate !== undefined) set('daily_rate', input.dailyRate);
+    if (input.transportDaily !== undefined) set('transport_daily', input.transportDaily);
+    if (input.cnpsNumber !== undefined) set('cnps_number', input.cnpsNumber || null);
+    if (input.cmuBeneficiaries !== undefined) set('cmu_beneficiaries', input.cmuBeneficiaries);
+    if (input.educationLevel !== undefined) set('education_level', input.educationLevel || null);
+    if (input.diploma !== undefined) set('diploma', input.diploma || null);
+    if (input.address !== undefined) set('address', input.address || null);
+    if (input.emergencyContact !== undefined) set('emergency_contact', input.emergencyContact || null);
+    if (input.emergencyPhone !== undefined) set('emergency_phone', input.emergencyPhone || null);
+    if (input.status !== undefined) set('status', input.status);
 
-    if (!employees[0].id) {
-      throw new Error('Employee ID is missing');
+    // État civil → parts fiscales recalculées (quotient familial CI)
+    if (input.maritalStatus !== undefined || input.childrenCount !== undefined) {
+      const marital = input.maritalStatus ?? current.marital_status;
+      const children = input.childrenCount ?? current.children_count ?? 0;
+      if (input.maritalStatus !== undefined) set('marital_status', marital);
+      if (input.childrenCount !== undefined) set('children_count', children);
+      set('fiscal_parts', computeFiscalParts(marital, children));
     }
 
-    const updated = await postgresClient.update<Employee>(
-      'employees',
-      employees[0].id,
-      updates
+    params.push(current.id);
+    await postgresClient.query(
+      `UPDATE employees SET ${sets.join(', ')} WHERE id = $${params.length}`,
+      params
     );
-    return updated;
+    return (await postgresClient.get<Employee>('employees', current.id))!;
   }
 
   /**

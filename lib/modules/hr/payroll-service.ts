@@ -12,7 +12,7 @@
 import { getPostgresClient } from '@/lib/database/postgres-client';
 import { v4 as uuidv4 } from 'uuid';
 import { PaymentMethodService } from '@/lib/modules/treasury/payment-method-service';
-import { computeCIPayroll } from './payroll-ci';
+import { computeCIPayroll, computeFiscalParts } from './payroll-ci';
 
 const postgresClient = getPostgresClient();
 const paymentMethodService = new PaymentMethodService();
@@ -83,6 +83,11 @@ export function ensurePayrollTable(): Promise<void> {
         `daily_rate DECIMAL(15, 2)`,
         `transport_daily DECIMAL(15, 2) DEFAULT 2500`,
         `work_accident_rate NUMERIC(4, 3) DEFAULT 0.02`,
+        `marital_status VARCHAR(20) DEFAULT 'celibataire'`,
+        `children_count INT DEFAULT 0`,
+        `category VARCHAR(50)`,
+        `education_level VARCHAR(100)`,
+        `diploma VARCHAR(150)`,
       ]) {
         await postgresClient.query(`ALTER TABLE employees ADD COLUMN IF NOT EXISTS ${col}`);
       }
@@ -160,7 +165,8 @@ export class PayrollService {
               contract_type, department, user_id,
               daily_rate::float AS daily_rate, transport_daily::float AS transport_daily,
               fiscal_parts::float AS fiscal_parts, cmu_beneficiaries,
-              work_accident_rate::float AS work_accident_rate
+              work_accident_rate::float AS work_accident_rate,
+              marital_status, children_count
        FROM employees
        WHERE workspace_id = $1 AND (id::text = $2 OR employee_id = $2)
        LIMIT 1`,
@@ -279,7 +285,8 @@ export class PayrollService {
       mealAllowance,
       otherDeductions: deductions,
       cashAlreadyPaid,
-      fiscalParts: employee.fiscal_parts || 1,
+      fiscalParts: computeFiscalParts(employee.marital_status, employee.children_count)
+        || employee.fiscal_parts || 1,
       cmuBeneficiaries: employee.cmu_beneficiaries ?? 1,
       workAccidentRate: employee.work_accident_rate || undefined,
     });
@@ -301,7 +308,7 @@ export class PayrollService {
        daysWorked, calc.grossTaxable, calc.grossTotal, transportAllowance,
        mealAllowance, salesBonusPaid, calc.employee.cnpsRetirement, calc.employee.its,
        calc.employee.ricf, JSON.stringify(calc.employer), calc.employer.total,
-       employee.fiscal_parts || 1]
+       computeFiscalParts(employee.marital_status, employee.children_count) || employee.fiscal_parts || 1]
     );
     return this.getById(payrollId);
   }

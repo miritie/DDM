@@ -5,7 +5,31 @@
  * net à payer 349 999,849 · charges patronales 40 452,491.
  */
 import { describe, it, expect } from 'vitest';
-import { computeCIPayroll, computeITS, CI_PAYROLL } from './payroll-ci';
+import { computeCIPayroll, computeITS, computeFiscalParts, CI_PAYROLL } from './payroll-ci';
+
+describe('computeFiscalParts — quotient familial CI (Art. 119 bis CGI)', () => {
+  it('célibataire sans enfant : 1 part', () => {
+    expect(computeFiscalParts('celibataire', 0)).toBe(1);
+  });
+  it('marié sans enfant : 2 parts', () => {
+    expect(computeFiscalParts('marie', 0)).toBe(2);
+  });
+  it('marié avec 2 enfants : 3 parts', () => {
+    expect(computeFiscalParts('marie', 2)).toBe(3);
+  });
+  it('célibataire avec 1 enfant : 1,5 + 0,5 = 2 parts', () => {
+    expect(computeFiscalParts('celibataire', 1)).toBe(2);
+  });
+  it('veuf avec 3 enfants : 2 + 1,5 = 3,5 parts', () => {
+    expect(computeFiscalParts('veuf', 3)).toBe(3.5);
+  });
+  it('plafond à 5 parts (marié, 8 enfants)', () => {
+    expect(computeFiscalParts('marie', 8)).toBe(5);
+  });
+  it('défaut prudent : statut inconnu = célibataire', () => {
+    expect(computeFiscalParts(null, 0)).toBe(1);
+  });
+});
 
 describe('computeITS — barème Ord. 2023-719', () => {
   it('est nul jusqu\'à 75 000', () => {
