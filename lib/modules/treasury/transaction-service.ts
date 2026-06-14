@@ -173,15 +173,30 @@ export class TransactionService {
     this.assertValidAmount(input.amount);
 
     return await postgresClient.transaction(async (client) => {
-      const wallet = await this.lockWallet(client, input.destinationWalletId!, 'Wallet de destination non trouvé');
-      const transaction = await this.insertTransaction(client, {
-        ...input,
-        type: 'income',
-        destinationWalletId: wallet.id,
-      });
-      await this.applyBalanceDelta(client, wallet.id, input.amount);
-      return transaction;
+      return this.createIncomeInClient(client, input);
     });
+  }
+
+  /**
+   * Crée le revenu DANS une transaction SQL déjà ouverte (client fourni).
+   * Permet de rendre le crédit de caisse ATOMIQUE avec l'opération
+   * appelante (ex. encaissement d'une vente) : un paiement enregistré
+   * mouvemente toujours le tiroir, ou tout est annulé. Le wallet est
+   * verrouillé (FOR UPDATE) jusqu'au commit de la transaction englobante.
+   */
+  async createIncomeInClient(client: Queryable, input: CreateTransactionInput): Promise<Transaction> {
+    if (!input.destinationWalletId) {
+      throw new ValidationError('Le wallet de destination est requis pour un revenu');
+    }
+    this.assertValidAmount(input.amount);
+    const wallet = await this.lockWallet(client, input.destinationWalletId, 'Wallet de destination non trouvé');
+    const transaction = await this.insertTransaction(client, {
+      ...input,
+      type: 'income',
+      destinationWalletId: wallet.id,
+    });
+    await this.applyBalanceDelta(client, wallet.id, input.amount);
+    return transaction;
   }
 
   /**

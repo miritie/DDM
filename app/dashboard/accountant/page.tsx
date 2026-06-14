@@ -61,6 +61,31 @@ export default function AccountantDashboardPage() {
     setRefreshing(false);
   };
 
+  // Outbox comptable : écritures en attente de régularisation
+  const [pending, setPending] = useState(0);
+  const [regularizing, setRegularizing] = useState(false);
+  const [regulMsg, setRegulMsg] = useState<string | null>(null);
+  useEffect(() => {
+    fetch('/api/accounting/outbox').then(r => r.ok ? r.json() : null)
+      .then(b => b?.data && setPending(b.data.pending)).catch(() => {});
+  }, []);
+  async function regularize() {
+    setRegularizing(true);
+    setRegulMsg(null);
+    try {
+      const r = await fetch('/api/accounting/outbox', { method: 'POST' });
+      const b = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(b.error || 'Échec');
+      setPending(b.data?.remaining ?? 0);
+      setRegulMsg(`${b.data?.done ?? 0} écriture(s) régularisée(s)` +
+        (b.data?.remaining ? ` · ${b.data.remaining} en échec (plan comptable ?)` : ' · tout est à jour'));
+    } catch (e: any) {
+      setRegulMsg(`❌ ${e.message}`);
+    } finally {
+      setRegularizing(false);
+    }
+  }
+
   const d = data;
   const expensePeriod = d ? (period === 'today' ? d.expenses.today : period === 'week' ? d.expenses.week : d.expenses.month) : 0;
   const PERIOD_LABEL: Record<string, string> = { today: 'du jour', week: '7 jours', month: '30 jours' };
@@ -103,6 +128,26 @@ export default function AccountantDashboardPage() {
                 <span className="font-medium">{alert.message}</span>
               </button>
             ))}
+          </div>
+        )}
+
+        {/* Écritures comptables en attente (outbox) */}
+        {(pending > 0 || regulMsg) && (
+          <div className="bg-amber-50 border-2 border-amber-200 rounded-2xl px-3 py-2.5">
+            <div className="flex items-center justify-between gap-2">
+              <p className="text-sm font-semibold text-amber-900">
+                {pending > 0
+                  ? `${pending} écriture(s) comptable(s) en attente`
+                  : 'Écritures comptables à jour'}
+              </p>
+              {pending > 0 && (
+                <button onClick={regularize} disabled={regularizing}
+                  className="shrink-0 px-3 py-1.5 rounded-lg bg-amber-700 text-white text-xs font-bold hover:bg-amber-800 disabled:opacity-50">
+                  {regularizing ? 'Régularisation…' : 'Régulariser'}
+                </button>
+              )}
+            </div>
+            {regulMsg && <p className="text-xs text-amber-800 mt-1">{regulMsg}</p>}
           </div>
         )}
 

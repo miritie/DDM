@@ -29,7 +29,7 @@ import { StockService } from '@/lib/modules/stock/stock-service';
 import { ScanQueueService } from '@/lib/modules/outlets/scan-queue-service';
 import { PaymentMethodService } from '@/lib/modules/treasury/payment-method-service';
 import { TransactionService } from '@/lib/modules/treasury/transaction-service';
-import { JournalGenerationService } from '@/lib/modules/accounting/journal-generation-service';
+import { AccountingOutboxService, ensureOutboxTable } from '@/lib/modules/accounting/accounting-outbox-service';
 import { assertPositiveFinishedProductQuantity } from '@/lib/schemas/quantity';
 import { generateSaleNumber, generatePaymentNumber } from '@/lib/modules/sales/document-numbers';
 import { handleApiError, ConflictError } from '@/lib/http/api-error';
@@ -42,7 +42,7 @@ const stockService = new StockService();
 const scanQueue = new ScanQueueService();
 const paymentMethodService = new PaymentMethodService();
 const transactionService = new TransactionService();
-const journalGen = new JournalGenerationService();
+const outbox = new AccountingOutboxService();
 
 export async function POST(request: NextRequest) {
   try {
@@ -212,7 +212,10 @@ export async function POST(request: NextRequest) {
       paymentNumber = await generatePaymentNumber(workspaceId);
     }
 
-    // ===== Écritures atomiques : vente + paiement + lignes =====
+    // Table outbox garantie AVANT la transaction (l'enqueue se fait dedans).
+    await ensureOutboxTable();
+
+    // ===== Écritures atomiques : vente + paiement + crédit caisse + lignes =====
     // Tout réussit ou rien n'est écrit — plus de vente partielle en DB.
     // Casts explicites : pg ne peut pas inférer le type des paramètres
     // null (client_id, notes, loyalty_rule_id) sans cast, ce qui faisait
@@ -256,6 +259,21 @@ export async function POST(request: NextRequest) {
           ]
         );
         createdSale._payment_row_id = payIns.rows[0]?.id ?? null;
+
+        // ===== Crédit de caisse ATOMIQUE (dans la même transaction) =====
+        // Un encaissement enregistré mouvemente TOUJOURS le tiroir, sinon
+        // tout est annulé (rollback). Fini la divergence silencieuse entre
+        // sale_payments et le solde du wallet.
+        await transactionService.createIncomeInClient(client, {
+          type: 'income',
+          category: 'sale',
+          amount: paidNow,
+          destinationWalletId: walletUuid!,
+          description: `Encaissement vente ${saleNumber} — ${paymentNumber}`,
+          reference: saleNumber,
+          processedById: sellerUuid,
+          workspaceId,
+        });
       }
 
       for (const line of lines) {
@@ -299,42 +317,33 @@ export async function POST(request: NextRequest) {
         }
       }
 
+      // ===== Outbox comptable : intentions d'écriture DURABLES =====
+      // Inscrites dans la MÊME transaction → si la vente est validée, les
+      // écritures à produire sont garanties (jamais perdues), même si la
+      // génération immédiate échoue (plan comptable absent…).
+      await outbox.enqueueInClient(client, {
+        workspaceId, sourceType: 'sale', sourceId: createdSale.id, reference: saleNumber,
+      });
+      if (createdSale._payment_row_id) {
+        await outbox.enqueueInClient(client, {
+          workspaceId, sourceType: 'sale_payment', sourceId: createdSale._payment_row_id, reference: paymentNumber,
+        });
+      }
+
       return createdSale;
     });
 
-    // ===== Effets best-effort APRÈS commit de la vente =====
-
-    // Crédite le wallet pour que l'encaissement apparaisse dans la
-    // trésorerie comptable (KPI Revenus). Skip si pas de wallet.
-    if (paidNow > 0 && walletUuid) {
-      try {
-        await transactionService.createIncome({
-          type: 'income',
-          category: 'sale',
-          amount: paidNow,
-          destinationWalletId: walletUuid,
-          description: `Encaissement vente ${sale.sale_number || sale.sale_id} — ${paymentNumber}`,
-          reference: sale.sale_number || sale.sale_id,
-          processedById: sellerUuid,
-          workspaceId,
-        });
-      } catch (e: any) {
-        console.error('[sales/quick] Transaction wallet non créée :', e?.message);
-      }
-    }
-
-    // Écritures comptables (best-effort, après commit) :
-    //   VT  : Débit 411 Clients / Crédit 701 Ventes (total de la vente)
-    //   CAI/BAN/MM : Débit 5xx / Crédit 411 (montant encaissé)
-    // Idempotent (référence) — un échec (plan comptable non initialisé…)
-    // ne bloque JAMAIS la vente, il est loggé.
+    // ===== Génération comptable immédiate (best-effort, MAIS tracée) =====
+    // Le crédit de caisse est désormais fait DANS la transaction ci-dessus
+    // (atomique). Ici on tente seulement de produire les écritures que
+    // l'outbox a inscrites de façon durable : succès → statut 'done',
+    // échec → reste 'pending' et régularisable plus tard. La vente n'est
+    // jamais bloquée ; aucune écriture n'est jamais perdue.
     try {
-      await journalGen.fromSale(sale.id);
-      if (sale._payment_row_id) {
-        await journalGen.fromSalePayment(sale._payment_row_id);
-      }
+      const sourceIds = [sale.id, sale._payment_row_id].filter(Boolean) as string[];
+      await outbox.process({ workspaceId, sourceIds });
     } catch (e: any) {
-      console.warn(`[compta] écriture vente ${sale.sale_number}: ${e.message}`);
+      console.warn(`[compta] outbox vente ${sale.sale_number}: ${e.message}`);
     }
 
     // Alertes stock bas (best-effort, après commit — le décrément lui-même
