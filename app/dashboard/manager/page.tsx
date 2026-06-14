@@ -19,7 +19,7 @@ import {
 import { LogoutButton } from '@/components/auth/logout-button';
 
 interface ManagerDashboardData {
-  sales: { today: number; week: number; month: number; pending: number };
+  sales: { today: number; week: number; month: number; pending: number; receivables?: number; collected?: number };
   stock: { lowStock: number; outOfStock: number; totalProducts: number; totalValue: number };
   employees: { total: number; present: number; absent: number; onLeave: number };
   customers: { total: number; new: number; active: number };
@@ -38,6 +38,16 @@ export default function ManagerDashboardPage() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [data, setData] = useState<ManagerDashboardData | null>(null);
+  const [period, setPeriod] = useState<'today' | 'week' | 'month'>('today');
+  const [drill, setDrill] = useState<{ title: string; groups?: any[]; rows?: any[] } | null>(null);
+  const [drillKey, setDrillKey] = useState<string | null>(null);
+  async function openDrill(kpi: string) {
+    setDrillKey(kpi);
+    try {
+      const r = await fetch(`/api/dashboard/manager-drill?kpi=${kpi}&period=${period}`);
+      if (r.ok) setDrill((await r.json()).data);
+    } finally { setDrillKey(null); }
+  }
 
   useEffect(() => {
     loadDashboard();
@@ -120,24 +130,72 @@ export default function ManagerDashboardPage() {
               ))}
             </div>
           ) : (
-            <div className="grid grid-cols-3 gap-1.5 sm:gap-2">
-              <Stat label="Ventes aujourd'hui" value={fmtF(d.sales.today)} tone="amber" href="/reports" />
-              <Stat label="Ventes 7 jours" value={fmtF(d.sales.week)} tone="amber" href="/reports" />
-              <Stat label="Ventes 30 jours" value={fmtF(d.sales.month)} tone="amber" href="/reports" />
-              <Stat label="Stock valorisé" value={fmtF(d.stock.totalValue)} href="/stock" />
-              <Stat label="Ruptures" value={String(d.stock.outOfStock)}
-                tone={d.stock.outOfStock > 0 ? 'red' : 'green'} href="/stock/alerts" />
-              <Stat label="Stock bas" value={String(d.stock.lowStock)}
-                tone={d.stock.lowStock > 0 ? 'amber' : 'green'} href="/stock/alerts" />
-              <Stat label="Présents / équipe" value={`${d.employees.present}/${d.employees.total}`}
-                tone={d.employees.present === 0 ? 'red' : undefined} href="/hr/attendance" />
-              <Stat label="Clients" value={String(d.customers.total)} href="/customers" />
-              <Stat label="Ventes en attente" value={String(d.sales.pending)}
-                tone={d.sales.pending > 0 ? 'amber' : undefined} href="/sales?filter=pending" />
-            </div>
+            <>
+              {/* Ventes : une tuile + bascule de période */}
+              <div className="flex gap-1 mb-2">
+                {(['today', 'week', 'month'] as const).map(p => (
+                  <button key={p} onClick={() => setPeriod(p)}
+                    className={'flex-1 py-1 rounded-md text-[11px] font-semibold border ' +
+                      (period === p ? 'bg-amber-700 text-white border-amber-700' : 'bg-white border-gray-200 text-gray-600')}>
+                    {p === 'today' ? "Aujourd'hui" : p === 'week' ? '7 jours' : '30 jours'}
+                  </button>
+                ))}
+              </div>
+              <div className="grid grid-cols-3 gap-1.5 sm:gap-2">
+                <Stat label={'Ventes ' + (period === 'today' ? 'jour' : period === 'week' ? '7j' : '30j')}
+                  value={fmtF(period === 'today' ? d.sales.today : period === 'week' ? d.sales.week : d.sales.month)}
+                  tone="amber" onClick={() => openDrill('sales')} loading={drillKey === 'sales'} />
+                <Stat label="Stock valorisé" value={fmtF(d.stock.totalValue)}
+                  onClick={() => openDrill('stock_value')} loading={drillKey === 'stock_value'} />
+                <Stat label="Présents / équipe" value={`${d.employees.present}/${d.employees.total}`}
+                  tone={d.employees.present === 0 ? 'red' : undefined}
+                  onClick={() => openDrill('present')} loading={drillKey === 'present'} />
+                <Stat label="Ruptures" value={String(d.stock.outOfStock)}
+                  tone={d.stock.outOfStock > 0 ? 'red' : 'green'}
+                  onClick={() => openDrill('ruptures')} loading={drillKey === 'ruptures'} />
+                <Stat label="Stock bas" value={String(d.stock.lowStock)}
+                  tone={d.stock.lowStock > 0 ? 'amber' : 'green'}
+                  onClick={() => openDrill('stock_low')} loading={drillKey === 'stock_low'} />
+                <Stat label="Ventes en attente" value={String(d.sales.pending)}
+                  tone={d.sales.pending > 0 ? 'amber' : undefined}
+                  onClick={() => openDrill('pending')} loading={drillKey === 'pending'} />
+                <Stat label="Clients" value={String(d.customers.total)}
+                  onClick={() => openDrill('customers')} loading={drillKey === 'customers'} />
+                <Stat label="À recouvrer" value={fmtF(d.sales.receivables ?? 0)}
+                  tone={(d.sales.receivables ?? 0) > 0 ? 'amber' : 'green'}
+                  onClick={() => openDrill('pending')} loading={drillKey === 'pending'} />
+                <Stat label="CA encaissé" value={fmtF(d.sales.collected ?? d.sales.month)}
+                  href="/treasury" />
+              </div>
+            </>
           )}
           <p className="text-[10px] text-gray-400 text-center mt-2">Touchez un chiffre pour voir le détail</p>
         </section>
+
+        {/* Panneau de détail (drill-down) */}
+        {drill && (
+          <section className="bg-white border-2 border-orange-300 rounded-2xl p-3 sm:p-4">
+            <div className="flex items-start justify-between gap-2 mb-2">
+              <h2 className="text-sm sm:text-base font-bold text-orange-900">{drill.title}</h2>
+              <button onClick={() => setDrill(null)}
+                className="shrink-0 px-2.5 py-1 rounded-full bg-gray-100 text-gray-600 text-xs font-bold hover:bg-gray-200">
+                Fermer ✕
+              </button>
+            </div>
+            {drill.groups ? (
+              <div className="space-y-3">
+                {drill.groups.map((g: any, gi: number) => (
+                  <div key={gi}>
+                    <p className="text-xs font-bold uppercase text-gray-400 mb-1">{g.heading}</p>
+                    <DrillRows rows={g.rows} />
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <DrillRows rows={drill.rows || []} />
+            )}
+          </section>
+        )}
 
         {/* ===== ACTIONS DU MÉTIER ===== */}
         <section className="grid grid-cols-2 gap-2.5">
@@ -163,23 +221,49 @@ export default function ManagerDashboardPage() {
   );
 }
 
-function Stat({ label, value, tone, href }: {
-  label: string; value: string; tone?: 'amber' | 'red' | 'green'; href?: string;
+function Stat({ label, value, tone, href, onClick, loading }: {
+  label: string; value: string; tone?: 'amber' | 'red' | 'green';
+  href?: string; onClick?: () => void; loading?: boolean;
 }) {
   const tones: Record<string, string> = {
     amber: 'bg-amber-50 text-amber-900',
     red: 'bg-red-50 text-red-700',
     green: 'bg-emerald-50 text-emerald-700',
   };
-  const cls = `block rounded-lg px-2 py-2 text-center ${tone ? tones[tone] : 'bg-gray-50 text-gray-900'}` +
-    (href ? ' active:scale-95 hover:ring-2 hover:ring-orange-300' : '');
+  const interactive = !!href || !!onClick;
+  const cls = `block w-full rounded-lg px-2 py-2 text-center ${tone ? tones[tone] : 'bg-gray-50 text-gray-900'}` +
+    (interactive ? ' active:scale-95 hover:ring-2 hover:ring-orange-300' : '');
   const inner = (
     <>
-      <p className="text-base sm:text-xl font-bold tabular-nums leading-tight">{value}</p>
+      <p className="text-base sm:text-xl font-bold tabular-nums leading-tight">{loading ? '…' : value}</p>
       <p className="text-[10px] sm:text-xs font-medium opacity-70 leading-tight mt-0.5">{label}</p>
     </>
   );
-  return href ? <Link href={href} className={cls}>{inner}</Link> : <div className={cls}>{inner}</div>;
+  if (href) return <Link href={href} className={cls}>{inner}</Link>;
+  return <button type="button" onClick={onClick} disabled={!onClick} className={cls}>{inner}</button>;
+}
+
+function DrillRows({ rows }: { rows: Array<{ label: string; value: number | string; sub?: string }> }) {
+  const fmt = (v: number | string) =>
+    typeof v === 'number'
+      ? (Math.abs(v) >= 1_000_000
+          ? (v / 1_000_000).toLocaleString('fr-FR', { maximumFractionDigits: 1 }) + ' M F'
+          : new Intl.NumberFormat('fr-FR').format(Math.round(v)) + (v >= 1000 ? ' F' : ''))
+      : v;
+  if (rows.length === 0) return <p className="text-sm text-gray-500 py-3 text-center">Rien à afficher.</p>;
+  return (
+    <div className="divide-y divide-gray-100">
+      {rows.map((r, i) => (
+        <div key={i} className="flex items-center justify-between gap-3 py-2">
+          <div className="min-w-0">
+            <p className="text-sm font-medium truncate">{r.label}</p>
+            {r.sub && <p className="text-xs text-gray-500 truncate">{r.sub}</p>}
+          </div>
+          <p className="text-sm font-bold tabular-nums shrink-0">{fmt(r.value)}</p>
+        </div>
+      ))}
+    </div>
+  );
 }
 
 function ActionCard({ href, icon, title, sub, tone }: {

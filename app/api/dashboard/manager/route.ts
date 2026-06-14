@@ -60,6 +60,21 @@ export async function GET() {
         [workspaceId]
       )
     );
+    // À recouvrer (solde restant dû) + encaissé sur le mois
+    const receivables = await safeNumber(
+      db.query(
+        `SELECT COALESCE(SUM(balance), 0) as total FROM sales
+         WHERE workspace_id = $1 AND status != 'cancelled' AND balance > 0`,
+        [workspaceId]
+      )
+    );
+    const collected = await safeNumber(
+      db.query(
+        `SELECT COALESCE(SUM(amount_paid), 0) as total FROM sales
+         WHERE workspace_id = $1 AND sale_date >= $2 AND status != 'cancelled'`,
+        [workspaceId, monthAgo]
+      )
+    );
 
     // Stock réel (stock_items : quantité × coût unitaire, seuils)
     const totalProducts = await safeNumber(
@@ -166,7 +181,7 @@ export async function GET() {
       {
         success: true,
         data: {
-          sales: { today: todaySales, week: weekSales, month: monthSales, pending },
+          sales: { today: todaySales, week: weekSales, month: monthSales, pending, receivables, collected },
           stock: { lowStock, outOfStock, totalProducts, totalValue: totalStockValue },
           employees: {
             total: totalEmps,
