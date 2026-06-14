@@ -1,48 +1,53 @@
 'use client';
 
 /**
- * Page - Historique des Transactions
- * Module Trésorerie Multi-Wallet
+ * Page - Historique des Transactions — mobile-first.
+ *
+ * Tableau 8 colonnes (scroll horizontal) remplacé par une liste de
+ * cartes : type, description, sens (source → destination), montant
+ * signé, catégorie, statut, date. Totaux en tête, filtres en pills.
  */
 
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { ProtectedPage } from '@/components/rbac/protected-page';
 import { PERMISSIONS } from '@/lib/rbac';
-import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Transaction, Wallet } from '@/types/modules';
-import { ArrowDownCircle, ArrowUpCircle, ArrowRightLeft, Plus, Filter } from 'lucide-react';
+import {
+  ArrowDownCircle, ArrowUpCircle, ArrowRightLeft, Plus, RefreshCw, ArrowLeft,
+} from 'lucide-react';
+
+const fmtCompact = (n: number) => {
+  const v = Number(n) || 0;
+  if (Math.abs(v) >= 1_000_000) return (v / 1_000_000).toLocaleString('fr-FR', { maximumFractionDigits: 1 }) + ' M F';
+  return new Intl.NumberFormat('fr-FR').format(Math.round(v)) + ' F';
+};
+
+const CATEGORY_LABELS: Record<string, string> = {
+  sale: 'Ventes', sales: 'Ventes', services: 'Services', salary: 'Salaires',
+  supplies: 'Fournitures', purchase: 'Achats', rent: 'Loyer', utilities: 'Charges',
+  marketing: 'Marketing', transport: 'Transport', maintenance: 'Maintenance',
+  transfer: 'Transfert', adjustment: 'Ajustement', debt_payment: 'Dette', advance: 'Avance', other: 'Autre',
+};
 
 export default function TransactionsPage() {
   const router = useRouter();
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [wallets, setWallets] = useState<Wallet[]>([]);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [filter, setFilter] = useState<'all' | 'income' | 'expense' | 'transfer'>('all');
 
-  useEffect(() => {
-    loadData();
-  }, [filter]);
+  useEffect(() => { loadData(); }, [filter]); // eslint-disable-line react-hooks/exhaustive-deps
 
   async function loadData() {
     try {
       setLoading(true);
-
-      // Load wallets
       const walletsRes = await fetch('/api/treasury/wallets?isActive=true');
-      if (walletsRes.ok) {
-        const walletsData = await walletsRes.json();
-        setWallets(walletsData.data || []);
-      }
-
-      // Load transactions
+      if (walletsRes.ok) setWallets((await walletsRes.json()).data || []);
       const params = filter !== 'all' ? `?type=${filter}` : '';
       const transactionsRes = await fetch(`/api/treasury/transactions${params}`);
-      if (transactionsRes.ok) {
-        const transactionsData = await transactionsRes.json();
-        setTransactions(transactionsData.data || []);
-      }
+      if (transactionsRes.ok) setTransactions((await transactionsRes.json()).data || []);
     } catch (error) {
       console.error('Error loading data:', error);
     } finally {
@@ -50,291 +55,123 @@ export default function TransactionsPage() {
     }
   }
 
-  function getWalletName(walletId?: string, joinedName?: string | null): string {
-    // L'API joint désormais le nom du wallet (Source/DestinationWalletName).
+  const handleRefresh = async () => { setRefreshing(true); await loadData(); setRefreshing(false); };
+
+  function walletName(walletId?: string, joinedName?: string | null): string {
     if (joinedName) return joinedName;
-    if (!walletId) return '-';
-    // Repli : transaction.*WalletId est l'UUID PK — comparer aussi Id/id,
-    // pas seulement le code métier WalletId (cause du « Inconnu »).
-    const wallet = wallets.find(
-      (w) => (w as any).Id === walletId || (w as any).id === walletId || w.WalletId === walletId
-    );
-    return wallet?.Name || 'Inconnu';
+    if (!walletId) return '—';
+    const w = wallets.find((x) => (x as any).Id === walletId || (x as any).id === walletId || x.WalletId === walletId);
+    return w?.Name || 'Inconnu';
   }
 
-  function getTransactionIcon(type: string) {
-    const icons = {
-      income: <ArrowDownCircle className="h-5 w-5 text-green-600" />,
-      expense: <ArrowUpCircle className="h-5 w-5 text-red-600" />,
-      transfer: <ArrowRightLeft className="h-5 w-5 text-blue-600" />,
-    };
-    return icons[type as keyof typeof icons];
-  }
-
-  function getTransactionBadge(type: string) {
-    const styles = {
-      income: 'bg-green-100 text-green-800',
-      expense: 'bg-red-100 text-red-800',
-      transfer: 'bg-blue-100 text-blue-800',
-    };
-    const labels = {
-      income: 'Revenu',
-      expense: 'Dépense',
-      transfer: 'Transfert',
-    };
-    return (
-      <span
-        className={`px-2 py-1 rounded-full text-xs font-medium inline-flex items-center gap-1 ${
-          styles[type as keyof typeof styles]
-        }`}
-      >
-        {getTransactionIcon(type)}
-        {labels[type as keyof typeof labels]}
-      </span>
-    );
-  }
-
-  function getCategoryLabel(category: string) {
-    const labels: Record<string, string> = {
-      sales: 'Ventes',
-      services: 'Services',
-      salary: 'Salaires',
-      supplies: 'Fournitures',
-      rent: 'Loyer',
-      utilities: 'Charges',
-      marketing: 'Marketing',
-      transport: 'Transport',
-      maintenance: 'Maintenance',
-      transfer: 'Transfert',
-      other: 'Autre',
-    };
-    return labels[category] || category;
-  }
-
-  function getStatusBadge(status: string) {
-    const styles = {
-      completed: 'bg-green-100 text-green-800',
-      pending: 'bg-yellow-100 text-yellow-800',
-      cancelled: 'bg-red-100 text-red-800',
-    };
-    const labels = {
-      completed: 'Complété',
-      pending: 'En attente',
-      cancelled: 'Annulé',
-    };
-    return (
-      <span className={`px-2 py-1 rounded-full text-xs font-medium ${styles[status as keyof typeof styles]}`}>
-        {labels[status as keyof typeof labels]}
-      </span>
-    );
-  }
-
-  function formatCurrency(amount: number) {
-    return new Intl.NumberFormat('fr-FR', {
-      style: 'currency',
-      currency: 'XOF',
-      minimumFractionDigits: 0,
-    }).format(amount);
-  }
-
-  function formatDate(dateString: string) {
-    return new Intl.DateTimeFormat('fr-FR', {
-      day: '2-digit',
-      month: '2-digit',
-      year: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit',
-    }).format(new Date(dateString));
-  }
+  const fmtDate = (s: string) =>
+    new Intl.DateTimeFormat('fr-FR', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' }).format(new Date(s));
 
   const totals = {
-    income: transactions.filter((t) => t.Type === 'income').reduce((sum, t) => sum + t.Amount, 0),
-    expense: transactions.filter((t) => t.Type === 'expense').reduce((sum, t) => sum + t.Amount, 0),
-    transfer: transactions.filter((t) => t.Type === 'transfer').reduce((sum, t) => sum + t.Amount, 0),
+    income: transactions.filter((t) => t.Type === 'income').reduce((s, t) => s + Number(t.Amount), 0),
+    expense: transactions.filter((t) => t.Type === 'expense').reduce((s, t) => s + Number(t.Amount), 0),
+  };
+
+  const META: Record<string, { icon: React.ReactNode; chip: string; color: string; sign: string; label: string }> = {
+    income: { icon: <ArrowDownCircle className="w-5 h-5" />, chip: 'bg-emerald-100 text-emerald-700', color: 'text-emerald-600', sign: '+', label: 'Revenu' },
+    expense: { icon: <ArrowUpCircle className="w-5 h-5" />, chip: 'bg-red-100 text-red-700', color: 'text-red-600', sign: '-', label: 'Dépense' },
+    transfer: { icon: <ArrowRightLeft className="w-5 h-5" />, chip: 'bg-blue-100 text-blue-700', color: 'text-blue-600', sign: '→', label: 'Transfert' },
   };
 
   return (
     <ProtectedPage permission={PERMISSIONS.TREASURY_VIEW}>
-      <div className="p-8 max-w-7xl mx-auto">
-        {/* Header */}
-        <div className="flex items-center justify-between mb-8">
-          <div>
-            <h1 className="text-3xl font-bold">Transactions</h1>
-            <p className="text-gray-600">Historique de toutes les opérations de trésorerie</p>
-          </div>
-          <div className="flex gap-2">
-            <Button variant="outline" onClick={() => router.push('/treasury')}>
-              Retour
-            </Button>
-            <Button onClick={() => router.push('/treasury/transactions/new')}>
-              <Plus className="h-4 w-4 mr-2" />
-              Nouvelle Transaction
-            </Button>
-          </div>
-        </div>
-
-        {/* Summary Cards */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-6">
-          <Card>
-            <CardHeader className="pb-2">
-              <CardTitle className="text-sm font-medium text-gray-600 flex items-center gap-2">
-                <ArrowDownCircle className="h-4 w-4 text-green-600" />
-                Revenus
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              <p className="text-2xl font-bold text-green-600">{formatCurrency(totals.income)}</p>
-              <p className="text-xs text-gray-500 mt-1">
-                {transactions.filter((t) => t.Type === 'income').length} transaction(s)
-              </p>
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader className="pb-2">
-              <CardTitle className="text-sm font-medium text-gray-600 flex items-center gap-2">
-                <ArrowUpCircle className="h-4 w-4 text-red-600" />
-                Dépenses
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              <p className="text-2xl font-bold text-red-600">{formatCurrency(totals.expense)}</p>
-              <p className="text-xs text-gray-500 mt-1">
-                {transactions.filter((t) => t.Type === 'expense').length} transaction(s)
-              </p>
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader className="pb-2">
-              <CardTitle className="text-sm font-medium text-gray-600 flex items-center gap-2">
-                <Filter className="h-4 w-4 text-blue-600" />
-                Solde Net
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              <p
-                className={`text-2xl font-bold ${
-                  totals.income - totals.expense >= 0 ? 'text-green-600' : 'text-red-600'
-                }`}
-              >
-                {formatCurrency(totals.income - totals.expense)}
-              </p>
-              <p className="text-xs text-gray-500 mt-1">{transactions.length} transaction(s) totale(s)</p>
-            </CardContent>
-          </Card>
-        </div>
-
-        {/* Filters */}
-        <Card className="mb-6">
-          <CardContent className="pt-6">
-            <div className="flex gap-2 flex-wrap">
-              <Button variant={filter === 'all' ? 'default' : 'outline'} onClick={() => setFilter('all')}>
-                Toutes
-              </Button>
-              <Button
-                variant={filter === 'income' ? 'default' : 'outline'}
-                onClick={() => setFilter('income')}
-                className="inline-flex items-center gap-2"
-              >
-                <ArrowDownCircle className="h-4 w-4" />
-                Revenus
-              </Button>
-              <Button
-                variant={filter === 'expense' ? 'default' : 'outline'}
-                onClick={() => setFilter('expense')}
-                className="inline-flex items-center gap-2"
-              >
-                <ArrowUpCircle className="h-4 w-4" />
-                Dépenses
-              </Button>
-              <Button
-                variant={filter === 'transfer' ? 'default' : 'outline'}
-                onClick={() => setFilter('transfer')}
-                className="inline-flex items-center gap-2"
-              >
-                <ArrowRightLeft className="h-4 w-4" />
-                Transferts
-              </Button>
+      <div className="min-h-screen bg-gradient-to-br from-emerald-50 via-white to-teal-50 pb-16">
+        {/* Header compact */}
+        <div className="bg-gradient-to-r from-emerald-600 via-teal-600 to-cyan-600 text-white px-4 py-3 sm:px-6 sm:py-4 sticky top-0 z-10 shadow-lg">
+          <div className="max-w-3xl mx-auto flex items-center justify-between gap-2">
+            <div className="flex items-center gap-2 min-w-0">
+              <button onClick={() => router.push('/treasury')} aria-label="Retour"
+                className="p-2 bg-white/20 rounded-full hover:bg-white/30 shrink-0">
+                <ArrowLeft className="w-5 h-5" />
+              </button>
+              <div className="min-w-0">
+                <h1 className="text-lg sm:text-2xl font-bold truncate">Transactions</h1>
+                <p className="text-[11px] sm:text-sm opacity-90 truncate">{transactions.length} opération(s)</p>
+              </div>
             </div>
-          </CardContent>
-        </Card>
+            <div className="flex items-center gap-1.5 shrink-0">
+              <button onClick={handleRefresh} disabled={refreshing} aria-label="Rafraîchir"
+                className="p-2.5 bg-white/20 rounded-full hover:bg-white/30">
+                <RefreshCw className={`w-5 h-5 ${refreshing ? 'animate-spin' : ''}`} />
+              </button>
+              <button onClick={() => router.push('/treasury/transactions/new')} aria-label="Nouvelle transaction"
+                className="p-2.5 bg-white/20 rounded-full hover:bg-white/30">
+                <Plus className="w-5 h-5" />
+              </button>
+            </div>
+          </div>
+        </div>
 
-        {/* Transactions List */}
-        <Card>
-          <CardHeader>
-            <CardTitle>Liste des Transactions</CardTitle>
-            <CardDescription>{transactions.length} transaction(s)</CardDescription>
-          </CardHeader>
-          <CardContent>
-            {loading ? (
-              <p className="text-gray-500 text-center py-8">Chargement...</p>
-            ) : transactions.length === 0 ? (
-              <div className="text-center py-12">
-                <p className="text-gray-500 mb-4">Aucune transaction trouvée</p>
-                <Button onClick={() => router.push('/treasury/transactions/new')}>Créer une transaction</Button>
-              </div>
-            ) : (
-              <div className="overflow-x-auto">
-                <table className="w-full">
-                  <thead className="bg-gray-50">
-                    <tr>
-                      <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Numéro</th>
-                      <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Type</th>
-                      <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Catégorie</th>
-                      <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">
-                        Source/Destination
-                      </th>
-                      <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">
-                        Description
-                      </th>
-                      <th className="px-4 py-2 text-right text-xs font-medium text-gray-500 uppercase">Montant</th>
-                      <th className="px-4 py-2 text-center text-xs font-medium text-gray-500 uppercase">Statut</th>
-                      <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Date</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-gray-200">
-                    {transactions.map((transaction) => (
-                      <tr key={transaction.TransactionId} className="hover:bg-gray-50">
-                        <td className="px-4 py-3 text-sm font-medium">{transaction.TransactionNumber}</td>
-                        <td className="px-4 py-3 text-sm">{getTransactionBadge(transaction.Type)}</td>
-                        <td className="px-4 py-3 text-sm">{getCategoryLabel(transaction.Category)}</td>
-                        <td className="px-4 py-3 text-sm">
-                          {transaction.Type === 'income' && (
-                            <span>→ {getWalletName(transaction.DestinationWalletId, (transaction as any).DestinationWalletName)}</span>
-                          )}
-                          {transaction.Type === 'expense' && (
-                            <span>{getWalletName(transaction.SourceWalletId, (transaction as any).SourceWalletName)} →</span>
-                          )}
-                          {transaction.Type === 'transfer' && (
-                            <span>
-                              {getWalletName(transaction.SourceWalletId, (transaction as any).SourceWalletName)} → {getWalletName(transaction.DestinationWalletId, (transaction as any).DestinationWalletName)}
-                            </span>
-                          )}
-                        </td>
-                        <td className="px-4 py-3 text-sm max-w-xs truncate">{transaction.Description}</td>
-                        <td
-                          className={`px-4 py-3 text-sm text-right font-bold ${
-                            transaction.Type === 'income'
-                              ? 'text-green-600'
-                              : transaction.Type === 'expense'
-                                ? 'text-red-600'
-                                : 'text-blue-600'
-                          }`}
-                        >
-                          {transaction.Type === 'income' ? '+' : transaction.Type === 'expense' ? '-' : ''}
-                          {formatCurrency(transaction.Amount)}
-                        </td>
-                        <td className="px-4 py-3 text-sm text-center">{getStatusBadge(transaction.Status)}</td>
-                        <td className="px-4 py-3 text-sm">{formatDate(transaction.ProcessedAt)}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </CardContent>
-        </Card>
+        <div className="max-w-3xl mx-auto p-3 sm:p-6 space-y-4">
+          {/* Totaux */}
+          <div className="grid grid-cols-3 gap-2">
+            <div className="bg-emerald-50 text-emerald-700 rounded-xl px-2 py-2.5 text-center">
+              <p className="text-sm sm:text-lg font-bold tabular-nums">{fmtCompact(totals.income)}</p>
+              <p className="text-[10px] font-medium opacity-70">Revenus</p>
+            </div>
+            <div className="bg-red-50 text-red-700 rounded-xl px-2 py-2.5 text-center">
+              <p className="text-sm sm:text-lg font-bold tabular-nums">{fmtCompact(totals.expense)}</p>
+              <p className="text-[10px] font-medium opacity-70">Dépenses</p>
+            </div>
+            <div className={`rounded-xl px-2 py-2.5 text-center ${totals.income - totals.expense >= 0 ? 'bg-amber-50 text-amber-900' : 'bg-red-50 text-red-700'}`}>
+              <p className="text-sm sm:text-lg font-bold tabular-nums">{fmtCompact(totals.income - totals.expense)}</p>
+              <p className="text-[10px] font-medium opacity-70">Solde net</p>
+            </div>
+          </div>
+
+          {/* Filtres */}
+          <div className="flex gap-1.5 overflow-x-auto pb-1">
+            {([['all', 'Toutes'], ['income', 'Revenus'], ['expense', 'Dépenses'], ['transfer', 'Transferts']] as const).map(([k, lbl]) => (
+              <button key={k} onClick={() => setFilter(k)}
+                className={'px-3 py-1.5 rounded-full text-xs font-semibold whitespace-nowrap border ' +
+                  (filter === k ? 'bg-emerald-700 text-white border-emerald-700' : 'bg-white border-gray-300 text-gray-700')}>
+                {lbl}
+              </button>
+            ))}
+          </div>
+
+          {/* Liste */}
+          {loading ? (
+            <div className="space-y-2">{[0, 1, 2, 3].map(i => <div key={i} className="h-16 bg-gray-100 rounded-xl animate-pulse" />)}</div>
+          ) : transactions.length === 0 ? (
+            <div className="bg-white border-2 border-gray-200 rounded-2xl py-12 text-center">
+              <p className="text-sm text-gray-500 mb-3">Aucune transaction</p>
+              <button onClick={() => router.push('/treasury/transactions/new')}
+                className="px-4 py-2 rounded-lg bg-emerald-700 text-white text-sm font-bold">Créer une transaction</button>
+            </div>
+          ) : (
+            <div className="space-y-2">
+              {transactions.map((t) => {
+                const m = META[t.Type] || META.transfer;
+                const flow =
+                  t.Type === 'income' ? `→ ${walletName(t.DestinationWalletId, (t as any).DestinationWalletName)}`
+                  : t.Type === 'expense' ? `${walletName(t.SourceWalletId, (t as any).SourceWalletName)} →`
+                  : `${walletName(t.SourceWalletId, (t as any).SourceWalletName)} → ${walletName(t.DestinationWalletId, (t as any).DestinationWalletName)}`;
+                return (
+                  <div key={t.TransactionId} className="bg-white border-2 border-gray-100 rounded-2xl p-3 flex items-center gap-3">
+                    <span className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 ${m.chip}`}>{m.icon}</span>
+                    <div className="flex-1 min-w-0">
+                      <p className="font-semibold text-sm truncate">{t.Description}</p>
+                      <p className="text-xs text-gray-500 truncate">{flow}</p>
+                      <p className="text-[11px] text-gray-400 truncate">
+                        {CATEGORY_LABELS[t.Category] || t.Category} · {fmtDate(t.ProcessedAt)}
+                        {t.Status !== 'completed' && <span className="text-amber-600 font-semibold"> · {t.Status === 'pending' ? 'en attente' : 'annulé'}</span>}
+                      </p>
+                    </div>
+                    <p className={`text-sm font-bold tabular-nums shrink-0 ${m.color}`}>
+                      {m.sign} {fmtCompact(Number(t.Amount))}
+                    </p>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
       </div>
     </ProtectedPage>
   );
