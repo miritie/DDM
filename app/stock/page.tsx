@@ -1,29 +1,30 @@
 'use client';
 
 /**
- * Page - Dashboard Stock (Mobile-First avec Images Produits)
- * Module Stocks & Mouvements
+ * Page - Stock — mobile-first.
+ *
+ * Standard maison : ÉTAT DES LIEUX d'abord (valeur, articles,
+ * entrepôts, stock faible, ruptures — cliquables), actions du métier
+ * (inventaire, mouvement, démarque, état global), accès par
+ * emplacement, puis les alertes en liste compacte.
  */
 
 import { useEffect, useState } from 'react';
+import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { ProtectedPage } from '@/components/rbac/protected-page';
 import { PERMISSIONS } from '@/lib/rbac';
-import { Button } from '@/components/ui/button';
 import {
-  Package,
-  Warehouse as WarehouseIcon,
-  Store,
-  AlertTriangle,
-  TrendingDown,
-  DollarSign,
-  ListChecks,
-  ArrowRightLeft,
-  Zap,
-  ChevronRight,
-  Eye,
+  Package, Warehouse as WarehouseIcon, Store, AlertTriangle, TrendingDown,
+  ListChecks, ArrowRightLeft, Eye, RefreshCw, Zap,
 } from 'lucide-react';
 import { StockStatistics, StockAlert, Warehouse, Product } from '@/types/modules';
+
+const fmtCompact = (n: number) => {
+  const v = Number(n) || 0;
+  if (Math.abs(v) >= 1_000_000) return (v / 1_000_000).toLocaleString('fr-FR', { maximumFractionDigits: 1 }) + ' M F';
+  return new Intl.NumberFormat('fr-FR').format(Math.round(v)) + ' F';
+};
 
 export default function StockPage() {
   const router = useRouter();
@@ -32,23 +33,17 @@ export default function StockPage() {
   const [warehouses, setWarehouses] = useState<Warehouse[]>([]);
   const [products, setProducts] = useState<Product[]>([]);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [loadError, setLoadError] = useState<{ status: number; message: string } | null>(null);
 
-  useEffect(() => {
-    loadData();
-  }, []);
+  useEffect(() => { loadData(); }, []);
 
   async function fetchOrFail(url: string) {
     const res = await fetch(url);
     if (!res.ok) {
       let message = `Erreur ${res.status}`;
-      try {
-        const body = await res.json();
-        if (body?.error) message = body.error;
-      } catch {}
-      const err: any = new Error(message);
-      err.status = res.status;
-      throw err;
+      try { const body = await res.json(); if (body?.error) message = body.error; } catch {}
+      const err: any = new Error(message); err.status = res.status; throw err;
     }
     return res.json();
   }
@@ -57,59 +52,41 @@ export default function StockPage() {
     try {
       setLoading(true);
       setLoadError(null);
-
       const [stats, alertsRes, warehousesRes, productsRes] = await Promise.all([
         fetchOrFail('/api/stock/statistics'),
         fetchOrFail('/api/stock/alerts'),
         fetchOrFail('/api/stock/warehouses?isActive=true'),
         fetchOrFail('/api/products?isActive=true'),
       ]);
-
       setStatistics(stats.data);
       setAlerts(alertsRes.data || []);
       setWarehouses(warehousesRes.data || []);
       setProducts(productsRes.data || []);
     } catch (error: any) {
-      console.error('Error loading data:', error);
       setLoadError({ status: error.status || 500, message: error.message });
     } finally {
       setLoading(false);
     }
   }
 
-  if (loading) {
-    return (
-      <div className="flex items-center justify-center min-h-screen bg-gray-50">
-        <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto"></div>
-          <p className="mt-4 text-gray-600">Chargement...</p>
-        </div>
-      </div>
-    );
-  }
+  const handleRefresh = async () => { setRefreshing(true); await loadData(); setRefreshing(false); };
 
   if (loadError) {
-    const isPermissionError = loadError.status === 403;
+    const isPerm = loadError.status === 403;
     return (
       <ProtectedPage permission={PERMISSIONS.STOCK_VIEW}>
         <div className="min-h-screen bg-gray-50 flex items-center justify-center px-4">
           <div className="max-w-md w-full bg-white rounded-2xl shadow-md p-6 text-center">
             <AlertTriangle className="w-12 h-12 mx-auto text-orange-500 mb-3" />
             <h2 className="text-xl font-bold text-gray-900 mb-2">
-              {isPermissionError ? 'Accès au stock refusé' : 'Impossible de charger le stock'}
+              {isPerm ? 'Accès au stock refusé' : 'Impossible de charger le stock'}
             </h2>
             <p className="text-sm text-gray-600 mb-4">
-              {isPermissionError
-                ? 'Votre rôle actif n\'a pas la permission « stock:view ». Demandez à un administrateur d\'attribuer cette permission à votre rôle.'
-                : loadError.message}
+              {isPerm ? "Votre rôle actif n'a pas la permission « stock:view »." : loadError.message}
             </p>
             <div className="flex gap-2 justify-center">
-              <Button onClick={() => router.push('/dashboard')} variant="outline">
-                Retour à l'accueil
-              </Button>
-              {!isPermissionError && (
-                <Button onClick={() => loadData()}>Réessayer</Button>
-              )}
+              <button onClick={() => router.push('/dashboard')} className="px-4 py-2 rounded-lg border border-gray-300 text-sm font-semibold">Accueil</button>
+              {!isPerm && <button onClick={loadData} className="px-4 py-2 rounded-lg bg-blue-600 text-white text-sm font-semibold">Réessayer</button>}
             </div>
           </div>
         </div>
@@ -117,225 +94,161 @@ export default function StockPage() {
     );
   }
 
+  const st = statistics;
+  const ALERT_META: Record<string, { cls: string; label: string }> = {
+    out_of_stock: { cls: 'bg-red-50 border-red-200 text-red-800', label: 'Rupture' },
+    low_stock: { cls: 'bg-orange-50 border-orange-200 text-orange-800', label: 'Stock faible' },
+    overstock: { cls: 'bg-blue-50 border-blue-200 text-blue-800', label: 'Surstock' },
+  };
+
   return (
     <ProtectedPage permission={PERMISSIONS.STOCK_VIEW}>
-      <div className="min-h-screen bg-gray-50 pb-20">
-        {/* Header */}
-        <div className="bg-gradient-to-r from-blue-600 to-cyan-600 text-white p-6 pb-8">
-          <div className="max-w-7xl mx-auto">
-            <div className="flex items-center justify-between mb-6 gap-3 flex-wrap">
-              <h1 className="text-2xl font-bold flex items-center gap-2">
-                <Package className="w-7 h-7" />
-                Stocks & Mouvements
-              </h1>
-              <button
-                onClick={() => router.push('/stock/overview')}
-                className="px-4 py-2 bg-white/90 hover:bg-white text-blue-700 font-semibold rounded-lg shadow-md inline-flex items-center gap-2"
-              >
-                <Eye className="w-4 h-4" /> État des stocks (cumul + détail)
-              </button>
-            </div>
-
-            {/* KPIs */}
-            {statistics && (
-              <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-                <div className="bg-white/20 backdrop-blur-sm rounded-xl p-4">
-                  <div className="flex items-center gap-2 mb-1">
-                    <DollarSign className="w-5 h-5" />
-                    <span className="text-sm opacity-90">Valeur Totale</span>
-                  </div>
-                  <p className="text-2xl font-bold">
-                    {new Intl.NumberFormat('fr-FR', {
-                      notation: 'compact',
-                      compactDisplay: 'short',
-                    }).format(statistics.totalValue)}{' '}
-                    F
-                  </p>
-                  <p className="text-xs opacity-80 mt-1">{statistics.totalItems} articles</p>
-                </div>
-
-                <div className="bg-white/20 backdrop-blur-sm rounded-xl p-4">
-                  <div className="flex items-center gap-2 mb-1">
-                    <WarehouseIcon className="w-5 h-5" />
-                    <span className="text-sm opacity-90">Entrepôts</span>
-                  </div>
-                  <p className="text-3xl font-bold">{statistics.warehousesCount}</p>
-                  <p className="text-xs opacity-80 mt-1">Actifs</p>
-                </div>
-
-                <div className="bg-white/20 backdrop-blur-sm rounded-xl p-4">
-                  <div className="flex items-center gap-2 mb-1">
-                    <AlertTriangle className="w-5 h-5" />
-                    <span className="text-sm opacity-90">Stock Faible</span>
-                  </div>
-                  <p className="text-3xl font-bold">{statistics.lowStockItems}</p>
-                  <p className="text-xs opacity-80 mt-1">À surveiller</p>
-                </div>
-
-                <div className="bg-white/20 backdrop-blur-sm rounded-xl p-4">
-                  <div className="flex items-center gap-2 mb-1">
-                    <TrendingDown className="w-5 h-5" />
-                    <span className="text-sm opacity-90">Ruptures</span>
-                  </div>
-                  <p className="text-3xl font-bold">{statistics.outOfStockItems}</p>
-                  <p className="text-xs opacity-80 mt-1">Urgent</p>
-                </div>
+      <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-cyan-50 pb-16">
+        {/* Header compact */}
+        <div className="bg-gradient-to-r from-blue-600 to-cyan-600 text-white px-4 py-3 sm:px-6 sm:py-4 sticky top-0 z-10 shadow-lg">
+          <div className="max-w-3xl mx-auto flex items-center justify-between gap-2">
+            <div className="flex items-center gap-2.5 min-w-0">
+              <Package className="w-7 h-7 sm:w-8 sm:h-8 shrink-0" />
+              <div className="min-w-0">
+                <h1 className="text-lg sm:text-2xl font-bold truncate">Stocks</h1>
+                <p className="text-[11px] sm:text-sm opacity-90 truncate">Entrepôts, stands & mouvements</p>
               </div>
-            )}
+            </div>
+            <button onClick={handleRefresh} disabled={refreshing} aria-label="Rafraîchir"
+              className="p-2.5 bg-white/20 rounded-full hover:bg-white/30 shrink-0">
+              <RefreshCw className={`w-5 h-5 ${refreshing ? 'animate-spin' : ''}`} />
+            </button>
           </div>
         </div>
 
-        {/* Contenu */}
-        <div className="max-w-7xl mx-auto px-4 -mt-4">{" "}
-          {/* Actions rapides */}
-          <div className="bg-white rounded-2xl shadow-xl p-6 mb-6">
-            <h2 className="font-bold text-lg mb-4">Actions Rapides</h2>
-            <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-              <button
-                onClick={() => router.push('/stock/inventory')}
-                className="bg-gradient-to-br from-purple-500 to-pink-600 text-white rounded-xl p-4 hover:scale-105 active:scale-95 transition-transform"
-              >
-                <ListChecks className="w-8 h-8 mb-2 mx-auto" />
-                <p className="font-semibold text-sm">Inventaire</p>
-                <p className="text-xs opacity-90 mt-1">Comptage rapide</p>
-              </button>
-
-              <button
-                onClick={() => router.push('/stock/movements/quick')}
-                className="bg-gradient-to-br from-blue-500 to-cyan-600 text-white rounded-xl p-4 hover:scale-105 active:scale-95 transition-transform"
-              >
-                <ArrowRightLeft className="w-8 h-8 mb-2 mx-auto" />
-                <p className="font-semibold text-sm">Mouvement</p>
-                <p className="text-xs opacity-90 mt-1">Entrée / Sortie</p>
-              </button>
-
-              <button
-                onClick={() => router.push('/stock/markdowns/new')}
-                className="bg-gradient-to-br from-orange-500 to-red-600 text-white rounded-xl p-4 hover:scale-105 active:scale-95 transition-transform"
-              >
-                <TrendingDown className="w-8 h-8 mb-2 mx-auto" />
-                <p className="font-semibold text-sm">Démarques</p>
-                <p className="text-xs opacity-90 mt-1">Pertes / Casse</p>
-              </button>
-
-              <button
-                onClick={() => router.push('/stock/overview')}
-                className="bg-gradient-to-br from-green-500 to-emerald-600 text-white rounded-xl p-4 hover:scale-105 active:scale-95 transition-transform"
-              >
-                <Eye className="w-8 h-8 mb-2 mx-auto" />
-                <p className="font-semibold text-sm">État global</p>
-                <p className="text-xs opacity-90 mt-1">Matrice + cumul</p>
-              </button>
-            </div>
-          </div>
-
-          {/* Navigation par emplacement — accès direct aux vues focalisées */}
-          <div className="bg-white rounded-2xl shadow-xl p-6 mb-6">
-            <h2 className="font-bold text-lg mb-1">Stocks par emplacement</h2>
-            <p className="text-sm text-gray-600 mb-4">Voir le stock détaillé, filtrable et trié, d'un entrepôt ou d'un stand.</p>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <button
-                onClick={() => router.push('/stock/warehouses')}
-                className="text-left p-5 rounded-xl border-2 border-violet-200 hover:border-violet-400 hover:shadow-md transition-all bg-gradient-to-br from-violet-50 to-white"
-              >
-                <div className="flex items-center gap-3 mb-2">
-                  <div className="w-12 h-12 rounded-lg bg-violet-600 text-white flex items-center justify-center">
-                    <WarehouseIcon className="w-6 h-6" />
-                  </div>
-                  <div>
-                    <h3 className="font-bold text-gray-900">Entrepôts</h3>
-                    <p className="text-xs text-gray-600">{warehouses.length} entrepôt{warehouses.length > 1 ? 's' : ''} actif{warehouses.length > 1 ? 's' : ''}</p>
-                  </div>
-                </div>
-                <p className="text-sm text-gray-700">Stocks de réserve par entrepôt — comptage, transferts, valorisation.</p>
-                <div className="mt-3 text-sm font-semibold text-violet-700 flex items-center gap-1">
-                  Voir les entrepôts <ChevronRight className="w-4 h-4" />
-                </div>
-              </button>
-
-              <button
-                onClick={() => router.push('/stock/outlets')}
-                className="text-left p-5 rounded-xl border-2 border-amber-200 hover:border-amber-400 hover:shadow-md transition-all bg-gradient-to-br from-amber-50 to-white"
-              >
-                <div className="flex items-center gap-3 mb-2">
-                  <div className="w-12 h-12 rounded-lg bg-amber-600 text-white flex items-center justify-center">
-                    <Store className="w-6 h-6" />
-                  </div>
-                  <div>
-                    <h3 className="font-bold text-gray-900">Stands</h3>
-                    <p className="text-xs text-gray-600">Points de vente avec stock dédié</p>
-                  </div>
-                </div>
-                <p className="text-sm text-gray-700">Stocks des stands (POS) — vue par stand, alertes, mouvements rapides.</p>
-                <div className="mt-3 text-sm font-semibold text-amber-700 flex items-center gap-1">
-                  Voir les stands <ChevronRight className="w-4 h-4" />
-                </div>
-              </button>
-            </div>
-          </div>
-
-          {/* Alertes importantes */}
-          {alerts.length > 0 && (
-            <div className="bg-white rounded-2xl shadow-xl p-6 mb-6">
-              <div className="flex items-center justify-between mb-4">
-                <h2 className="font-bold text-lg flex items-center gap-2">
-                  <AlertTriangle className="w-5 h-5 text-orange-600" />
-                  Alertes Stock ({alerts.length})
-                </h2>
-                {alerts.length > 3 && (
-                  <button
-                    onClick={() => router.push('/stock/alerts')}
-                    className="text-sm text-blue-600 font-medium flex items-center gap-1"
-                  >
-                    Tout voir
-                    <ChevronRight className="w-4 h-4" />
-                  </button>
-                )}
+        <div className="max-w-3xl mx-auto p-3 sm:p-6 space-y-4">
+          {/* ===== ÉTAT DES LIEUX ===== */}
+          <section className="bg-white border-2 border-blue-200 rounded-2xl p-3 sm:p-4">
+            <h2 className="text-sm sm:text-base font-bold text-blue-900 mb-2">État des lieux</h2>
+            {loading || !st ? (
+              <div className="grid grid-cols-3 gap-1.5">
+                {Array.from({ length: 6 }).map((_, i) => <div key={i} className="h-14 bg-gray-100 rounded-lg animate-pulse" />)}
               </div>
-              <div className="space-y-3">
-                {alerts.slice(0, 3).map((alert) => {
-                  const product = products.find((p) => p.ProductId === alert.ProductId);
-                  const warehouse = warehouses.find((w) => w.WarehouseId === alert.WarehouseId);
-                  const alertConfig = {
-                    out_of_stock: { bg: 'bg-red-50', border: 'border-red-200', text: 'text-red-800', label: 'Rupture' },
-                    low_stock: { bg: 'bg-orange-50', border: 'border-orange-200', text: 'text-orange-800', label: 'Stock faible' },
-                    overstock: { bg: 'bg-blue-50', border: 'border-blue-200', text: 'text-blue-800', label: 'Surstock' },
-                  }[alert.AlertType] || { bg: 'bg-gray-50', border: 'border-gray-200', text: 'text-gray-800', label: 'Alerte' };
+            ) : (
+              <div className="grid grid-cols-3 gap-1.5 sm:gap-2">
+                <Stat label="Valeur totale" value={fmtCompact(st.totalValue)} tone="amber" href="/stock/overview" />
+                <Stat label="Articles" value={String(st.totalItems)} href="/stock/overview" />
+                <Stat label="Entrepôts" value={String(st.warehousesCount)} href="/stock/warehouses" />
+                <Stat label="Stock faible" value={String(st.lowStockItems)}
+                  tone={st.lowStockItems > 0 ? 'amber' : 'green'} href="/stock/alerts" />
+                <Stat label="Ruptures" value={String(st.outOfStockItems)}
+                  tone={st.outOfStockItems > 0 ? 'red' : 'green'} href="/stock/alerts" />
+                <Stat label="Stands" value="Voir" href="/stock/outlets" />
+              </div>
+            )}
+          </section>
 
+          {/* ===== ACTIONS ===== */}
+          <section className="grid grid-cols-2 gap-2.5">
+            <ActionCard onClick={() => router.push('/stock/movements/quick')} icon={<ArrowRightLeft className="w-6 h-6" />}
+              title="Mouvement" sub="Entrée / sortie" tone="blue" />
+            <ActionCard onClick={() => router.push('/stock/inventory')} icon={<ListChecks className="w-6 h-6" />}
+              title="Inventaire" sub="Comptage" tone="purple" />
+            <ActionCard onClick={() => router.push('/stock/markdowns/new')} icon={<TrendingDown className="w-6 h-6" />}
+              title="Démarque" sub="Pertes / casse" tone="red" />
+            <ActionCard onClick={() => router.push('/stock/overview')} icon={<Eye className="w-6 h-6" />}
+              title="État global" sub="Matrice + cumul" tone="emerald" />
+          </section>
+
+          {/* ===== PAR EMPLACEMENT ===== */}
+          <section className="grid grid-cols-2 gap-2.5">
+            <NavCard onClick={() => router.push('/stock/warehouses')} icon={<WarehouseIcon className="w-5 h-5" />}
+              title="Entrepôts" sub={`${warehouses.length} actif(s)`} />
+            <NavCard onClick={() => router.push('/stock/outlets')} icon={<Store className="w-5 h-5" />}
+              title="Stands" sub="Stock par point de vente" />
+          </section>
+
+          {/* ===== ALERTES ===== */}
+          {alerts.length > 0 && (
+            <section className="bg-white border-2 border-orange-200 rounded-2xl p-3 sm:p-4">
+              <div className="flex items-center justify-between mb-2">
+                <h2 className="text-sm sm:text-base font-bold text-orange-800 flex items-center gap-1.5">
+                  <AlertTriangle className="w-4 h-4" /> Alertes stock ({alerts.length})
+                </h2>
+                <Link href="/stock/alerts" className="text-xs font-bold text-orange-700 hover:underline">Tout voir →</Link>
+              </div>
+              <div className="space-y-2">
+                {alerts.slice(0, 5).map((a) => {
+                  const product = products.find((p) => p.ProductId === a.ProductId);
+                  const wh = warehouses.find((w) => w.WarehouseId === a.WarehouseId);
+                  const meta = ALERT_META[a.AlertType] || { cls: 'bg-gray-50 border-gray-200 text-gray-800', label: 'Alerte' };
                   return (
-                    <div
-                      key={alert.AlertId}
-                      className={`${alertConfig.bg} border-2 ${alertConfig.border} rounded-xl p-4`}
-                    >
-                      <div className="flex items-center justify-between">
-                        <div>
-                          <p className={`font-semibold ${alertConfig.text}`}>
-                            {product?.Name || 'Produit inconnu'}
-                          </p>
-                          <p className="text-sm text-gray-600 mt-1">
-                            {warehouse?.Name || 'Entrepôt'} • Qté: {alert.CurrentQuantity}
-                          </p>
-                          <span className={`inline-block mt-2 px-3 py-1 rounded-full text-xs font-semibold ${alertConfig.bg} ${alertConfig.text}`}>
-                            {alertConfig.label}
-                          </span>
-                        </div>
-                        <Button
-                          onClick={() => router.push('/stock/movements/quick')}
-                          className="bg-blue-600 hover:bg-blue-700 h-10"
-                        >
-                          <Zap className="w-4 h-4 mr-2" />
-                          Action
-                        </Button>
+                    <button key={a.AlertId} onClick={() => router.push('/stock/movements/quick')}
+                      className={`w-full text-left flex items-center justify-between gap-2 rounded-xl border-2 px-3 py-2.5 active:scale-[0.99] ${meta.cls}`}>
+                      <div className="min-w-0">
+                        <p className="font-semibold text-sm truncate">{product?.Name || 'Produit'}</p>
+                        <p className="text-xs opacity-80 truncate">{wh?.Name || 'Entrepôt'} · qté {a.CurrentQuantity}</p>
                       </div>
-                    </div>
+                      <span className="shrink-0 inline-flex items-center gap-1 text-xs font-bold">
+                        <Zap className="w-3.5 h-3.5" /> {meta.label}
+                      </span>
+                    </button>
                   );
                 })}
               </div>
-            </div>
+            </section>
           )}
-
         </div>
       </div>
     </ProtectedPage>
+  );
+}
+
+function Stat({ label, value, tone, href }: {
+  label: string; value: string; tone?: 'amber' | 'red' | 'green'; href?: string;
+}) {
+  const tones: Record<string, string> = {
+    amber: 'bg-amber-50 text-amber-900', red: 'bg-red-50 text-red-700', green: 'bg-emerald-50 text-emerald-700',
+  };
+  const cls = `block rounded-lg px-2 py-2 text-center ${tone ? tones[tone] : 'bg-gray-50 text-gray-900'}` +
+    (href ? ' active:scale-95 hover:ring-2 hover:ring-blue-300' : '');
+  const inner = (
+    <>
+      <p className="text-base sm:text-xl font-bold tabular-nums leading-tight">{value}</p>
+      <p className="text-[10px] sm:text-xs font-medium opacity-70 leading-tight mt-0.5">{label}</p>
+    </>
+  );
+  return href ? <Link href={href} className={cls}>{inner}</Link> : <div className={cls}>{inner}</div>;
+}
+
+function ActionCard({ onClick, icon, title, sub, tone }: {
+  onClick: () => void; icon: React.ReactNode; title: string; sub: string;
+  tone: 'blue' | 'purple' | 'red' | 'emerald';
+}) {
+  const chips: Record<string, { chip: string; border: string }> = {
+    blue: { chip: 'bg-blue-100 text-blue-700', border: 'border-blue-200 hover:border-blue-400' },
+    purple: { chip: 'bg-purple-100 text-purple-700', border: 'border-purple-200 hover:border-purple-400' },
+    red: { chip: 'bg-red-100 text-red-700', border: 'border-red-200 hover:border-red-400' },
+    emerald: { chip: 'bg-emerald-100 text-emerald-700', border: 'border-emerald-200 hover:border-emerald-400' },
+  };
+  return (
+    <button onClick={onClick}
+      className={`text-left bg-white border-2 rounded-2xl p-3.5 flex flex-col gap-2 transition-all active:scale-[0.99] ${chips[tone].border}`}>
+      <span className={`w-11 h-11 rounded-xl flex items-center justify-center ${chips[tone].chip}`}>{icon}</span>
+      <span>
+        <span className="block font-bold text-sm text-gray-900">{title}</span>
+        <span className="block text-xs text-gray-500">{sub}</span>
+      </span>
+    </button>
+  );
+}
+
+function NavCard({ onClick, icon, title, sub }: {
+  onClick: () => void; icon: React.ReactNode; title: string; sub: string;
+}) {
+  return (
+    <button onClick={onClick}
+      className="text-left flex items-center gap-2.5 bg-white border-2 border-gray-200 hover:border-blue-300 rounded-2xl p-3.5 transition-all active:scale-[0.99]">
+      <span className="w-9 h-9 rounded-lg bg-gray-50 text-gray-600 flex items-center justify-center shrink-0">{icon}</span>
+      <span className="min-w-0">
+        <span className="block font-bold text-sm text-gray-900">{title}</span>
+        <span className="block text-xs text-gray-500 truncate">{sub}</span>
+      </span>
+    </button>
   );
 }
