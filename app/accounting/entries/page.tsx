@@ -15,7 +15,7 @@ import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 import {
   ArrowLeft, Loader2, FileText, X, Search, ChevronRight,
-  ShoppingCart, ClipboardCheck,
+  ShoppingCart, ClipboardCheck, Filter,
 } from 'lucide-react';
 import { ProtectedPage } from '@/components/rbac/protected-page';
 import { PERMISSIONS } from '@/lib/rbac';
@@ -322,6 +322,8 @@ function EntriesContent() {
 
   // Détail ouvert
   const [openEntryId, setOpenEntryId] = useState<string | null>(null);
+  // Mobile-first : réglages avancés (statut, dates) repliés
+  const [showFilters, setShowFilters] = useState(false);
 
   useEffect(() => {
     setLoading(true);
@@ -351,8 +353,10 @@ function EntriesContent() {
     });
   }, [entries, search, status, dateFrom, dateTo]);
 
+  const activeFilters = (status ? 1 : 0) + (dateFrom ? 1 : 0) + (dateTo ? 1 : 0);
+
   return (
-    <div className="container mx-auto p-6 space-y-4">
+    <div className="max-w-3xl mx-auto p-3 sm:p-6 space-y-3">
       <div>
         <Link
           href={journalId ? '/accounting/journals' : '/accounting'}
@@ -360,11 +364,11 @@ function EntriesContent() {
         >
           <ArrowLeft className="w-4 h-4" /> {journalId ? 'Journaux' : 'Comptabilité'}
         </Link>
-        <h1 className="text-3xl font-bold flex items-center gap-2">
-          <FileText className="w-7 h-7 text-amber-700" /> Écritures Comptables
+        <h1 className="text-xl sm:text-3xl font-bold flex items-center gap-2">
+          <FileText className="w-6 h-6 sm:w-7 sm:h-7 text-amber-700" /> Écritures
         </h1>
-        <p className="text-muted-foreground">
-          {filtered.length} / {entries.length} écriture(s) — cliquez sur une écriture pour le détail complet
+        <p className="text-xs sm:text-sm text-muted-foreground">
+          {filtered.length} / {entries.length} écriture(s) — touchez pour le détail
         </p>
       </div>
 
@@ -377,52 +381,56 @@ function EntriesContent() {
         </div>
       )}
 
-      {/* Filtres */}
-      <Card>
-        <CardContent className="py-3 flex flex-wrap items-end gap-3">
-          <div className="relative flex-1 min-w-[220px]">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
-            <input
-              value={search}
-              onChange={e => setSearch(e.target.value)}
-              placeholder="N°, libellé ou référence…"
-              className="w-full pl-9 pr-3 py-2 border border-gray-300 rounded-lg text-sm"
-            />
-          </div>
-          <label className="text-xs text-gray-600">
-            Statut
-            <select
-              value={status}
-              onChange={e => setStatus(e.target.value)}
-              className="block mt-1 border border-gray-300 rounded-md px-2 py-2 text-sm"
-            >
-              <option value="">Tous</option>
-              <option value="draft">Brouillon</option>
-              <option value="posted">Comptabilisée</option>
-              <option value="validated">Validée</option>
-              <option value="cancelled">Annulée</option>
-            </select>
-          </label>
-          <label className="text-xs text-gray-600">
-            Du
-            <input type="date" value={dateFrom} onChange={e => setDateFrom(e.target.value)}
-              className="block mt-1 border border-gray-300 rounded-md px-2 py-1.5 text-sm" />
-          </label>
-          <label className="text-xs text-gray-600">
-            Au
-            <input type="date" value={dateTo} onChange={e => setDateTo(e.target.value)}
-              className="block mt-1 border border-gray-300 rounded-md px-2 py-1.5 text-sm" />
-          </label>
-          {(search || status || dateFrom || dateTo) && (
-            <button
-              onClick={() => { setSearch(''); setStatus(''); setDateFrom(''); setDateTo(''); }}
-              className="px-3 py-2 text-xs border border-gray-300 rounded-md bg-white hover:bg-gray-50"
-            >
-              Réinitialiser
-            </button>
-          )}
-        </CardContent>
-      </Card>
+      {/* Recherche + bouton Filtres */}
+      <div className="flex items-center gap-1.5">
+        <div className="relative flex-1">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
+          <input
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+            placeholder="N°, libellé ou référence…"
+            className="w-full pl-9 pr-3 h-10 border border-gray-300 rounded-xl text-sm"
+          />
+        </div>
+        <button onClick={() => setShowFilters(v => !v)}
+          className={'shrink-0 inline-flex items-center gap-1 px-3 h-10 rounded-xl text-xs font-bold border ' +
+            (showFilters || activeFilters > 0 ? 'bg-amber-700 text-white border-amber-700' : 'bg-white border-gray-300 text-gray-700')}>
+          <Filter className="w-3.5 h-3.5" /> Filtres{activeFilters > 0 ? ` (${activeFilters})` : ''}
+        </button>
+      </div>
+
+      {showFilters && (
+        <Card>
+          <CardContent className="py-3 space-y-3">
+            <div className="flex gap-1.5 overflow-x-auto pb-0.5">
+              {[['', 'Tous'], ['draft', 'Brouillon'], ['posted', 'Comptabilisée'], ['validated', 'Validée'], ['cancelled', 'Annulée']].map(([v, lbl]) => (
+                <button key={v} onClick={() => setStatus(v)}
+                  className={'px-3 py-1.5 rounded-full text-xs font-semibold whitespace-nowrap border ' +
+                    (status === v ? 'bg-amber-700 text-white border-amber-700' : 'bg-white border-gray-300 text-gray-700')}>
+                  {lbl}
+                </button>
+              ))}
+            </div>
+            <div className="flex items-center gap-2 text-xs text-gray-600">
+              <label className="flex-1">Du
+                <input type="date" value={dateFrom} onChange={e => setDateFrom(e.target.value)}
+                  className="block w-full mt-1 border border-gray-300 rounded-md px-2 py-1.5 text-sm" />
+              </label>
+              <label className="flex-1">Au
+                <input type="date" value={dateTo} onChange={e => setDateTo(e.target.value)}
+                  className="block w-full mt-1 border border-gray-300 rounded-md px-2 py-1.5 text-sm" />
+              </label>
+            </div>
+            {(status || dateFrom || dateTo) && (
+              <button
+                onClick={() => { setStatus(''); setDateFrom(''); setDateTo(''); }}
+                className="text-xs text-gray-500 hover:text-red-600 inline-flex items-center gap-1">
+                <X className="w-3.5 h-3.5" /> Réinitialiser les filtres
+              </button>
+            )}
+          </CardContent>
+        </Card>
+      )}
 
       {loading ? (
         <div className="text-center py-16"><Loader2 className="w-8 h-8 mx-auto animate-spin text-amber-700" /></div>
@@ -438,54 +446,36 @@ function EntriesContent() {
           </CardContent>
         </Card>
       ) : (
-        <Card>
-          <CardContent className="pt-4 overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead className="text-xs uppercase text-gray-500">
-                <tr className="border-b">
-                  <th className="text-left py-2">N°</th>
-                  <th className="text-left py-2">Date</th>
-                  <th className="text-left py-2">Libellé</th>
-                  <th className="text-left py-2">Référence</th>
-                  <th className="text-right py-2">Montant</th>
-                  <th className="text-center py-2">Période</th>
-                  <th className="text-center py-2">Statut</th>
-                  <th className="w-8" />
-                </tr>
-              </thead>
-              <tbody>
-                {filtered.map(e => {
-                  const badge = STATUS_BADGES[e.Status] || STATUS_BADGES.draft;
-                  return (
-                    <tr
-                      key={e.EntryId}
-                      onClick={() => setOpenEntryId(e.EntryId)}
-                      className="border-b last:border-b-0 hover:bg-amber-50 cursor-pointer"
-                      title="Voir le détail de l'écriture"
-                    >
-                      <td className="py-2.5 font-mono text-xs font-semibold">{e.EntryNumber}</td>
-                      <td className="py-2.5 whitespace-nowrap">{fmtDate(e.EntryDate)}</td>
-                      <td className="py-2.5 max-w-[280px] truncate" title={e.Description}>{e.Description}</td>
-                      <td className="py-2.5 text-gray-500 text-xs">{e.Reference || '—'}</td>
-                      <td className="py-2.5 text-right font-semibold tabular-nums whitespace-nowrap">
-                        {fmt(Number((e as any).Amount || 0))}
-                      </td>
-                      <td className="py-2.5 text-center text-xs text-gray-500">
-                        {e.FiscalPeriod}/{e.FiscalYear}
-                      </td>
-                      <td className="py-2.5 text-center">
-                        <span className={`px-2 py-0.5 rounded-full text-xs font-semibold ${badge.cls}`}>
-                          {badge.label}
-                        </span>
-                      </td>
-                      <td className="py-2.5 text-gray-400"><ChevronRight className="w-4 h-4" /></td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </CardContent>
-        </Card>
+        <div className="space-y-2">
+          {filtered.map(e => {
+            const badge = STATUS_BADGES[e.Status] || STATUS_BADGES.draft;
+            return (
+              <button
+                key={e.EntryId}
+                onClick={() => setOpenEntryId(e.EntryId)}
+                className="w-full text-left bg-white border-2 border-gray-100 rounded-2xl p-3 flex items-center gap-3 hover:border-amber-200 active:scale-[0.99]"
+              >
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2 mb-0.5">
+                    <span className="font-mono text-xs font-semibold text-gray-700 truncate">{e.EntryNumber}</span>
+                    <span className={`px-2 py-0.5 rounded-full text-[10px] font-semibold shrink-0 ${badge.cls}`}>
+                      {badge.label}
+                    </span>
+                  </div>
+                  <p className="text-sm font-medium truncate">{e.Description}</p>
+                  <p className="text-[11px] text-gray-400 truncate">
+                    {fmtDate(e.EntryDate)} · {e.FiscalPeriod}/{e.FiscalYear}
+                    {e.Reference ? ` · ${e.Reference}` : ''}
+                  </p>
+                </div>
+                <div className="text-right shrink-0">
+                  <p className="text-sm font-bold tabular-nums">{fmt(Number((e as any).Amount || 0))}</p>
+                  <ChevronRight className="w-4 h-4 text-gray-300 ml-auto" />
+                </div>
+              </button>
+            );
+          })}
+        </div>
       )}
 
       {openEntryId && (
