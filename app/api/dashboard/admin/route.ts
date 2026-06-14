@@ -14,15 +14,16 @@ export async function GET() {
     const workspaceId = await getCurrentWorkspaceId();
     const db = getPostgresClient();
 
-    // Récupérer les statistiques système en parallèle
+    // Récupérer les statistiques système en parallèle.
+    // NB : table « clients » (pas customers) ; employés actifs = status='active'.
     const [users, roles, permissions, sales, customers, products, employees] = await Promise.all([
       db.query('SELECT COUNT(*) as total, SUM(CASE WHEN is_active THEN 1 ELSE 0 END) as active FROM users WHERE workspace_id = $1', [workspaceId]),
       db.query('SELECT COUNT(*) as total FROM roles WHERE workspace_id = $1', [workspaceId]),
       db.query('SELECT COUNT(*) as total FROM permissions'),
-      db.query('SELECT COUNT(*) as total FROM sales WHERE workspace_id = $1', [workspaceId]),
-      db.query('SELECT COUNT(*) as total FROM customers WHERE workspace_id = $1', [workspaceId]),
-      db.query('SELECT COUNT(*) as total FROM products WHERE workspace_id = $1', [workspaceId]),
-      db.query('SELECT COUNT(*) as total FROM employees WHERE workspace_id = $1', [workspaceId]),
+      db.query(`SELECT COUNT(*) as total FROM sales WHERE workspace_id = $1 AND status != 'cancelled'`, [workspaceId]),
+      db.query('SELECT COUNT(*) as total FROM clients WHERE workspace_id = $1', [workspaceId]),
+      db.query('SELECT COUNT(*) as total FROM products WHERE workspace_id = $1 AND is_active = true', [workspaceId]),
+      db.query(`SELECT COUNT(*) as total FROM employees WHERE workspace_id = $1 AND status = 'active'`, [workspaceId]),
     ]);
 
     const stats = {
