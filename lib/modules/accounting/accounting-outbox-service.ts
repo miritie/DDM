@@ -27,7 +27,10 @@ import { JournalGenerationService } from './journal-generation-service';
 const db = getPostgresClient();
 const journalGen = new JournalGenerationService();
 
-export type OutboxSourceType = 'sale' | 'sale_payment' | 'expense_payment' | 'payroll_payment';
+export type OutboxSourceType =
+  | 'sale' | 'sale_payment'
+  | 'expense_engagement' | 'expense_payment'
+  | 'payroll_payment';
 
 interface Queryable { query: (sql: string, params?: any[]) => Promise<any>; }
 
@@ -73,11 +76,24 @@ export class AccountingOutboxService {
     );
   }
 
+  /**
+   * Inscrit une intention d'écriture HORS transaction (insert simple).
+   * Pour les hooks qui ne sont pas dans une transaction SQL ouverte
+   * (approbation de dépense…). Idempotent (ON CONFLICT).
+   */
+  async enqueue(opts: {
+    workspaceId: string; sourceType: OutboxSourceType; sourceId: string; reference?: string | null;
+  }): Promise<void> {
+    await ensureOutboxTable();
+    await this.enqueueInClient(db, opts);
+  }
+
   /** Produit l'écriture d'une ligne d'outbox selon son type (idempotent). */
   private async generate(sourceType: OutboxSourceType, sourceId: string): Promise<string> {
     switch (sourceType) {
       case 'sale': return journalGen.fromSale(sourceId);
       case 'sale_payment': return journalGen.fromSalePayment(sourceId);
+      case 'expense_engagement': return journalGen.fromExpenseEngagement(sourceId);
       case 'expense_payment': return journalGen.fromExpensePayment(sourceId);
       case 'payroll_payment': return journalGen.fromPayrollPayment(sourceId);
       default: throw new Error(`Type d'outbox inconnu : ${sourceType}`);
@@ -136,6 +152,20 @@ export class AccountingOutboxService {
     )).rows[0].n;
 
     return { done, failed, remaining };
+  }
+
+  /**
+   * Engage comptablement une dépense approuvée (crée la dette fournisseur
+   * 401) : inscrit l'intention puis tente de la produire. Best-effort —
+   * à appeler après une approbation, ne doit jamais faire échouer celle-ci.
+   */
+  async engageExpense(workspaceId: string, expenseUuid: string, reference?: string | null): Promise<void> {
+    try {
+      await this.enqueue({ workspaceId, sourceType: 'expense_engagement', sourceId: expenseUuid, reference });
+      await this.process({ workspaceId, sourceIds: [expenseUuid] });
+    } catch (e: any) {
+      console.warn(`[outbox] engagement dépense ${expenseUuid}: ${e?.message ?? e}`);
+    }
   }
 
   /** Nombre d'écritures en attente (régularisation à faire). */

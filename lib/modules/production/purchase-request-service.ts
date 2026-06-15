@@ -17,8 +17,10 @@
 import { getPostgresClient } from '@/lib/database/postgres-client';
 import { v4 as uuidv4 } from 'uuid';
 import { IngredientService } from './ingredient-service';
+import { AccountingOutboxService } from '@/lib/modules/accounting/accounting-outbox-service';
 
 const db = getPostgresClient();
+const outboxService = new AccountingOutboxService();
 const ingredientService = new IngredientService();
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -356,6 +358,10 @@ export class PurchaseRequestService {
       );
       return exp.rows[0].id;
     });
+
+    // Engagement comptable : dette FOURNISSEUR de l'achat MP (D 6xx / C 401).
+    // Best-effort, hors transaction — ne bloque jamais l'approbation.
+    await outboxService.engageExpense(pr.WorkspaceId, expenseId);
 
     return {
       purchaseRequest: await this.getById(pr.id),

@@ -99,6 +99,51 @@ export class JournalGenerationService {
       }
     }
 
+    // 3 bis. EXTINCTION DE DETTE FOURNISSEUR.
+    // Si la dépense a été ENGAGÉE à l'approbation (écriture D 6xx / C 401
+    // déjà passée, réf ENG-…), alors le paiement n'est plus une charge :
+    // c'est l'extinction de la dette → Débit 401 Fournisseurs / Crédit 5xx.
+    // Sinon (dépenses historiques sans engagement), comportement INCHANGÉ.
+    const engaged = await db.query<any>(
+      `SELECT id FROM journal_entries
+       WHERE workspace_id = $1 AND reference = $2 LIMIT 1`,
+      [exp.workspace_id, `ENG-${exp.expense_number}`]
+    );
+    if (engaged.rows[0]) {
+      const supplier = (await this.findAccount(exp.workspace_id, '401'))
+        ?? (await this.findAccount(exp.workspace_id, '40'));
+      if (!supplier) throw new Error('Compte fournisseurs (401) introuvable au plan comptable');
+
+      const totalsByTypeE: Record<string, number> = {};
+      for (const tx of txR.rows) {
+        const t = tx.wallet_type || 'other';
+        totalsByTypeE[t] = (totalsByTypeE[t] || 0) + Number(tx.amount);
+      }
+      const domE = Object.entries(totalsByTypeE).sort((a, b) => b[1] - a[1])[0]?.[0];
+      const journal = await this.ensureJournal(
+        exp.workspace_id, JOURNAL_CODE_BY_WALLET_TYPE[domE] || 'OD',
+        'Journal de trésorerie', 'bank'
+      );
+      const totalTtc = txR.rows.reduce((s: number, tx: any) => s + Number(tx.amount), 0);
+      const lines = [
+        { accountId: supplier.id, label: `Règlement fournisseur — ${exp.expense_number}`, debit: totalTtc, credit: 0 },
+        ...txR.rows.map((tx: any) => ({
+          accountId: tx.wallet_account_id,
+          label: `${tx.wallet_name} — paiement ${exp.expense_number}`,
+          debit: 0, credit: Number(tx.amount),
+        })),
+      ];
+      return this.insertEntry({
+        workspaceId: exp.workspace_id,
+        journal,
+        date: exp.payment_date ? new Date(exp.payment_date) : new Date(),
+        description: `Règlement dépense ${exp.expense_number} — ${exp.title}`,
+        reference: exp.expense_number,
+        lines,
+        expenseId: exp.id,
+      });
+    }
+
     // 4. Calcul HT / TVA
     const totalTtc = Number(exp.amount);
     const tvaRate = Number(exp.tva_rate || 0);
@@ -215,6 +260,81 @@ export class JournalGenerationService {
     return entryUuid;
   }
 
+  /**
+   * ENGAGEMENT D'UNE DÉPENSE / DETTE FOURNISSEUR (à l'approbation).
+   *   Débit 6xx Charge (+ Débit 4456 TVA déductible) / Crédit 401 Fournisseurs
+   * Le solde du compte 401 devient la VRAIE dette fournisseur (reçu mais pas
+   * encore payé). Réf ENG-<expense_number>, SANS expense_id (pour ne pas
+   * interférer avec l'idempotence de fromExpensePayment). Idempotent par réf.
+   * Le paiement éteint ensuite la dette (D 401 / C 5xx, cf. fromExpensePayment).
+   */
+  async fromExpenseEngagement(expenseId: string): Promise<string> {
+    const exR = await db.query<any>(
+      `SELECT e.id, e.expense_number, e.title, e.amount, e.status, e.workspace_id, e.created_at,
+              ec.code AS category_code, ec.label AS category_label, et.label AS type_label,
+              COALESCE(et.charge_account_id, ec.charge_account_id) AS charge_account_id,
+              COALESCE(et.tva_account_id,    ec.tva_account_id)    AS tva_account_id,
+              COALESCE(et.tva_rate,          ec.tva_rate)          AS tva_rate
+       FROM expenses e
+       LEFT JOIN expense_categories ec ON ec.id = e.category_id
+       LEFT JOIN expense_types et      ON et.id = e.expense_type_id
+       WHERE e.id::text = $1 OR e.expense_id = $1 LIMIT 1`,
+      [expenseId]
+    );
+    if (exR.rows.length === 0) throw new Error('Dépense introuvable pour engagement comptable');
+    const exp = exR.rows[0];
+    if (!['approved', 'scheduled', 'paid'].includes(exp.status)) {
+      throw new Error(`Engagement impossible : statut '${exp.status}'`);
+    }
+
+    const reference = `ENG-${exp.expense_number}`;
+    const existing = await db.query<any>(
+      `SELECT id FROM journal_entries WHERE workspace_id = $1 AND reference = $2 LIMIT 1`,
+      [exp.workspace_id, reference]
+    );
+    if (existing.rows[0]) return existing.rows[0].id;
+
+    // GARDE ANTI-DOUBLE-CHARGE : si la dépense a déjà été payée par l'ancien
+    // chemin (écriture de paiement D 6xx / C 5xx portant expense_id), la
+    // charge est DÉJÀ au débit. Créer l'engagement la doublerait → on
+    // renvoie l'écriture de paiement existante sans rien produire.
+    const paidEntry = await db.query<any>(
+      `SELECT id FROM journal_entries WHERE expense_id = $1 LIMIT 1`,
+      [exp.id]
+    );
+    if (paidEntry.rows[0]) return paidEntry.rows[0].id;
+
+    if (!exp.charge_account_id) {
+      const target = exp.type_label ? `type '${exp.type_label}'` : `catégorie '${exp.category_code}'`;
+      throw new Error(`${target} sans compte de charge — engagement impossible.`);
+    }
+    const supplier = (await this.findAccount(exp.workspace_id, '401'))
+      ?? (await this.findAccount(exp.workspace_id, '40'));
+    if (!supplier) throw new Error('Compte fournisseurs (401) introuvable au plan comptable');
+
+    const totalTtc = Number(exp.amount);
+    const tvaRate = Number(exp.tva_rate || 0);
+    const hasTva = tvaRate > 0 && exp.tva_account_id;
+    const ht = hasTva ? +(totalTtc / (1 + tvaRate / 100)).toFixed(2) : totalTtc;
+    const tva = hasTva ? +(totalTtc - ht).toFixed(2) : 0;
+
+    const lines = [
+      { accountId: exp.charge_account_id, label: `${exp.type_label || exp.category_label || exp.category_code} — ${exp.title}`, debit: ht, credit: 0 },
+      ...(hasTva ? [{ accountId: exp.tva_account_id, label: `TVA déductible ${tvaRate}% — ${exp.expense_number}`, debit: tva, credit: 0 }] : []),
+      { accountId: supplier.id, label: `Dette fournisseur — ${exp.expense_number}`, debit: 0, credit: totalTtc },
+    ];
+
+    const journal = await this.ensureJournal(exp.workspace_id, 'OD', 'Opérations diverses', 'general');
+    return this.insertEntry({
+      workspaceId: exp.workspace_id,
+      journal,
+      date: exp.created_at ? new Date(exp.created_at) : new Date(),
+      description: `Engagement dépense ${exp.expense_number} — ${exp.title}`,
+      reference,
+      lines,
+    });
+  }
+
   // =========================================================================
   // VENTES — schéma OHADA classique :
   //   À la vente (journal VT)        : Débit 411 Clients  / Crédit 701 Ventes
@@ -273,6 +393,7 @@ export class JournalGenerationService {
     description: string;
     reference: string;
     lines: Array<{ accountId: string; label: string; debit: number; credit: number }>;
+    expenseId?: string | null;
   }): Promise<string> {
     const year = opts.date.getFullYear();
     const entryNumber = await this.nextEntryNumber(opts.journal.id, opts.journal.code, year);
@@ -287,8 +408,8 @@ export class JournalGenerationService {
       const ins = await client.query(
         `INSERT INTO journal_entries (
            entry_id, entry_number, journal_id, entry_date, description, reference,
-           status, posted_at, fiscal_year, fiscal_period, workspace_id
-         ) VALUES ($1, $2, $3, $4, $5, $6, 'posted', CURRENT_TIMESTAMP, $7, $8, $9)
+           status, posted_at, fiscal_year, fiscal_period, workspace_id, expense_id
+         ) VALUES ($1, $2, $3, $4, $5, $6, 'posted', CURRENT_TIMESTAMP, $7, $8, $9, $10)
          RETURNING id`,
         [
           `JE-${uuidv4()}`,
@@ -300,6 +421,7 @@ export class JournalGenerationService {
           year,
           opts.date.getMonth() + 1,
           opts.workspaceId,
+          opts.expenseId ?? null,
         ]
       );
       const entryUuid = ins.rows[0].id;

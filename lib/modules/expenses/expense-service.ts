@@ -8,12 +8,14 @@ import { Expense, ExpenseAttachment, ExpenseStatus } from '@/types/modules';
 import { PaymentMethodService } from '@/lib/modules/treasury/payment-method-service';
 import { TransactionService } from '@/lib/modules/treasury/transaction-service';
 import { JournalGenerationService } from '@/lib/modules/accounting/journal-generation-service';
+import { AccountingOutboxService } from '@/lib/modules/accounting/accounting-outbox-service';
 import { v4 as uuidv4 } from 'uuid';
 
 const postgresClient = getPostgresClient();
 const paymentMethodService = new PaymentMethodService();
 const transactionService = new TransactionService();
 const journalGenerator = new JournalGenerationService();
+const outboxService = new AccountingOutboxService();
 
 export interface PayFromWalletsInput {
   expenseId: string;          // UUID PK ou business code
@@ -157,6 +159,11 @@ export class ExpenseService {
         UpdatedAt: new Date().toISOString(),
       }
     );
+
+    // Engagement comptable : la dépense approuvée devient une dette
+    // fournisseur (D 6xx / C 401). Best-effort, ne bloque pas l'approbation.
+    const wsId = (updated as any).WorkspaceId || (updated as any).workspace_id;
+    if (wsId) await outboxService.engageExpense(wsId, recordId, (updated as any).ExpenseNumber);
     return updated;
   }
 

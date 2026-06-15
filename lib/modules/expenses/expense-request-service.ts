@@ -5,7 +5,10 @@
 
 import { getPostgresClient } from '@/lib/database/postgres-client';
 import { ExpenseRequest, ExpenseApprovalStep, ExpenseRequestStatus } from '@/types/modules';
+import { AccountingOutboxService } from '@/lib/modules/accounting/accounting-outbox-service';
 import { v4 as uuidv4 } from 'uuid';
+
+const outboxService = new AccountingOutboxService();
 
 const postgresClient = getPostgresClient();
 
@@ -369,11 +372,12 @@ export class ExpenseRequestService {
         );
         const expenseNumber = `DEP-${year}-${String((cnt.rows[0]?.n || 0) + 1).padStart(4, '0')}`;
 
-        await postgresClient.query<any>(
+        const insExp = await postgresClient.query<any>(
           `INSERT INTO expenses (
              expense_id, expense_number, expense_request_id, title, description,
              amount, category_id, expense_type_id, payer_id, status, workspace_id
-           ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'approved', $10)`,
+           ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'approved', $10)
+           RETURNING id`,
           [
             `EXP-${uuidv4().slice(0, 8)}`,
             expenseNumber,
@@ -387,6 +391,9 @@ export class ExpenseRequestService {
             req.WorkspaceId,
           ]
         );
+        // Engagement comptable : dette fournisseur (D 6xx / C 401). Best-effort.
+        const newExpId = insExp.rows[0]?.id;
+        if (newExpId) await outboxService.engageExpense(req.WorkspaceId, newExpId, expenseNumber);
       }
     }
 
