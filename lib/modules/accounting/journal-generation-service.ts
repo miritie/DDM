@@ -110,6 +110,7 @@ export class JournalGenerationService {
       [exp.workspace_id, `ENG-${exp.expense_number}`]
     );
     if (engaged.rows[0]) {
+      await this.ensureCoreAccounts(exp.workspace_id);
       const supplier = (await this.findAccount(exp.workspace_id, '401'))
         ?? (await this.findAccount(exp.workspace_id, '40'));
       if (!supplier) throw new Error('Compte fournisseurs (401) introuvable au plan comptable');
@@ -288,6 +289,7 @@ export class JournalGenerationService {
     );
     if (existing.rows[0]) return existing.rows[0].id;
 
+    await this.ensureCoreAccounts(a.workspace_id);
     const advanceAcc = (await this.findAccount(a.workspace_id, '425'))
       ?? (await this.findAccount(a.workspace_id, '421'));
     if (!advanceAcc) throw new Error('Compte avances au personnel (425) introuvable au plan comptable');
@@ -362,6 +364,7 @@ export class JournalGenerationService {
       const target = exp.type_label ? `type '${exp.type_label}'` : `catégorie '${exp.category_code}'`;
       throw new Error(`${target} sans compte de charge — engagement impossible.`);
     }
+    await this.ensureCoreAccounts(exp.workspace_id);
     const supplier = (await this.findAccount(exp.workspace_id, '401'))
       ?? (await this.findAccount(exp.workspace_id, '40'));
     if (!supplier) throw new Error('Compte fournisseurs (401) introuvable au plan comptable');
@@ -413,6 +416,52 @@ export class JournalGenerationService {
     );
     return pref.rows[0] ?? null;
   }
+
+  /**
+   * GARANTIE : les comptes de tiers / charges / trésorerie SYSCOHADA dont
+   * dépendent les générateurs (dettes incluses) existent. Idempotent
+   * (ON CONFLICT), mémoïsé une fois par workspace et par process. Sans
+   * cela, un workspace dont le plan n'a pas reçu la migration OHADA voit
+   * ses écritures de dette rester 'pending' faute de compte 401/425…
+   */
+  private async ensureCoreAccounts(workspaceId: string): Promise<void> {
+    if (JournalGenerationService.coreEnsured.has(workspaceId)) return;
+    const CORE: Array<[string, string, string, string]> = [
+      // numéro, libellé, account_type, account_class
+      ['401', "Fournisseurs d'exploitation", 'liability', 'class_4'],
+      ['411', 'Clients', 'asset', 'class_4'],
+      ['421', 'Personnel — rémunérations dues', 'liability', 'class_4'],
+      ['425', 'Personnel — avances et acomptes', 'asset', 'class_4'],
+      ['431', 'Sécurité sociale (CNPS)', 'liability', 'class_4'],
+      ['442', 'État — impôts (ITS)', 'liability', 'class_4'],
+      ['447', 'État — autres impôts (FDFP)', 'liability', 'class_4'],
+      ['445', 'État — TVA déductible', 'asset', 'class_4'],
+      ['521', 'Banques', 'asset', 'class_5'],
+      ['571', 'Caisse', 'asset', 'class_5'],
+      ['601', 'Achats de marchandises', 'expense', 'class_6'],
+      ['602', 'Achats de matières premières', 'expense', 'class_6'],
+      ['661', 'Rémunérations du personnel', 'expense', 'class_6'],
+      ['664', 'Charges sociales', 'expense', 'class_6'],
+      ['701', 'Ventes de marchandises', 'revenue', 'class_7'],
+    ];
+    try {
+      for (const [number, label, type, klass] of CORE) {
+        await db.query(
+          `INSERT INTO chart_accounts
+             (account_id, account_number, label, account_type, account_class, is_active, allow_direct_posting, workspace_id)
+           VALUES ($1, $2, $3, $4::account_type, $5::account_class, true, true, $6)
+           ON CONFLICT (account_number, workspace_id) DO NOTHING`,
+          [`ACC-${number}-${String(workspaceId).slice(0, 8)}`, number, label, type, klass, workspaceId]
+        );
+      }
+      JournalGenerationService.coreEnsured.add(workspaceId);
+    } catch (e: any) {
+      // Plan comptable absent/colonnes différentes : on n'empêche rien,
+      // le générateur appelant gérera l'absence de compte (reste pending).
+      console.warn('[compta] ensureCoreAccounts:', e?.message ?? e);
+    }
+  }
+  private static coreEnsured = new Set<string>();
 
   /** Journal par code — créé s'il n'existe pas (idempotent). */
   private async ensureJournal(workspaceId: string, code: string, label: string, type: string): Promise<{ id: string; code: string }> {
@@ -520,6 +569,7 @@ export class JournalGenerationService {
     );
     if (existing.rows[0]) return existing.rows[0].id;
 
+    await this.ensureCoreAccounts(sale.workspace_id);
     const clients = await this.findAccount(sale.workspace_id, '411');
     const ventes = await this.findAccount(sale.workspace_id, '701');
     if (!clients || !ventes) {
@@ -572,6 +622,7 @@ export class JournalGenerationService {
     );
     if (existing.rows[0]) return existing.rows[0].id;
 
+    await this.ensureCoreAccounts(pay.workspace_id);
     const clients = await this.findAccount(pay.workspace_id, '411');
     if (!clients) throw new Error('Compte 411 (Clients) absent du plan comptable — initialiser le plan.');
 
@@ -627,6 +678,7 @@ export class JournalGenerationService {
     /** Préfixes de compte de charge à essayer dans l'ordre (ex. ['6614','661','66']) */
     chargeAccountPrefixes: string[];
   }): Promise<string> {
+    await this.ensureCoreAccounts(opts.workspaceId);
     let charge: { id: string } | null = null;
     for (const prefix of opts.chargeAccountPrefixes) {
       charge = await this.findAccount(opts.workspaceId, prefix);
@@ -701,6 +753,7 @@ export class JournalGenerationService {
       }
       throw new Error(`Compte ${what} (${prefixes.join('/')}) introuvable au plan comptable`);
     };
+    await this.ensureCoreAccounts(p.workspace_id);
     const remun = await need(['661', '66'], 'rémunérations');
     const staff = await need(['421', '42'], 'personnel — net dû');
 
@@ -811,6 +864,7 @@ export class JournalGenerationService {
     debitAccountPrefixes: string[];
     treasuryAccountId?: string | null;
   }): Promise<string> {
+    await this.ensureCoreAccounts(opts.workspaceId);
     let debit: { id: string } | null = null;
     for (const prefix of opts.debitAccountPrefixes) {
       debit = await this.findAccount(opts.workspaceId, prefix);
