@@ -457,14 +457,18 @@ export class PayrollService {
        pm.Id, input.processedById]
     );
 
-    // ----- Écritures comptables (best-effort) -----
-    // 1. Charge de paie : UNE fois (idempotente) — crédit 421 « net dû »,
-    //    matérialise aussi les dettes sociales (431) et fiscales (442/447)
-    // 2. Chaque versement : D 421 ÷ C 5xx pour le montant versé
+    // ----- Écritures comptables -----
+    // 1. Charge de paie (DETTES 421/431/442/447/425) : via l'OUTBOX —
+    //    durable et régularisable (jamais perdue), idempotente par n° paie.
+    // 2. Chaque versement : D 421 ÷ C 5xx (idempotent par réf, direct).
     try {
+      const { AccountingOutboxService } = await import('@/lib/modules/accounting/accounting-outbox-service');
+      const ob = new AccountingOutboxService();
+      await ob.enqueue({ workspaceId: payroll.WorkspaceId, sourceType: 'payroll_payment', sourceId: payroll.Id, reference: payroll.PayrollNumber });
+      await ob.process({ workspaceId: payroll.WorkspaceId, sourceIds: [payroll.Id] }).catch(() => {});
+
       const { JournalGenerationService } = await import('@/lib/modules/accounting/journal-generation-service');
       const gen = new JournalGenerationService();
-      await gen.fromPayrollPayment(payroll.Id);
       await gen.fromSalaryDisbursement({
         workspaceId: payroll.WorkspaceId,
         payrollNumber: payroll.PayrollNumber,
