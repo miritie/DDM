@@ -193,6 +193,13 @@ function Content() {
               description="CNPS · DGI · FDFP — dû, réglé, reste, échéances du 15."
               tone="blue"
             />
+            <AccessCard
+              href="/debts"
+              icon={<Landmark className="w-5 h-5" />}
+              title="Dettes & créances"
+              description="Fournisseurs, salaires, charges, clients, avances — à payer / à recevoir."
+              tone="amber"
+            />
           </div>
         </section>
 

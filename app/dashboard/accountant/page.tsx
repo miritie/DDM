@@ -214,7 +214,7 @@ export default function AccountantDashboardPage() {
           <NavCard href="/accounting" icon={<Calculator className="w-5 h-5" />} title="Comptabilité" />
           <NavCard href="/reports/financial" icon={<FileBarChart className="w-5 h-5" />} title="Rapports financiers" />
           <NavCard href="/treasury/wallets/inventory" icon={<Wallet className="w-5 h-5" />} title="Inventaire caisses" />
-          <NavCard href="/advances-debts" icon={<HandCoins className="w-5 h-5" />} title="Avances & dettes" />
+          <NavCard href="/debts" icon={<HandCoins className="w-5 h-5" />} title="Dettes & créances" />
         </section>
       </div>
     </div>
