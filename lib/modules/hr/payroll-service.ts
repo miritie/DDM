@@ -73,6 +73,7 @@ export function ensurePayrollTable(): Promise<void> {
         `fiscal_parts NUMERIC(3, 1)`,
         `charges_settled_at TIMESTAMP`,
         `amount_paid DECIMAL(15, 2) DEFAULT 0`,
+        `advance_recovery DECIMAL(15, 2) DEFAULT 0`,
       ]) {
         await postgresClient.query(`ALTER TABLE payrolls ADD COLUMN IF NOT EXISTS ${col}`);
       }
@@ -104,6 +105,24 @@ export function ensurePayrollTable(): Promise<void> {
            transaction_id UUID,
            paid_by_id UUID REFERENCES users(id) ON DELETE SET NULL,
            paid_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL
+         )`
+      );
+      // ----- Avances au personnel (créance, récupérée sur salaire) -----
+      await postgresClient.query(
+        `CREATE TABLE IF NOT EXISTS employee_advances_simple (
+           id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+           advance_number VARCHAR(50) NOT NULL,
+           employee_id UUID NOT NULL REFERENCES employees(id) ON DELETE CASCADE,
+           amount DECIMAL(15, 2) NOT NULL,
+           recovered DECIMAL(15, 2) DEFAULT 0 NOT NULL,
+           reason TEXT,
+           wallet_id UUID REFERENCES wallets(id) ON DELETE SET NULL,
+           transaction_id UUID,
+           status VARCHAR(12) DEFAULT 'open' NOT NULL,
+           granted_by_id UUID REFERENCES users(id) ON DELETE SET NULL,
+           granted_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+           workspace_id UUID NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+           created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
          )`
       );
       // ----- Primes payées en espèces à la clôture de caisse -----
@@ -160,6 +179,7 @@ const SELECT_PAYROLL = `
          p.base_salary::float AS "BaseSalary", p.allowances::float AS "Allowances",
          p.bonuses::float AS "Bonuses", p.deductions::float AS "Deductions",
          p.advance_deduction::float AS "AdvanceDeduction", p.net_salary::float AS "NetSalary",
+         COALESCE(p.advance_recovery, 0)::float AS "AdvanceRecovery",
          COALESCE(p.amount_paid, 0)::float AS "AmountPaid",
          p.status AS "Status", p.notes AS "Notes",
          p.payment_date AS "PaymentDate", p.processed_at AS "ProcessedAt",
@@ -311,25 +331,39 @@ export class PayrollService {
       subjectToLegalCharges: employee.cnps_subject !== false,
     });
 
+    // ----- Récupération des avances au personnel (dette interne) -----
+    // L'encours d'avances de l'employé est récupéré sur ce bulletin, dans
+    // la limite du net (jamais de net négatif). Réduit le net, créditera 425.
+    const { StaffAdvanceService } = await import('./staff-advance-service');
+    const staffAdvances = new StaffAdvanceService();
+    const outstanding = await staffAdvances.outstandingForEmployee(input.workspaceId, employee.id);
+    const advanceRecovery = Math.max(0, Math.min(outstanding, Math.round(calc.netToPay)));
+    const netAfterRecovery = Math.round(calc.netToPay) - advanceRecovery;
+
     const payrollId = uuidv4();
     const number = await this.nextNumber(input.workspaceId, input.period);
     await postgresClient.query(
       `INSERT INTO payrolls (payroll_id, payroll_number, employee_id, period, base_salary,
-                             allowances, bonuses, deductions, advance_deduction, net_salary,
+                             allowances, bonuses, deductions, advance_deduction, advance_recovery, net_salary,
                              status, notes, workspace_id,
                              days_worked, gross_taxable, gross_total, transport_allowance,
                              meal_allowance, sales_bonus, cnps_employee, its_amount, ricf,
                              employer_charges, employer_total, fiscal_parts)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 'draft', $11, $12,
-               $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24)`,
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, 'draft', $12, $13,
+               $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25)`,
       [payrollId, number, employee.id, input.period, baseSalary,
-       allowances, bonuses, deductions, cashAlreadyPaid, calc.netToPay,
+       allowances, bonuses, deductions, cashAlreadyPaid, advanceRecovery, netAfterRecovery,
        input.notes ?? null, input.workspaceId,
        daysWorked, calc.grossTaxable, calc.grossTotal, transportAllowance,
        mealAllowance, salesBonusPaid, calc.employee.cnpsRetirement, calc.employee.its,
        calc.employee.ricf, JSON.stringify(calc.employer), calc.employer.total,
        computeFiscalParts(employee.marital_status, employee.children_count) || employee.fiscal_parts || 1]
     );
+
+    // Impute la récupération sur les avances ouvertes (FIFO).
+    if (advanceRecovery > 0) {
+      await staffAdvances.applyRecovery(input.workspaceId, employee.id, advanceRecovery);
+    }
     return this.getById(payrollId);
   }
 

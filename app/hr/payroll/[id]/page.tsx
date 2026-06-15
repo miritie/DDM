@@ -152,6 +152,7 @@ export default function PayrollDetailPage() {
                       ...(payroll.CnpsEmployee > 0 ? [['CNPS salarié (6,3 %)', -payroll.CnpsEmployee]] : []),
                       ...(payroll.ItsAmount > 0 ? [['ITS (barème 2023-719)', -payroll.ItsAmount]] : []),
                       ...(payroll.Deductions > 0 ? [['Autres retenues', -payroll.Deductions]] : []),
+                      ...(payroll.AdvanceRecovery > 0 ? [['Récupération avance', -payroll.AdvanceRecovery]] : []),
                       ...(payroll.AdvanceDeduction > 0 ? [['Acomptes espèces (primes déjà versées)', -payroll.AdvanceDeduction]] : []),
                     ] as Array<[string, number]>).map(([label, val]) => (
                       <tr key={label as string} className="border-b last:border-b-0">

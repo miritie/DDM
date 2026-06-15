@@ -261,6 +261,60 @@ export class JournalGenerationService {
   }
 
   /**
+   * OCTROI D'UNE AVANCE AU PERSONNEL (interne).
+   *   Débit 425 Avances/acomptes au personnel / Crédit 5xx Trésorerie
+   * Le solde 425 = la créance de l'entreprise sur le salarié (à récupérer
+   * sur salaire). Réf AVA-<advance_number>, idempotent. La transaction de
+   * trésorerie (débit caisse) est faite par l'appelant ; ici on ne fait
+   * QUE l'écriture comptable. Compte caisse via le wallet, sinon 571.
+   */
+  async fromAdvanceGrant(advanceId: string): Promise<string> {
+    const aR = await db.query<any>(
+      `SELECT a.id, a.advance_number, a.amount, a.granted_at, a.workspace_id,
+              e.full_name AS employee_name,
+              w.type AS wallet_type, w.chart_account_id AS wallet_account_id
+       FROM employee_advances_simple a
+       JOIN employees e ON e.id = a.employee_id
+       LEFT JOIN wallets w ON w.id = a.wallet_id
+       WHERE a.id::text = $1 LIMIT 1`,
+      [advanceId]
+    );
+    if (aR.rows.length === 0) throw new Error('Avance introuvable pour écriture comptable');
+    const a = aR.rows[0];
+    const reference = `AVA-${a.advance_number}`;
+    const existing = await db.query<any>(
+      `SELECT id FROM journal_entries WHERE workspace_id = $1 AND reference = $2 LIMIT 1`,
+      [a.workspace_id, reference]
+    );
+    if (existing.rows[0]) return existing.rows[0].id;
+
+    const advanceAcc = (await this.findAccount(a.workspace_id, '425'))
+      ?? (await this.findAccount(a.workspace_id, '421'));
+    if (!advanceAcc) throw new Error('Compte avances au personnel (425) introuvable au plan comptable');
+    const cash = a.wallet_account_id ? { id: a.wallet_account_id }
+      : await this.findAccount(a.workspace_id, '571');
+    if (!cash) throw new Error('Compte de trésorerie introuvable au plan comptable');
+
+    const code = a.wallet_type === 'bank' ? 'BAN' : a.wallet_type === 'mobile_money' ? 'MM' : 'CAI';
+    const journal = await this.ensureJournal(
+      a.workspace_id, code,
+      code === 'CAI' ? 'Journal de caisse' : code === 'BAN' ? 'Journal de banque' : 'Journal mobile money',
+      code === 'CAI' ? 'cash' : 'bank'
+    );
+    return this.insertEntry({
+      workspaceId: a.workspace_id,
+      journal,
+      date: a.granted_at ? new Date(a.granted_at) : new Date(),
+      description: `Avance au personnel ${a.advance_number} — ${a.employee_name}`,
+      reference,
+      lines: [
+        { accountId: advanceAcc.id, label: `Avance ${a.employee_name}`, debit: Number(a.amount), credit: 0 },
+        { accountId: cash.id, label: `Trésorerie — avance ${a.advance_number}`, debit: 0, credit: Number(a.amount) },
+      ],
+    });
+  }
+
+  /**
    * ENGAGEMENT D'UNE DÉPENSE / DETTE FOURNISSEUR (à l'approbation).
    *   Débit 6xx Charge (+ Débit 4456 TVA déductible) / Crédit 401 Fournisseurs
    * Le solde du compte 401 devient la VRAIE dette fournisseur (reçu mais pas
@@ -674,6 +728,14 @@ export class JournalGenerationService {
     if (otherDeductions > 0) {
       const acc = await need(['421', '42'], 'personnel');
       lines.push({ accountId: acc.id, label: `Retenues diverses ${who} — ${p.period}`, debit: 0, credit: otherDeductions });
+    }
+    // Récupération d'avance au personnel : le net dû (421) est déjà
+    // réduit du montant récupéré → on crédite 425 pour éteindre la
+    // créance (D 425 à l'octroi). L'entrée reste équilibrée.
+    const advanceRecovery = Number(p.advance_recovery) || 0;
+    if (advanceRecovery > 0) {
+      const acc = await this.findAccount(p.workspace_id, '425') ?? await this.findAccount(p.workspace_id, '42');
+      if (acc) lines.push({ accountId: acc.id, label: `Récupération avance ${who} — ${p.period}`, debit: 0, credit: advanceRecovery });
     }
 
     const journal = await this.ensureJournal(p.workspace_id, 'OD', 'Opérations diverses', 'general');

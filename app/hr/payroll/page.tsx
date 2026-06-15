@@ -167,6 +167,9 @@ export default function PayrollPage() {
           <Button onClick={() => setShowBulkDialog(true)}>
             Générer Paies du Mois
           </Button>
+          <Button variant="outline" onClick={() => router.push('/hr/advances')}>
+            Avances
+          </Button>
           <Button variant="outline" onClick={() => router.push('/hr/payroll/settings')}>
             Primes
           </Button>

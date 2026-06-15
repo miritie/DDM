@@ -30,7 +30,7 @@ const journalGen = new JournalGenerationService();
 export type OutboxSourceType =
   | 'sale' | 'sale_payment'
   | 'expense_engagement' | 'expense_payment'
-  | 'payroll_payment';
+  | 'payroll_payment' | 'advance_grant';
 
 interface Queryable { query: (sql: string, params?: any[]) => Promise<any>; }
 
@@ -96,6 +96,7 @@ export class AccountingOutboxService {
       case 'expense_engagement': return journalGen.fromExpenseEngagement(sourceId);
       case 'expense_payment': return journalGen.fromExpensePayment(sourceId);
       case 'payroll_payment': return journalGen.fromPayrollPayment(sourceId);
+      case 'advance_grant': return journalGen.fromAdvanceGrant(sourceId);
       default: throw new Error(`Type d'outbox inconnu : ${sourceType}`);
     }
   }
