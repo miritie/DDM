@@ -1,0 +1,34 @@
+[
+ {
+  "code": "LOYER",
+  "label": "Loyer"
+ },
+ {
+  "code": "SALAIRE",
+  "label": "Salaires"
+ },
+ {
+  "code": "MAT-PREM",
+  "label": "Matières premières"
+ },
+ {
+  "code": "CACAO",
+  "label": "Cacao"
+ },
+ {
+  "code": "EMBALLAGE",
+  "label": "Emballage"
+ },
+ {
+  "code": "TRANSPORT",
+  "label": "Transport & expédition"
+ },
+ {
+  "code": "MAIN-OEUVRE",
+  "label": "Main d'œuvre usine"
+ },
+ {
+  "code": "ACHAT-USINE",
+  "label": "Achats usine"
+ }
+]

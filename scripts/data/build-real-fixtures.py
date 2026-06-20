@@ -184,8 +184,81 @@ def build_people(stand):
                        'sheets': 0, 'source': 'usine'})
     return people
 
+def file_date(fn):
+    m = re.search(r'PHOTO-(\d{4})-(\d{2})-(\d{2})', fn or '')
+    return f"{m.group(1)}-{m.group(2)}-{m.group(3)}" if m else None
+
+def rec_date(r):
+    d = r.get('date')
+    if isinstance(d, str) and re.match(r'^\d{4}-\d{2}-\d{2}$', d):
+        return d
+    return file_date(r.get('file'))
+
+# Catégories de dépenses (code, libellé)
+EXPENSE_CATS = [
+    ('LOYER', 'Loyer'), ('SALAIRE', 'Salaires'), ('MAT-PREM', 'Matières premières'),
+    ('CACAO', 'Cacao'), ('EMBALLAGE', 'Emballage'), ('TRANSPORT', 'Transport & expédition'),
+    ('MAIN-OEUVRE', "Main d'œuvre usine"), ('ACHAT-USINE', 'Achats usine'),
+]
+
+def build_expenses(admin, usine):
+    """Extrait les dépenses réelles payées (admin catégorisées + paies/achats usine)."""
+    out = []
+    MIN, MAX = 1000, 3_000_000
+    # --- Admin : catégories fiables uniquement ---
+    catmap = {'loyer': 'LOYER', 'salaire': 'SALAIRE', 'matiere_premiere': 'MAT-PREM',
+              'cacao': 'CACAO', 'emballage': 'EMBALLAGE'}
+    titles = {'LOYER': 'Loyer usine', 'SALAIRE': 'Salaires', 'MAT-PREM': 'Matières premières',
+              'CACAO': 'Achat cacao', 'EMBALLAGE': 'Emballage', 'TRANSPORT': 'Transport & expédition',
+              'MAIN-OEUVRE': 'Paie ouvriers usine', 'ACHAT-USINE': 'Achats usine'}
+    for r in admin:
+        amt = r.get('amount_total')
+        cat = catmap.get((r.get('category') or '').strip().lower())
+        if r.get('doc_type') == 'rent':
+            cat = 'LOYER'
+        if r.get('doc_type') == 'salary':
+            cat = cat or 'SALAIRE'
+        d = rec_date(r)
+        if not cat or not d or not isinstance(amt, (int, float)) or not (MIN <= amt <= MAX):
+            continue
+        title = titles[cat]
+        if r.get('party'):
+            title += f" — {r['party'][:40]}"
+        out.append({'date': d, 'title': title, 'amount': round(amt), 'category': cat,
+                    'source_file': r.get('file'), 'origin': 'admin'})
+    # --- Usine : paies ouvriers + achats ---
+    for r in usine:
+        dt = r.get('doc_type')
+        d = rec_date(r)
+        if not d:
+            continue
+        if dt == 'worker_pay':
+            cat, title = 'MAIN-OEUVRE', 'Paie ouvriers usine'
+        elif dt == 'purchase_need':
+            cat, title = 'ACHAT-USINE', 'Achats usine'
+        elif dt == 'shipment':
+            cat, title = 'TRANSPORT', 'Transport & expédition'
+        else:
+            continue
+        amt = r.get('amount_total')
+        if not isinstance(amt, (int, float)) or amt <= 0:
+            amt = sum(ln['amount'] for ln in r.get('lines', [])
+                      if isinstance(ln.get('amount'), (int, float)) and 0 < ln['amount'] < 500_000)
+        if not (MIN <= amt <= MAX):
+            continue
+        lbl = next((ln.get('label') for ln in r.get('lines', []) if ln.get('label')), None)
+        if dt == 'purchase_need' and lbl:
+            title += f" — {lbl[:40]}"
+        out.append({'date': d, 'title': title, 'amount': round(amt), 'category': cat,
+                    'source_file': r.get('file'), 'origin': 'usine'})
+    out = [e for e in out if e['date'] >= '2025-01-01']  # fenêtre cohérente
+    out.sort(key=lambda x: x['date'])
+    return out
+
 def main():
     stand = load('stand')
+    admin = load('admin')
+    usine = load('usine')
 
     # 1) Prix dérivés par produit canonique (médiane recette/unités), fallback catalogue
     derived = defaultdict(list)
@@ -316,9 +389,13 @@ def main():
     dump('products.json', products)
     dump('outlets.json', stands)
     dump('commercials.json', commercials)
+    expenses = build_expenses(admin, usine)
+
     dump('people.json', people)
     dump('stock.json', stock)
     dump('sales.json', sales)
+    dump('expenses.json', expenses)
+    dump('expense-categories.json', [{'code': c, 'label': l} for c, l in EXPENSE_CATS])
 
     # Récap
     ca = sum(s['total_vente'] or 0 for s in sales)
@@ -329,6 +406,10 @@ def main():
     print(f"commercials.json : {len(commercials)} libellés bruts")
     print(f"people.json      : {len(people)} personnes ({sum(1 for p in people if p['role']=='agent_commercial')} commerciaux + {sum(1 for p in people if p['role']=='operateur_production')} usine)")
     print(f"stock.json       : {len(stock)} lignes de stock (clôture récente par stand/produit)")
+    exp_tot = sum(e['amount'] for e in expenses)
+    from collections import Counter as _C
+    bycat = _C(e['category'] for e in expenses)
+    print(f"expenses.json    : {len(expenses)} dépenses · {exp_tot:,.0f} F · {dict(bycat)}")
     print(f"sales.json       : {len(sales)} ventes/jours · {nitems} lignes produit")
     print(f"  CA (Σ total_vente feuilles) : {ca:>13,.0f} F")
     print(f"  CA (Σ lignes produit)       : {ca_items:>13,.0f} F  ({ca_items/ca*100:.0f}% reconstitué en détail)")

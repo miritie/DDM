@@ -16,6 +16,8 @@ reconstitué par OCR des feuilles « JOURNAL DU STAND » et des échanges des 3 
    - `sales.json` — 1 vente/stand/jour, lignes par produit, primes, observation ; réconciliées au
      total caisse (résiduel/échelle ; fallback Σrecette si total absurde).
    - `stock.json` — inventaire de clôture le plus récent par stand/produit.
+   - `expenses.json` + `expense-categories.json` — dépenses réelles payées (loyer, salaires,
+     matières, emballage, cacao, paies/achats usine, transport), filtrées du bruit.
    Relancer après toute correction : `python3 scripts/data/build-real-fixtures.py`
 3. **`seed-real-data.ts`** → écrit dans la base (Neon).
 
@@ -29,8 +31,10 @@ Le seed :
 - **préserve** la structure (workspace, rôles, permissions, users staff existants) ;
 - **upsert** les référentiels réels (stands, produits, commerciaux/ouvriers) et **désactive**
   les référentiels de démo non réels ;
-- **remplace** les transactions fictives (purge ventes/sessions/primes/observations/stock du
-  workspace) puis réinjecte l'historique réel ;
+- **remplace** les transactions fictives (purge ventes/sessions/primes/observations/stock +
+  dépenses/demandes de démo du workspace) puis réinjecte l'historique réel ;
+- **dépenses** : chaîne `expense_categories → expense_requests(approved) → expenses(paid)`,
+  portées par un user encadrant (compta/admin/pca) ;
 - est **idempotent** (ré-exécutable sans doublon) et **réversible** (Neon : restaurer un point
   de restauration / branche avant exécution).
 

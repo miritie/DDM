@@ -253,6 +253,51 @@ async function main() {
   }
   console.log(`Sales: ${nSales} · Items: ${nItems} · Sessions: ${nSessions} · Observations: ${nObs} · Primes: ${nPrimes}`);
 
+  // ===================================================================== DÉPENSES (couche financière)
+  // Chaîne du module Dépenses : expense_categories -> expense_requests(approved) -> expenses(paid).
+  const cats = load('expense-categories');
+  const catId = new Map<string, string>();
+  for (const c of cats) {
+    const r = await client.query(
+      `INSERT INTO expense_categories (expense_category_id, label, code, workspace_id, is_active)
+       VALUES ($1,$2,$3,$4,true)
+       ON CONFLICT (code, workspace_id) DO UPDATE SET label = EXCLUDED.label, is_active = true
+       RETURNING id`, [`WA-CAT-${c.code}`, c.label, c.code, wsId]);
+    catId.set(c.code, r.rows[0].id);
+  }
+  // Payeur/demandeur = un user encadrant (pca/admin/compta), sinon n'importe quel user staff
+  const payer = (await client.query(
+    `SELECT u.id FROM users u JOIN roles r ON r.id = u.role_id
+     WHERE u.workspace_id = $1 AND r.name IN ('pca','admin','manager_compta_stocks')
+     ORDER BY CASE r.name WHEN 'manager_compta_stocks' THEN 0 WHEN 'admin' THEN 1 ELSE 2 END LIMIT 1`,
+    [wsId])).rows[0]?.id
+    || (await client.query(`SELECT id FROM users WHERE workspace_id = $1 LIMIT 1`, [wsId])).rows[0]?.id;
+  if (!payer) throw new Error('Aucun user pour porter les dépenses.');
+
+  // Purge des dépenses de démo (expenses avant expense_requests pour la contrainte RESTRICT)
+  await client.query(`DELETE FROM expenses WHERE workspace_id = $1`, [wsId]);
+  await client.query(`DELETE FROM expense_requests WHERE workspace_id = $1`, [wsId]);
+
+  const expenses = load('expenses');
+  let nExp = 0;
+  for (const e of expenses) {
+    const cId = catId.get(e.category);
+    if (!cId) continue;
+    const reqUuid = (await client.query(
+      `INSERT INTO expense_requests (expense_request_id, request_number, title, amount, category_id,
+         requester_id, status, workspace_id)
+       VALUES ($1,$2,$3,$4,$5,$6,'approved',$7) RETURNING id`,
+      [bid('ER'), `WA-DR-${e.date}-${nExp}`, e.title, e.amount, cId, payer, wsId])).rows[0].id;
+    await client.query(
+      `INSERT INTO expenses (expense_id, expense_number, expense_request_id, title, amount, category_id,
+         payer_id, status, payment_date, payment_method, workspace_id, description)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,'paid',$8,'historique',$9,$10)`,
+      [bid('EXP'), `WA-DEP-${e.date}-${nExp}`, reqUuid, e.title, e.amount, cId, payer,
+       `${e.date}T12:00:00`, wsId, `Dépense réelle (${e.origin}) — ${e.source_file}`]);
+    nExp++;
+  }
+  console.log(`Dépenses: ${nExp} (${expenses.reduce((a: number, e: any) => a + e.amount, 0).toLocaleString('fr-FR')} F)`);
+
   // ===================================================================== STOCK
   const stock = load('stock');
   let nStock = 0;

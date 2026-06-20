@@ -1,0 +1,314 @@
+[
+ {
+  "date": "2025-03-26",
+  "title": "Achat cacao — USINE",
+  "amount": 110000,
+  "category": "CACAO",
+  "source_file": "00002861-PHOTO-2025-03-26-11-40-56.jpg",
+  "origin": "admin"
+ },
+ {
+  "date": "2025-03-26",
+  "title": "Salaires — KOUAME KOUADIO FRANCOIS (Responsable Qua",
+  "amount": 1935000,
+  "category": "SALAIRE",
+  "source_file": "00004233-PHOTO-2026-01-05-14-26-38.jpg",
+  "origin": "admin"
+ },
+ {
+  "date": "2025-03-31",
+  "title": "Matières premières",
+  "amount": 556400,
+  "category": "MAT-PREM",
+  "source_file": "00002865-PHOTO-2025-03-31-14-41-08.jpg",
+  "origin": "admin"
+ },
+ {
+  "date": "2025-04-29",
+  "title": "Matières premières — Bruno M (07 07 98 55 65)",
+  "amount": 50500,
+  "category": "MAT-PREM",
+  "source_file": "00002964-PHOTO-2025-04-29-17-07-01.jpg",
+  "origin": "admin"
+ },
+ {
+  "date": "2025-05-16",
+  "title": "Emballage",
+  "amount": 42000,
+  "category": "EMBALLAGE",
+  "source_file": "00003889-PHOTO-2025-09-18-10-47-21.jpg",
+  "origin": "admin"
+ },
+ {
+  "date": "2025-06-24",
+  "title": "Matières premières — MIEL SILUE",
+  "amount": 27000,
+  "category": "MAT-PREM",
+  "source_file": "00003252-PHOTO-2025-06-24-14-17-11.jpg",
+  "origin": "admin"
+ },
+ {
+  "date": "2025-06-25",
+  "title": "Matières premières — MIEL SILUE (Silue N)",
+  "amount": 27000,
+  "category": "MAT-PREM",
+  "source_file": "00003254-PHOTO-2025-06-25-09-27-31.jpg",
+  "origin": "admin"
+ },
+ {
+  "date": "2025-07-23",
+  "title": "Loyer usine — PROSUMA / Société Ivoirienne de Promotio",
+  "amount": 510000,
+  "category": "LOYER",
+  "source_file": "00003425-PHOTO-2025-07-23-17-27-30.jpg",
+  "origin": "admin"
+ },
+ {
+  "date": "2025-09-12",
+  "title": "Salaires — Christelle",
+  "amount": 75000,
+  "category": "SALAIRE",
+  "source_file": "00003799-PHOTO-2025-09-12-11-31-57.jpg",
+  "origin": "admin"
+ },
+ {
+  "date": "2025-09-16",
+  "title": "Emballage",
+  "amount": 42000,
+  "category": "EMBALLAGE",
+  "source_file": "00003874-PHOTO-2025-09-16-11-54-47.jpg",
+  "origin": "admin"
+ },
+ {
+  "date": "2025-09-18",
+  "title": "Salaires — Carine",
+  "amount": 115000,
+  "category": "SALAIRE",
+  "source_file": "00003910-PHOTO-2025-09-18-20-49-41.jpg",
+  "origin": "admin"
+ },
+ {
+  "date": "2025-09-20",
+  "title": "Salaires — Gervais / Anderson",
+  "amount": 40000,
+  "category": "SALAIRE",
+  "source_file": "00003925-PHOTO-2025-09-20-12-54-59.jpg",
+  "origin": "admin"
+ },
+ {
+  "date": "2025-10-07",
+  "title": "Loyer usine",
+  "amount": 6000,
+  "category": "LOYER",
+  "source_file": "00004007-PHOTO-2025-10-07-12-59-58.jpg",
+  "origin": "admin"
+ },
+ {
+  "date": "2025-10-07",
+  "title": "Loyer usine",
+  "amount": 6000,
+  "category": "LOYER",
+  "source_file": "00004008-PHOTO-2025-10-07-13-00-00.jpg",
+  "origin": "admin"
+ },
+ {
+  "date": "2025-11-07",
+  "title": "Matières premières",
+  "amount": 272000,
+  "category": "MAT-PREM",
+  "source_file": "00004110-PHOTO-2025-11-17-11-16-19.jpg",
+  "origin": "admin"
+ },
+ {
+  "date": "2025-11-25",
+  "title": "Achats usine — Paie du 24 au 20, 3 personne, 24 jours x",
+  "amount": 298500,
+  "category": "ACHAT-USINE",
+  "source_file": "00000430-PHOTO-2025-11-25-11-51-31.jpg",
+  "origin": "usine"
+ },
+ {
+  "date": "2025-12-23",
+  "title": "Paie ouvriers usine",
+  "amount": 663000,
+  "category": "MAIN-OEUVRE",
+  "source_file": "00000594-PHOTO-2025-12-23-21-59-08.jpg",
+  "origin": "usine"
+ },
+ {
+  "date": "2025-12-26",
+  "title": "Paie ouvriers usine",
+  "amount": 253000,
+  "category": "MAIN-OEUVRE",
+  "source_file": "00000643-PHOTO-2025-12-26-13-28-28.jpg",
+  "origin": "usine"
+ },
+ {
+  "date": "2026-01-05",
+  "title": "Salaires — DDM Madame Marcel 05 BITIBOT",
+  "amount": 50000,
+  "category": "SALAIRE",
+  "source_file": "00004225-PHOTO-2026-01-05-09-16-07.jpg",
+  "origin": "admin"
+ },
+ {
+  "date": "2026-01-12",
+  "title": "Paie ouvriers usine",
+  "amount": 215000,
+  "category": "MAIN-OEUVRE",
+  "source_file": "00000686-PHOTO-2026-01-12-22-33-25.jpg",
+  "origin": "usine"
+ },
+ {
+  "date": "2026-02-21",
+  "title": "Achats usine — étiquettes et l'expédition",
+  "amount": 13000,
+  "category": "ACHAT-USINE",
+  "source_file": "00000743-PHOTO-2026-02-21-19-53-56.jpg",
+  "origin": "usine"
+ },
+ {
+  "date": "2026-02-27",
+  "title": "Achats usine — Complét-a (production)",
+  "amount": 25000,
+  "category": "ACHAT-USINE",
+  "source_file": "00000767-PHOTO-2026-02-27-10-16-45.jpg",
+  "origin": "usine"
+ },
+ {
+  "date": "2026-03-01",
+  "title": "Achats usine — 100 Étiquettes",
+  "amount": 19000,
+  "category": "ACHAT-USINE",
+  "source_file": "00000773-PHOTO-2026-03-01-07-53-01.jpg",
+  "origin": "usine"
+ },
+ {
+  "date": "2026-03-05",
+  "title": "Salaires — KOUAME KOUADIO FRANCOIS",
+  "amount": 400000,
+  "category": "SALAIRE",
+  "source_file": "00004445-PHOTO-2026-03-05-09-48-31.jpg",
+  "origin": "admin"
+ },
+ {
+  "date": "2026-03-06",
+  "title": "Emballage — Maison des sachets Adjame (05 66 899 363",
+  "amount": 22000,
+  "category": "EMBALLAGE",
+  "source_file": "00004471-PHOTO-2026-03-06-20-50-00.jpg",
+  "origin": "admin"
+ },
+ {
+  "date": "2026-03-12",
+  "title": "Salaires — Mme IRITIE NEE NGUESSAN LOU",
+  "amount": 426349,
+  "category": "SALAIRE",
+  "source_file": "00004506-PHOTO-2026-03-12-03-08-17.jpg",
+  "origin": "admin"
+ },
+ {
+  "date": "2026-03-12",
+  "title": "Salaires",
+  "amount": 293263,
+  "category": "SALAIRE",
+  "source_file": "00004508-PHOTO-2026-03-12-04-43-55.jpg",
+  "origin": "admin"
+ },
+ {
+  "date": "2026-03-12",
+  "title": "Salaires — M KOUAME KOUADIO FRANCOIS",
+  "amount": 309000,
+  "category": "SALAIRE",
+  "source_file": "00004513-PHOTO-2026-03-12-09-53-54.jpg",
+  "origin": "admin"
+ },
+ {
+  "date": "2026-03-15",
+  "title": "Achats usine — Carton 4",
+  "amount": 17000,
+  "category": "ACHAT-USINE",
+  "source_file": "00000849-PHOTO-2026-03-15-05-51-59.jpg",
+  "origin": "usine"
+ },
+ {
+  "date": "2026-04-06",
+  "title": "Achats usine — Petit cola gingembre bissap (mouture mat",
+  "amount": 14000,
+  "category": "ACHAT-USINE",
+  "source_file": "00000897-PHOTO-2026-04-06-20-51-31.jpg",
+  "origin": "usine"
+ },
+ {
+  "date": "2026-04-12",
+  "title": "Achats usine — 06 Carton",
+  "amount": 28500,
+  "category": "ACHAT-USINE",
+  "source_file": "00000976-PHOTO-2026-04-12-23-44-55.jpg",
+  "origin": "usine"
+ },
+ {
+  "date": "2026-04-18",
+  "title": "Achats usine — Balance Alimentaire 20kg graduation 100g",
+  "amount": 12000,
+  "category": "ACHAT-USINE",
+  "source_file": "00000994-PHOTO-2026-04-18-11-33-03.jpg",
+  "origin": "usine"
+ },
+ {
+  "date": "2026-04-18",
+  "title": "Achats usine — Balance électronique - Balance de cuisin",
+  "amount": 21565,
+  "category": "ACHAT-USINE",
+  "source_file": "00001001-PHOTO-2026-04-18-12-12-12.jpg",
+  "origin": "usine"
+ },
+ {
+  "date": "2026-05-18",
+  "title": "Achats usine — Étiquettes",
+  "amount": 130500,
+  "category": "ACHAT-USINE",
+  "source_file": "00001112-PHOTO-2026-05-18-02-46-03.jpg",
+  "origin": "usine"
+ },
+ {
+  "date": "2026-05-26",
+  "title": "Achats usine — Étiquette",
+  "amount": 20000,
+  "category": "ACHAT-USINE",
+  "source_file": "00001127-PHOTO-2026-05-26-08-01-11.jpg",
+  "origin": "usine"
+ },
+ {
+  "date": "2026-05-29",
+  "title": "Achats usine — papier aluminium",
+  "amount": 29000,
+  "category": "ACHAT-USINE",
+  "source_file": "00001133-PHOTO-2026-05-29-12-21-16.jpg",
+  "origin": "usine"
+ },
+ {
+  "date": "2026-05-30",
+  "title": "Paie ouvriers usine",
+  "amount": 298000,
+  "category": "MAIN-OEUVRE",
+  "source_file": "00001141-PHOTO-2026-05-30-15-53-54.jpg",
+  "origin": "usine"
+ },
+ {
+  "date": "2026-05-31",
+  "title": "Paie ouvriers usine",
+  "amount": 298000,
+  "category": "MAIN-OEUVRE",
+  "source_file": "00001150-PHOTO-2026-05-31-12-56-43.jpg",
+  "origin": "usine"
+ },
+ {
+  "date": "2026-06-07",
+  "title": "Salaires — KOUAME Kouadio Francois",
+  "amount": 400000,
+  "category": "SALAIRE",
+  "source_file": "00005197-PHOTO-2026-06-07-20-34-42.jpg",
+  "origin": "admin"
+ }
+]
