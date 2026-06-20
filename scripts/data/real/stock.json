@@ -1,0 +1,176 @@
+[
+ {
+  "outlet_code": "COSMOS-YOPOUGON",
+  "product_code": "COMPLET-90",
+  "quantity": 11,
+  "as_of": "2025-06-17"
+ },
+ {
+  "outlet_code": "COSMOS-YOPOUGON",
+  "product_code": "AMANDE-BAOBAB",
+  "quantity": 3,
+  "as_of": "2025-06-17"
+ },
+ {
+  "outlet_code": "COSMOS-YOPOUGON",
+  "product_code": "LINGOT",
+  "quantity": 6,
+  "as_of": "2025-06-17"
+ },
+ {
+  "outlet_code": "PLAYCE-PALMERAIE",
+  "product_code": "COMPLET-150",
+  "quantity": 6,
+  "as_of": "2026-04-30"
+ },
+ {
+  "outlet_code": "PLAYCE-PALMERAIE",
+  "product_code": "AMANDE-BAOBAB",
+  "quantity": 34,
+  "as_of": "2026-04-30"
+ },
+ {
+  "outlet_code": "PLAYCE-PALMERAIE",
+  "product_code": "AMANDE-BISSAP",
+  "quantity": 8,
+  "as_of": "2026-04-30"
+ },
+ {
+  "outlet_code": "PLAYCE-MARCORY",
+  "product_code": "COMPLET-150",
+  "quantity": 10,
+  "as_of": "2026-06-18"
+ },
+ {
+  "outlet_code": "PLAYCE-MARCORY",
+  "product_code": "AMANDE-PCOLA",
+  "quantity": 7,
+  "as_of": "2026-06-18"
+ },
+ {
+  "outlet_code": "PLAYCE-MARCORY",
+  "product_code": "FUT",
+  "quantity": 2,
+  "as_of": "2026-06-18"
+ },
+ {
+  "outlet_code": "SUPER-U-DJIBI",
+  "product_code": "COMPLET-90",
+  "quantity": 6,
+  "as_of": "2025-11-30"
+ },
+ {
+  "outlet_code": "SUPER-U-DJIBI",
+  "product_code": "CAJOU",
+  "quantity": 6,
+  "as_of": "2025-11-30"
+ },
+ {
+  "outlet_code": "MARCORY-DJIBI",
+  "product_code": "AMANDE-BAOBAB",
+  "quantity": 5,
+  "as_of": "2025-03-08"
+ },
+ {
+  "outlet_code": "MARCORY-DJIBI",
+  "product_code": "LINGOT",
+  "quantity": 6,
+  "as_of": "2025-03-08"
+ },
+ {
+  "outlet_code": "MARCORY-DJIBI",
+  "product_code": "COMPLET-150",
+  "quantity": 19,
+  "as_of": "2025-03-08"
+ },
+ {
+  "outlet_code": "MARCORY-DJIBI",
+  "product_code": "COMPLET-300",
+  "quantity": 7,
+  "as_of": "2025-03-08"
+ },
+ {
+  "outlet_code": "MARCORY-DJIBI",
+  "product_code": "FEVES-AIL",
+  "quantity": 1,
+  "as_of": "2025-03-08"
+ },
+ {
+  "outlet_code": "MARCORY-DJIBI",
+  "product_code": "7IEM",
+  "quantity": 6,
+  "as_of": "2025-03-08"
+ },
+ {
+  "outlet_code": "MARCORY-DJITA",
+  "product_code": "AMANDE-BAOBAB",
+  "quantity": 5,
+  "as_of": "2025-03-01"
+ },
+ {
+  "outlet_code": "MARCORY-DJITA",
+  "product_code": "PETIT-COLA",
+  "quantity": 20,
+  "as_of": "2025-03-01"
+ },
+ {
+  "outlet_code": "MARCORY-DJITA",
+  "product_code": "COMPLET-150",
+  "quantity": 16,
+  "as_of": "2025-03-01"
+ },
+ {
+  "outlet_code": "MARCORY-DJITA",
+  "product_code": "FEVES-AIL",
+  "quantity": 1,
+  "as_of": "2025-03-01"
+ },
+ {
+  "outlet_code": "MARCORY-DJITA",
+  "product_code": "7IEM",
+  "quantity": 18,
+  "as_of": "2025-03-01"
+ },
+ {
+  "outlet_code": "MARCORY-DJITA",
+  "product_code": "LINGOT",
+  "quantity": 2,
+  "as_of": "2025-03-01"
+ },
+ {
+  "outlet_code": "TRADE-CENTER",
+  "product_code": "COMPLET-150",
+  "quantity": 1,
+  "as_of": "2026-04-08"
+ },
+ {
+  "outlet_code": "TRADE-CENTER",
+  "product_code": "COMPLET-300",
+  "quantity": 0,
+  "as_of": "2026-04-08"
+ },
+ {
+  "outlet_code": "TRADE-CENTER",
+  "product_code": "DELICES",
+  "quantity": 19,
+  "as_of": "2026-04-08"
+ },
+ {
+  "outlet_code": "TRADE-CENTER",
+  "product_code": "AMANDE-BAOBAB",
+  "quantity": 12,
+  "as_of": "2026-04-08"
+ },
+ {
+  "outlet_code": "TRADE-CENTER",
+  "product_code": "AMANDE-PCOLA",
+  "quantity": 1,
+  "as_of": "2026-04-08"
+ },
+ {
+  "outlet_code": "TRADE-CENTER",
+  "product_code": "LINGOT",
+  "quantity": 0,
+  "as_of": "2026-04-08"
+ }
+]

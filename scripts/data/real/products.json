@@ -1,0 +1,121 @@
+[
+ {
+  "code": "7IEM",
+  "name": "7ème ciel",
+  "unit_price": 10000,
+  "category": "Confiserie",
+  "observations": 337
+ },
+ {
+  "code": "COMPLET-90",
+  "name": "Complet-A 90g",
+  "unit_price": 5000,
+  "category": "Complet-A",
+  "observations": 54
+ },
+ {
+  "code": "COMPLET-150",
+  "name": "Complet-A 150g",
+  "unit_price": 10000,
+  "category": "Complet-A",
+  "observations": 521
+ },
+ {
+  "code": "COMPLET-300",
+  "name": "Complet-A 300g",
+  "unit_price": 18000,
+  "category": "Complet-A",
+  "observations": 133
+ },
+ {
+  "code": "DELICES",
+  "name": "Délices",
+  "unit_price": 6000,
+  "category": "Confiserie",
+  "observations": 99
+ },
+ {
+  "code": "FEVES-AIL",
+  "name": "Fèves à l'ail",
+  "unit_price": 6000,
+  "category": "Fèves",
+  "observations": 106
+ },
+ {
+  "code": "FEVES-PCOLA",
+  "name": "Fèves petit cola",
+  "unit_price": 10000,
+  "category": "Fèves",
+  "observations": 129
+ },
+ {
+  "code": "PETIT-COLA",
+  "name": "Petit cola",
+  "unit_price": 2500,
+  "category": "Petit cola",
+  "observations": 140
+ },
+ {
+  "code": "FUT",
+  "name": "Fût",
+  "unit_price": 6000,
+  "category": "Confiserie",
+  "observations": 94
+ },
+ {
+  "code": "AMANDE-BISSAP",
+  "name": "Amande bissap",
+  "unit_price": 10000,
+  "category": "Amande",
+  "observations": 65
+ },
+ {
+  "code": "AMANDE-BAOBAB",
+  "name": "Amande baobab",
+  "unit_price": 6000,
+  "category": "Amande",
+  "observations": 297
+ },
+ {
+  "code": "AMANDE-PCOLA",
+  "name": "Amande petit cola",
+  "unit_price": 10000,
+  "category": "Amande",
+  "observations": 50
+ },
+ {
+  "code": "LINGOT",
+  "name": "Lingot",
+  "unit_price": 6000,
+  "category": "Confiserie",
+  "observations": 81
+ },
+ {
+  "code": "COEUR-CACAO",
+  "name": "Cœur de cacao",
+  "unit_price": 5000,
+  "category": "Cacao",
+  "observations": 67
+ },
+ {
+  "code": "CAJOU",
+  "name": "Cajou cola",
+  "unit_price": 10000,
+  "category": "Cajou",
+  "observations": 60
+ },
+ {
+  "code": "GRANULE",
+  "name": "Granulé petit cola",
+  "unit_price": 6000,
+  "category": "Confiserie",
+  "observations": 0
+ },
+ {
+  "code": "POT-MIEL",
+  "name": "Pot de miel",
+  "unit_price": 10000,
+  "category": "Miel",
+  "observations": 0
+ }
+]

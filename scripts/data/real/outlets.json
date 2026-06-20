@@ -1,0 +1,37 @@
+[
+ {
+  "code": "COSMOS-YOPOUGON",
+  "name": "Cosmos Yopougon",
+  "city": "Yopougon"
+ },
+ {
+  "code": "PLAYCE-PALMERAIE",
+  "name": "Playce Palmeraie",
+  "city": "Cocody Palmeraie"
+ },
+ {
+  "code": "PLAYCE-MARCORY",
+  "name": "Playce Marcory",
+  "city": "Marcory"
+ },
+ {
+  "code": "SUPER-U-DJIBI",
+  "name": "Super U Djibi",
+  "city": "Cocody Djibi"
+ },
+ {
+  "code": "MARCORY-DJIBI",
+  "name": "Marcory Djibi",
+  "city": "Marcory"
+ },
+ {
+  "code": "MARCORY-DJITA",
+  "name": "Marcory Djita",
+  "city": "Marcory"
+ },
+ {
+  "code": "TRADE-CENTER",
+  "name": "Trade Center",
+  "city": "Marcory Zone 4"
+ }
+]

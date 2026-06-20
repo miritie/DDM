@@ -39,3 +39,13 @@ next-env.d.ts
 # Uploads (images produits, etc.)
 public/uploads/products/*
 !public/uploads/products/.gitkeep
+
+# Données réelles WhatsApp (sensibles : noms de personnes, financier) — NE PAS committer
+docs/donnees-reelles/*.zip
+docs/donnees-reelles/**/*.jpg
+docs/donnees-reelles/**/*.jpeg
+docs/donnees-reelles/**/*.png
+docs/donnees-reelles/**/*.webp
+docs/donnees-reelles/**/*.mp4
+docs/donnees-reelles/**/*.opus
+docs/donnees-reelles/**/_chat.txt

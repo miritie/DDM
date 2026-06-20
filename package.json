@@ -44,7 +44,8 @@
     "sync:permissions": "tsx scripts/database/sync-all-permissions.ts",
     "backfill:sale-entries": "tsx scripts/database/backfill-sale-entries.ts",
     "setup:outlet-wallets": "tsx scripts/database/ensure-outlet-cash-wallets.ts",
-    "simulate:demo": "tsx scripts/database/simulate-demo-data.ts"
+    "simulate:demo": "tsx scripts/database/simulate-demo-data.ts",
+    "seed:real": "tsx scripts/seed-real-data.ts"
   },
   "dependencies": {
     "@radix-ui/react-checkbox": "^1.3.3",
