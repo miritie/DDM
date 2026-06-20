@@ -314,6 +314,45 @@ async function main() {
   }
   console.log(`Stock: ${nStock} lignes`);
 
+  // ===================================================================== MATIÈRES PREMIÈRES (ingredients)
+  // Réutilise le modèle existant `ingredients` (kind=raw) — pas de nouvelle table.
+  const rawMaterials = load('raw-materials');
+  let nMat = 0;
+  for (const m of rawMaterials) {
+    await client.query(
+      `INSERT INTO ingredients (ingredient_id, name, code, unit, unit_cost, minimum_stock, current_stock, workspace_id, is_active)
+       VALUES ($1,$2,$3,$4,0,0,$5,$6,true)
+       ON CONFLICT (code, workspace_id) DO UPDATE SET current_stock = EXCLUDED.current_stock,
+         unit = EXCLUDED.unit, is_active = true`,
+      [bid('ING'), m.name, m.code, m.unit, m.current_stock, wsId]);
+    nMat++;
+  }
+  console.log(`Matières premières (ingredients): ${nMat}`);
+
+  // ===================================================================== PRODUCTION (mouvements de stock)
+  // Entrepôt usine + entrées de produits finis (stock_movements type 'entry').
+  const whId = (await client.query(
+    `INSERT INTO warehouses (warehouse_id, name, code, workspace_id, is_active)
+     VALUES ($1,'Usine Dune de Miel','USINE-DDM',$2,true)
+     ON CONFLICT (code, workspace_id) DO UPDATE SET is_active = true RETURNING id`,
+    [bid('WH'), wsId])).rows[0].id;
+  const prodUser = userId.get('Gervais') || payer;
+  await client.query(`DELETE FROM stock_movements WHERE workspace_id = $1`, [wsId]);
+  const production = load('production');
+  let nProd = 0;
+  for (const p of production) {
+    const pId = productId.get(p.product_code);
+    if (!pId) continue;
+    await client.query(
+      `INSERT INTO stock_movements (movement_id, movement_number, type, product_id,
+         destination_warehouse_id, quantity, status, processed_by_id, processed_at, workspace_id)
+       VALUES ($1,$2,'entry',$3,$4,$5,'validated',$6,$7,$8)`,
+      [bid('MV'), `WA-PROD-${p.date}-${nProd}`, pId, whId, p.units, prodUser,
+       `${p.date}T12:00:00`, wsId]);
+    nProd++;
+  }
+  console.log(`Production (entrées stock): ${nProd}`);
+
   // Récap CA
   const ca = (await client.query(
     `SELECT COALESCE(SUM(total_amount),0)::float n FROM sales WHERE workspace_id = $1`, [wsId])).rows[0].n;

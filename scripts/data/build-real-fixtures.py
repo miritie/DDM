@@ -255,6 +255,75 @@ def build_expenses(admin, usine):
     out.sort(key=lambda x: x['date'])
     return out
 
+# Matières premières (ingredients kind=raw). Code préfixé MP- (namespace distinct des produits).
+def canon_material(raw):
+    s = strip_accents((raw or '').strip().lower())
+    s = re.sub(r'[^a-z ]', ' ', s); s = re.sub(r'\s+', ' ', s).strip()
+    if not s:
+        return None
+    has = lambda *w: any(x in s for x in w)
+    # exclure emballages/consommables (ce ne sont pas des matières premières)
+    if has('sachet', 'etiquette', 'aluminium', 'carton', 'scotch', 'savon', 'javel', 'gant', 'bidon'):
+        return None
+    if has('petit cola', 'p cola', 'pcola'): return ('MP-PETIT-COLA', 'Petit cola', 'kg')
+    if has('poudre de cacao', 'poudre cacao'): return ('MP-CACAO-POUDRE', 'Poudre de cacao', 'kg')
+    if s == 'cacao' or has(' cacao'): return ('MP-CACAO-POUDRE', 'Poudre de cacao', 'kg')
+    if s == 'cola' or s.startswith('cola'): return ('MP-COLA', 'Cola', 'kg')
+    if has('baobab', 'bao'): return ('MP-BAOBAB', 'Baobab', 'kg')
+    if has('bissap'): return ('MP-BISSAP', 'Bissap', 'kg')
+    if has('curcuma'): return ('MP-CURCUMA', 'Curcuma', 'kg')
+    if s == 'ail' or has(' ail'): return ('MP-AIL', 'Ail', 'kg')
+    if has('gingembre'): return ('MP-GINGEMBRE', 'Gingembre', 'kg')
+    if has('miel'): return ('MP-MIEL', 'Miel', 'kg')
+    if has('pepite', 'pepit'): return ('MP-PEPITE', 'Pépite de cacao', 'kg')
+    if has('amande', 'amand'): return ('MP-AMANDE', 'Amande', 'kg')
+    if has('arachide', 'cajou'): return ('MP-ARACHIDE', 'Arachide/Cajou', 'kg')
+    return None
+
+def build_raw_materials(usine):
+    """Dernier inventaire connu par matière (snapshot OCR le plus récent contenant la matière)."""
+    latest = {}  # code -> (date, name, unit, qty)
+    for r in usine:
+        if r.get('doc_type') != 'raw_material_inventory':
+            continue
+        d = rec_date(r)
+        if not d:
+            continue
+        for ln in r.get('lines', []):
+            c = canon_material(ln.get('label'))
+            q = ln.get('qty')
+            if not c or not isinstance(q, (int, float)) or q < 0:
+                continue
+            code, name, unit = c
+            u = ln.get('unit') or unit
+            qkg = q / 1000 if str(u).lower() in ('g', 'gr', 'gramme', 'grammes') else q
+            if code not in latest or d > latest[code][0]:
+                latest[code] = (d, name, 'kg', round(qkg, 3))
+    return [{'code': c, 'name': n, 'unit': u, 'current_stock': q, 'as_of': d, 'kind': 'raw'}
+            for c, (d, n, u, q) in sorted(latest.items())]
+
+# Conversion paquet -> unités (sachets) pour aligner la production sur les ventes/stocks
+PAQUET_UNITS = {'COMPLET-300': 10, 'COMPLET-150': 20, 'COMPLET-90': 20, '7IEM': 20}
+def build_production(usine):
+    """Production prête à l'expédition -> entrées de stock produits finis (en unités)."""
+    out = []
+    for r in usine:
+        if r.get('doc_type') != 'production_ready':
+            continue
+        d = rec_date(r)
+        if not d:
+            continue
+        for ln in r.get('lines', []):
+            code = canon_product(ln.get('label'))
+            q = ln.get('qty')
+            if not code or not isinstance(q, (int, float)) or q <= 0:
+                continue
+            units = round(q * PAQUET_UNITS.get(code, 20))
+            out.append({'date': d, 'product_code': code, 'paquets': q, 'units': units,
+                        'source_file': r.get('file')})
+    out.sort(key=lambda x: x['date'])
+    return out
+
 def main():
     stand = load('stand')
     admin = load('admin')
@@ -390,12 +459,16 @@ def main():
     dump('outlets.json', stands)
     dump('commercials.json', commercials)
     expenses = build_expenses(admin, usine)
+    raw_materials = build_raw_materials(usine)
+    production = build_production(usine)
 
     dump('people.json', people)
     dump('stock.json', stock)
     dump('sales.json', sales)
     dump('expenses.json', expenses)
     dump('expense-categories.json', [{'code': c, 'label': l} for c, l in EXPENSE_CATS])
+    dump('raw-materials.json', raw_materials)
+    dump('production.json', production)
 
     # Récap
     ca = sum(s['total_vente'] or 0 for s in sales)
@@ -410,6 +483,9 @@ def main():
     from collections import Counter as _C
     bycat = _C(e['category'] for e in expenses)
     print(f"expenses.json    : {len(expenses)} dépenses · {exp_tot:,.0f} F · {dict(bycat)}")
+    print(f"raw-materials.json: {len(raw_materials)} matières premières (dernier inventaire)")
+    prod_u = sum(p['units'] for p in production)
+    print(f"production.json  : {len(production)} entrées production · {prod_u:,} unités")
     print(f"sales.json       : {len(sales)} ventes/jours · {nitems} lignes produit")
     print(f"  CA (Σ total_vente feuilles) : {ca:>13,.0f} F")
     print(f"  CA (Σ lignes produit)       : {ca_items:>13,.0f} F  ({ca_items/ca*100:.0f}% reconstitué en détail)")

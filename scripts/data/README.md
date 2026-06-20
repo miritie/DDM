@@ -18,6 +18,10 @@ reconstitué par OCR des feuilles « JOURNAL DU STAND » et des échanges des 3 
    - `stock.json` — inventaire de clôture le plus récent par stand/produit.
    - `expenses.json` + `expense-categories.json` — dépenses réelles payées (loyer, salaires,
      matières, emballage, cacao, paies/achats usine, transport), filtrées du bruit.
+   - `raw-materials.json` — matières premières (dernier inventaire OCR) → table `ingredients`
+     existante (kind=raw), pas de nouvelle table.
+   - `production.json` — production prête à l'expédition (paquets → unités) → `stock_movements`
+     (entrées produits finis dans l'entrepôt usine).
    Relancer après toute correction : `python3 scripts/data/build-real-fixtures.py`
 3. **`seed-real-data.ts`** → écrit dans la base (Neon).
 
@@ -35,6 +39,8 @@ Le seed :
   dépenses/demandes de démo du workspace) puis réinjecte l'historique réel ;
 - **dépenses** : chaîne `expense_categories → expense_requests(approved) → expenses(paid)`,
   portées par un user encadrant (compta/admin/pca) ;
+- **matières premières** : peuple la table `ingredients` (kind=raw) avec le dernier inventaire ;
+- **production** : entrepôt usine + `stock_movements` (entrées produits finis) ;
 - est **idempotent** (ré-exécutable sans doublon) et **réversible** (Neon : restaurer un point
   de restauration / branche avant exécution).
 

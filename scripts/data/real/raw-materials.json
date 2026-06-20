@@ -1,0 +1,90 @@
+[
+ {
+  "code": "MP-AIL",
+  "name": "Ail",
+  "unit": "kg",
+  "current_stock": 0.065,
+  "as_of": "2026-06-16",
+  "kind": "raw"
+ },
+ {
+  "code": "MP-AMANDE",
+  "name": "Amande",
+  "unit": "kg",
+  "current_stock": 0,
+  "as_of": "2026-06-16",
+  "kind": "raw"
+ },
+ {
+  "code": "MP-BAOBAB",
+  "name": "Baobab",
+  "unit": "kg",
+  "current_stock": 0,
+  "as_of": "2026-06-16",
+  "kind": "raw"
+ },
+ {
+  "code": "MP-BISSAP",
+  "name": "Bissap",
+  "unit": "kg",
+  "current_stock": 3.35,
+  "as_of": "2026-06-16",
+  "kind": "raw"
+ },
+ {
+  "code": "MP-CACAO-POUDRE",
+  "name": "Poudre de cacao",
+  "unit": "kg",
+  "current_stock": 10,
+  "as_of": "2026-06-16",
+  "kind": "raw"
+ },
+ {
+  "code": "MP-COLA",
+  "name": "Cola",
+  "unit": "kg",
+  "current_stock": 6.608,
+  "as_of": "2025-10-10",
+  "kind": "raw"
+ },
+ {
+  "code": "MP-CURCUMA",
+  "name": "Curcuma",
+  "unit": "kg",
+  "current_stock": 2.6,
+  "as_of": "2026-06-16",
+  "kind": "raw"
+ },
+ {
+  "code": "MP-GINGEMBRE",
+  "name": "Gingembre",
+  "unit": "kg",
+  "current_stock": 0,
+  "as_of": "2026-06-16",
+  "kind": "raw"
+ },
+ {
+  "code": "MP-MIEL",
+  "name": "Miel",
+  "unit": "kg",
+  "current_stock": 0,
+  "as_of": "2026-06-16",
+  "kind": "raw"
+ },
+ {
+  "code": "MP-PEPITE",
+  "name": "Pépite de cacao",
+  "unit": "kg",
+  "current_stock": 3.08,
+  "as_of": "2025-06-21",
+  "kind": "raw"
+ },
+ {
+  "code": "MP-PETIT-COLA",
+  "name": "Petit cola",
+  "unit": "kg",
+  "current_stock": 2.3,
+  "as_of": "2026-06-16",
+  "kind": "raw"
+ }
+]
