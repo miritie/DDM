@@ -34,19 +34,20 @@ const WORKSPACE_SLUG = 'dune-de-miel';
 let SEQ = 0;
 const bid = (p: string) => `WA-${p}-${(++SEQ).toString().padStart(6, '0')}`;
 
-async function main() {
-  const client = pool;
+async function seed(client: import('pg').PoolClient) {
   // -- Workspace --
   const ws = (await client.query(`SELECT id FROM workspaces WHERE slug = $1`, [WORKSPACE_SLUG])).rows[0];
   if (!ws) throw new Error(`Workspace ${WORKSPACE_SLUG} introuvable — lancer le bootstrap d'abord.`);
   const wsId = ws.id;
   console.log(`Workspace: ${wsId}`);
 
-  // -- Rôles --
-  const roleId = async (name: string): Promise<string | null> =>
-    (await client.query(`SELECT id FROM roles WHERE workspace_id = $1 AND name = $2`, [wsId, name])).rows[0]?.id ?? null;
-  const roleCommercial = await roleId('agent_commercial');
-  const roleProduction = await roleId('operateur_production');
+  // -- Rôles -- (en prod les rôles portent des LIBELLÉS « Agent Commercial », pas les slugs)
+  const roleId = async (candidates: string[]): Promise<string | null> =>
+    (await client.query(
+      `SELECT id FROM roles WHERE workspace_id = $1 AND name = ANY($2) LIMIT 1`,
+      [wsId, candidates])).rows[0]?.id ?? null;
+  const roleCommercial = await roleId(['agent_commercial', 'Agent Commercial']);
+  const roleProduction = await roleId(['operateur_production', 'Opérateur Production', 'Operateur Production']);
   const fallbackRole = roleCommercial || (await client.query(
     `SELECT id FROM roles WHERE workspace_id = $1 ORDER BY created_at LIMIT 1`, [wsId])).rows[0]?.id;
   if (!fallbackRole) throw new Error('Aucun rôle dans le workspace.');
@@ -357,6 +358,23 @@ async function main() {
   const ca = (await client.query(
     `SELECT COALESCE(SUM(total_amount),0)::float n FROM sales WHERE workspace_id = $1`, [wsId])).rows[0].n;
   console.log(`\n✅ Seed réel terminé. CA historique injecté: ${ca.toLocaleString('fr-FR')} F`);
+}
+
+// Atomique : tout réussit ou rien n'est appliqué (sécurité sur la prod).
+async function main() {
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    await seed(client);
+    await client.query('COMMIT');
+    console.log('✔ Transaction validée (COMMIT).');
+  } catch (e) {
+    await client.query('ROLLBACK').catch(() => {});
+    console.error('↩ Transaction annulée (ROLLBACK) — base inchangée.');
+    throw e;
+  } finally {
+    client.release();
+  }
 }
 
 main()
