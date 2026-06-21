@@ -291,8 +291,8 @@ async function seed(client: import('pg').PoolClient) {
       [bid('ER'), `WA-DR-${e.date}-${nExp}`, e.title, e.amount, cId, payer, wsId])).rows[0].id;
     await client.query(
       `INSERT INTO expenses (expense_id, expense_number, expense_request_id, title, amount, category_id,
-         payer_id, status, payment_date, payment_method, workspace_id, description)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,'paid',$8,'historique',$9,$10)`,
+         payer_id, status, payment_date, workspace_id, description)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,'paid',$8,$9,$10)`,
       [bid('EXP'), `WA-DEP-${e.date}-${nExp}`, reqUuid, e.title, e.amount, cId, payer,
        `${e.date}T12:00:00`, wsId, `Dépense réelle (${e.origin}) — ${e.source_file}`]);
     nExp++;
